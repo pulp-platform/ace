@@ -19,11 +19,11 @@ The AXI DEMUX and AXI MUX components are sourced from [PULP platform](https://gi
 
 The cache coherence unit (CCU) Logic is responsible for translating the AXI requests into snoop requests. CCU logic is further composed of two main components: the AXI MUX and the CCU FSM as shown in diagram below. This AXI MUX, which has been extended to support the ACE protocol. It serializes incoming requests to the CCU from multiple AXI masters. Each request received by the AXI MUX is then passed to the CCU FSM (Finite State Machine) for further processing. The CCU FSM is responsible for managing the data coherence and sharing process. It controls the flow of requests and orchestrates the necessary actions to ensure data coherency among the caches using snoop ports. In case of data unavailability or invalidated dirty cache line, it forwards the request to memory using AXI port. 
 
-![ccu_logic](images/ccu_logic.drawio.swg "Block diagram of the CCU logix submodule")
+![ccu_logic](images/ccu_logic.drawio.svg "Block diagram of the CCU logix submodule")
 
 The CCU FSM implements the state transitions and control logic for handling read and write transactions in the cache coherence unit. The breakdown of the different states and their corresponding functionality is as follows:
 
-![ccu_fsm](images/ccu_fsm.drawio.swg "FSM of the CCU")
+![ccu_fsm](images/ccu_fsm.drawio.svg "FSM of the CCU")
 
 - IDLE:
   - Waits for incoming valid AXI requests from the master.
