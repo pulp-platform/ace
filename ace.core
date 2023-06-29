@@ -1,0 +1,48 @@
+CAPI=2:
+
+name : planv::ace:0.0.1
+
+filesets:
+  rtl:
+    files:
+      - include/axi/assign.svh :  {is_include_file : true, include_path : include}
+      - include/axi/typedef.svh :  {is_include_file : true, include_path : include}
+      # Source files grouped in levels. Files in level 0 have no dependencies on files in this
+      # package. Files in level 1 only depend on files in level 0, files in level 2 on files in
+      # levels 1 and 0, etc. Files within a level are ordered alphabetically.
+      # Level 0
+      - src/ace_pkg.sv
+      - src/snoop_pkg.sv
+      # Level 1
+      - src/ace_intf.sv
+      - src/snoop_intf.sv
+      # Level 2
+      - src/ace_trs_dec.sv
+      - src/ccu_logic.sv
+      # Level 3
+      - src/ace_xbar.sv
+      - src/ace_ccu_top.sv
+      - src/axi_test.sv
+      - src/ace_test.sv
+      - src/snoop_test.sv
+    file_type : systemVerilogSource
+    depend :
+      - ">=pulp-platform.org::axi:0.38.0"
+  benchs:
+    files:
+      - test/tb_ace_xbar_pkg.sv
+      - test/tb_ace_ccu_pkg.sv
+      - test/tb_ace_xbar.sv
+      - test/tb_ace_ccu_top.sv
+    file_type : systemVerilogSource
+    depend :
+      - ">=pulp-platform.org::common_verification:0.2.3"
+
+targets:
+  default:
+    filesets : [rtl]
+  sim: &sim
+    filesets : [rtl,benchs]
+    description: Simulate the design
+    toplevel: tb_ace_ccu_top
+  sim_ace_ccu : { filesets : [rtl,benchs] , toplevel: tb_ace_ccu_top }

@@ -1,0 +1,31 @@
+ace:
+  vlog_opts: [
+    -L common_cells_lib
+  ]
+  incdirs:
+    - include
+    - ../../common_cells/include
+  files:
+    # Source files grouped in levels. Files in level 0 have no dependencies on files in this
+    # package. Files in level 1 only depend on files in level 0, files in level 2 on files in
+    # levels 1 and 0, etc. Files within a level are ordered alphabetically.
+    # Level 0
+    - src/ace_pkg.sv
+    - src/snoop_pkg.sv
+    # Level 1
+    - src/ace_intf.sv
+    - src/snoop_intf.sv
+    # Level 2
+    - src/ace_trs_dec.sv
+    - src/ccu_fsm.sv
+    # Level 3
+    - src/ace_xbar.sv
+    - src/ace_ccu_top.sv
+
+ace_sim:
+  files:
+    - src/ace_test.sv
+    - src/snoop_test.sv
+  flags:
+    - skip_synthesis
+    - only_local
