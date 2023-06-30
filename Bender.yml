@@ -4,7 +4,7 @@ package:
     # Alphabetically ordered by last name (maintainers first)
 
 dependencies:
-  axi: { git: "https://github.com/pulp-platform/axi.git", version: 0.39.0-beta.2 }
+  axi: { git: "https://github.com/pulp-platform/axi.git", version: 0.31.0 }
 
 export_include_dirs:
   - include
