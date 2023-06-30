@@ -72,7 +72,6 @@ module tb_ace_xbar #(
     MaxSlvTrans:        6,
     FallThrough:        1'b0,
     LatencyMode:        axi_pkg::CUT_ALL_AX,
-    PipelineStages:     TbPipeline,
     AxiIdWidthSlvPorts: TbAxiIdWidthMasters,
     AxiIdUsedSlvPorts:  TbAxiIdUsed,
     UniqueIds:          TbUniqueIds,
