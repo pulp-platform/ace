@@ -93,7 +93,7 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
       .req_t          ( slv_req_t              ),
       .resp_t         ( slv_resp_t             ),
       .NoMstPorts     ( 2                      ),  // one for CCU module and one for mux
-      .MaxTrans       ( Cfg.MaxMstTrans        ),
+      .MaxTrans       ( Cfg.MaxSlvTrans        ),
       .AxiLookBits    ( Cfg.AxiIdUsedSlvPorts  ),
       .UniqueIds      ( Cfg.UniqueIds          ),
       //.FallThrough    ( Cfg.FallThrough        ),

@@ -51,8 +51,8 @@ module tb_ace_ccu_top #(
   // in the bench can change this variables which are set here freely
   localparam ace_pkg::ccu_cfg_t ccu_cfg = '{
     NoSlvPorts:         TbNumMst,
-    MaxMstTrans:        10,
-    MaxSlvTrans:        6,
+    MaxMstTrans:        4,
+    MaxSlvTrans:        1,
     FallThrough:        1'b1,
     LatencyMode:        ace_pkg::NO_LATENCY,
     AxiIdWidthSlvPorts: AxiIdWidthMasters,
