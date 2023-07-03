@@ -19,7 +19,6 @@ ace:
     - src/ace_trs_dec.sv
     - src/ccu_fsm.sv
     # Level 3
-    - src/ace_xbar.sv
     - src/ace_ccu_top.sv
 
 ace_sim:

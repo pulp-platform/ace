@@ -1,6 +1,6 @@
 CAPI=2:
 
-name : planv::ace:0.0.1
+name : planv::ace:0.0.1-pulp
 
 filesets:
   rtl:
@@ -20,19 +20,16 @@ filesets:
       - src/ace_trs_dec.sv
       - src/ccu_logic.sv
       # Level 3
-      - src/ace_xbar.sv
       - src/ace_ccu_top.sv
       - src/axi_test.sv
       - src/ace_test.sv
       - src/snoop_test.sv
     file_type : systemVerilogSource
     depend :
-      - ">=pulp-platform.org::axi:0.38.0"
+      - ">=pulp-platform.org::axi:0.39.0-beta.2"
   benchs:
     files:
-      - test/tb_ace_xbar_pkg.sv
       - test/tb_ace_ccu_pkg.sv
-      - test/tb_ace_xbar.sv
       - test/tb_ace_ccu_top.sv
     file_type : systemVerilogSource
     depend :

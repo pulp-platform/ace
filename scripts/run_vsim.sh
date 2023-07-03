@@ -39,21 +39,6 @@ exec_test() {
         exit 1
     fi
     case "$1" in
-        ace_xbar)
-            for NumMst in 2 4 6; do
-                for NumSlv in 1 8; do
-                    for Atop in 0 1; do
-                        for Exclusive in 0 1; do
-                            for UniqueIds in 0 1; do
-                                call_vsim tb_ace_xbar -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
-                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
-                                        -gTbUniqueIds=$UniqueIds
-                            done
-                        done
-                    done
-                done
-            done
-            ;;
         ace_ccu_top)
             for NumMst in 2 4 6; do
                 for NumSlv in  1; do

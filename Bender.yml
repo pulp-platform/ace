@@ -24,7 +24,6 @@ sources:
   - src/ccu_fsm.sv
   # Level 3
   - src/ace_ccu_top.sv
-  - src/ace_xbar.sv
 
   - target: simulation
     files:
@@ -34,8 +33,6 @@ sources:
   - target: test
     files:
       # Level 0
-      - test/tb_ace_xbar_pkg.sv
       - test/tb_ace_ccu_pkg.sv
       # Level 1
-      - test/tb_ace_xbar.sv
       - test/tb_ace_ccu_top.sv
