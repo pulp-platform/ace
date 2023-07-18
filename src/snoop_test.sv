@@ -637,10 +637,10 @@ module snoop_chan_logger #(
     log_name = $sformatf("./ace_log/%s/snoop_read.log", LoggerName);
     fd = $fopen(log_name, "w");
     if (fd) begin
-      $display("File was opened successfully : %0d", fd);
+      $display("File was opened successfully : %s", log_name);
       $fclose(fd);
     end else
-      $display("File was NOT opened successfully : %0d", fd);
+      $display("File was NOT opened successfully : %s", log_name);
 
     // on each clock cycle update the logs if there is something in the queues
     wait (rst_ni);
