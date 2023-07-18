@@ -30,19 +30,18 @@ module ccu_fsm
       WAIT_INVALID_R,            // 3
       SEND_AXI_REQ_WRITE_BACK_R, // 4
       WRITE_BACK_MEM_R,          // 5
-      SEND_ACK_I_R,              // 6
-      SEND_READ,                 // 7
-      WAIT_RESP_R,               // 8
-      READ_SNP_DATA,             // 9
-      SEND_AXI_REQ_R,            // 10
-      READ_MEM,                  // 11
-      DECODE_W,                  // 12
-      SEND_INVALID_W,            // 13
-      WAIT_INVALID_W,            // 14
-      SEND_AXI_REQ_WRITE_BACK_W, // 15
-      WRITE_BACK_MEM_W,          // 16
-      SEND_AXI_REQ_W,            // 17
-      WRITE_MEM                  // 18
+      SEND_READ,                 // 6
+      WAIT_RESP_R,               // 7
+      READ_SNP_DATA,             // 8
+      SEND_AXI_REQ_R,            // 9
+      READ_MEM,                  // 10
+      DECODE_W,                  // 11
+      SEND_INVALID_W,            // 12
+      WAIT_INVALID_W,            // 13
+      SEND_AXI_REQ_WRITE_BACK_W, // 14
+      WRITE_BACK_MEM_W,          // 15
+      SEND_AXI_REQ_W,            // 16
+      WRITE_MEM                  // 17
     } state_d, state_q;
 
     localparam BURST_SIZE = 2-1; //ariane_pkg::DCACHE_LINE_WIDTH/riscv::XLEN-1;
@@ -158,12 +157,14 @@ module ccu_fsm
 
         WAIT_INVALID_R: begin
             // wait for all snoop masters to assert CR valid
-            if (cr_valid != '1) begin
-                state_d = WAIT_INVALID_R;
-            end else if(|(data_available & ~response_error)) begin
-                state_d = SEND_AXI_REQ_WRITE_BACK_R;
+            if ((cr_valid == '1) && (ccu_req_i.r_ready )) begin
+                if(|(data_available & ~response_error)) begin
+                    state_d = SEND_AXI_REQ_WRITE_BACK_R;
+                end else begin
+                    state_d = IDLE;
+                end
             end else begin
-                state_d = SEND_ACK_I_R;
+                state_d = WAIT_INVALID_R;
             end
         end
 
@@ -179,17 +180,9 @@ module ccu_fsm
         WRITE_BACK_MEM_R: begin
             // wait for responding slave to send b_valid
             if((ccu_resp_i.b_valid && ccu_req_o.b_ready)) begin
-                state_d = SEND_ACK_I_R;
-            end else begin
-                state_d = WRITE_BACK_MEM_R;
-            end
-        end
-
-        SEND_ACK_I_R: begin
-            if( ccu_req_i.r_ready ) begin
                 state_d = IDLE;
             end else begin
-                state_d = SEND_ACK_I_R;
+                state_d = WRITE_BACK_MEM_R;
             end
         end
 
@@ -361,9 +354,21 @@ module ccu_fsm
             end
         end
 
-        WAIT_RESP_R, WAIT_INVALID_W, WAIT_INVALID_R: begin
+        WAIT_RESP_R, WAIT_INVALID_W: begin
             for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
               s2m_req_o[n].cr_ready  =   !cr_valid[n]; //'b1;
+        end
+
+        WAIT_INVALID_R: begin
+            for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
+              s2m_req_o[n].cr_ready  =   !cr_valid[n]; //'b1;
+
+            if (cr_valid == '1) begin
+                ccu_resp_o.r        =   '0;
+                ccu_resp_o.r.id     =   ccu_req_holder.ar.id;
+                ccu_resp_o.r.last   =   'b1;
+                ccu_resp_o.r_valid  =   'b1;
+            end
         end
 
         READ_SNP_DATA: begin
@@ -408,14 +413,12 @@ module ccu_fsm
         WRITE_BACK_MEM_R: begin
           for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
             s2m_req_o[n].cd_ready  = !cd_last[n] & data_available[n];
-          // response to intiating master
-          if (!r_eot) begin
+            // write data to slave (RAM)
             ccu_req_o.w_valid =  |stored_cd_data;
             ccu_req_o.w.strb  =  '1;
             ccu_req_o.w.data  =   cd_data[w_last];
             ccu_req_o.w.last  =   w_last;
             ccu_req_o.b_ready = 'b1;
-          end
         end
 
         SEND_AXI_REQ_R: begin
@@ -430,14 +433,6 @@ module ccu_fsm
             ccu_req_o.r_ready   =   ccu_req_i.r_ready ;
             ccu_resp_o.r        =   ccu_resp_i.r;
             ccu_resp_o.r_valid  =   ccu_resp_i.r_valid;
-        end
-
-        SEND_ACK_I_R:begin
-            // forward reponse from slave to intiating master
-            ccu_resp_o.r        =   '0;
-            ccu_resp_o.r.id     =   ccu_req_holder.ar.id;
-            ccu_resp_o.r.last   =   'b1;
-            ccu_resp_o.r_valid  =   'b1;
         end
 
         //---------------------
