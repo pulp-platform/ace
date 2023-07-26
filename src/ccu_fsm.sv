@@ -3,7 +3,8 @@
 
 module ccu_fsm
 #(
-    parameter int  NoMstPorts   = 4,
+    parameter int unsigned NoMstPorts = 4,
+    parameter int unsigned SlvAxiIDWidth = 0,
     parameter type mst_req_t    = logic,
     parameter type mst_resp_t   = logic,
     parameter type snoop_req_t  = logic,
@@ -139,10 +140,12 @@ module ccu_fsm
         //---------------------
         DECODE_R: begin
             //check read transaction type
-            if(ccu_req_holder.ar.snoop != snoop_pkg::CLEAN_UNIQUE) begin   // check if CleanUnique then send Invalidate
-              state_d = SEND_READ;
-            end else begin
+            if (ccu_req_holder.ar.snoop == snoop_pkg::CLEAN_UNIQUE) begin   // check if CleanUnique then send Invalidate
                 state_d = SEND_INVALID_R;
+            end else if (ccu_req_holder.ar.lock) begin   // AMO LR, invalidate
+                state_d = SEND_INVALID_R;
+            end else begin
+                state_d = SEND_READ;
             end
         end
 
@@ -161,7 +164,11 @@ module ccu_fsm
                 if(|(data_available & ~response_error)) begin
                     state_d = SEND_AXI_REQ_WRITE_BACK_R;
                 end else begin
-                    state_d = IDLE;
+                    if (ccu_req_holder.ar.lock) begin   // AMO LR, read memory
+                        state_d = SEND_AXI_REQ_R;
+                    end else begin
+                        state_d = IDLE;
+                    end
                 end
             end else begin
                 state_d = WAIT_INVALID_R;
@@ -180,7 +187,11 @@ module ccu_fsm
         WRITE_BACK_MEM_R: begin
             // wait for responding slave to send b_valid
             if((ccu_resp_i.b_valid && ccu_req_o.b_ready)) begin
-                state_d = IDLE;
+                if (ccu_req_holder.ar.lock) begin   // AMO LR, read memory
+                    state_d = SEND_AXI_REQ_R;
+                end else begin
+                    state_d = IDLE;
+                end
             end else begin
                 state_d = WRITE_BACK_MEM_R;
             end
@@ -361,9 +372,9 @@ module ccu_fsm
 
         WAIT_INVALID_R: begin
             for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-              s2m_req_o[n].cr_ready  =   !cr_valid[n]; //'b1;
+                s2m_req_o[n].cr_ready  =   !cr_valid[n]; //'b1;
 
-            if (cr_valid == '1) begin
+            if ((cr_valid == '1) && (!ccu_req_holder.ar.lock)) begin
                 ccu_resp_o.r        =   '0;
                 ccu_resp_o.r.id     =   ccu_req_holder.ar.id;
                 ccu_resp_o.r.last   =   'b1;
@@ -403,7 +414,7 @@ module ccu_fsm
             ccu_req_o.aw.addr[3:0] = 4'b0; // writeback is always full cache line
             ccu_req_o.aw.size      = 2'b11;
             ccu_req_o.aw.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-            ccu_req_o.aw.id        = ccu_req_holder.ar.id;
+            ccu_req_o.aw.id        = {first_responder, ccu_req_holder.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
             ccu_req_o.aw.len       = BURST_SIZE; // number of bursts to do
             // WRITEBACK
             ccu_req_o.aw.domain    = 2'b00;
@@ -459,7 +470,7 @@ module ccu_fsm
             ccu_req_o.aw.addr[3:0] = 4'b0; // writeback is always full cache line
             ccu_req_o.aw.size      = 2'b11;
             ccu_req_o.aw.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-            ccu_req_o.aw.id        = ccu_req_holder.aw.id;
+            ccu_req_o.aw.id        = {first_responder, ccu_req_holder.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
             ccu_req_o.aw.len       = BURST_SIZE; // number of bursts to do
             // WRITEBACK
             ccu_req_o.aw.domain    = 2'b00;
@@ -506,14 +517,14 @@ module ccu_fsm
                     ((ccu_req_i.ar_valid & !ccu_req_i.aw_valid) |
                      (ccu_req_i.ar_valid & prio_q.waiting_r) |
                      (ccu_req_i.ar_valid & !prio_q.waiting_w))) begin
-            ccu_req_holder.ar 	    <=  ccu_req_i.ar;
+            ccu_req_holder.ar       <=  ccu_req_i.ar;
             ccu_req_holder.ar_valid <=  ccu_req_i.ar_valid;
-            ccu_req_holder.r_ready 	<=  ccu_req_i.r_ready;
+            ccu_req_holder.r_ready  <=  ccu_req_i.r_ready;
 
         end  else if(state_q == IDLE &&
                     ((ccu_req_i.aw_valid & !ccu_req_i.ar_valid) |
                      (ccu_req_i.aw_valid & prio_q.waiting_w))) begin
-            ccu_req_holder.aw 	    <=  ccu_req_i.aw;
+            ccu_req_holder.aw       <=  ccu_req_i.aw;
             ccu_req_holder.aw_valid <=  ccu_req_i.aw_valid;
         end
     end

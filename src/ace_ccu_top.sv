@@ -198,11 +198,12 @@ axi_mux #(
 
 ccu_fsm
 #(
-    .NoMstPorts      ( Cfg.NoSlvPorts     ),
-    .mst_req_t       ( mst_stg_req_t      ),
-    .mst_resp_t      ( mst_stg_resp_t     ),
-    .snoop_req_t     ( snoop_req_t        ),
-    .snoop_resp_t    ( snoop_resp_t       )
+    .NoMstPorts      ( Cfg.NoSlvPorts         ),
+    .SlvAxiIDWidth   ( Cfg.AxiIdWidthSlvPorts ), // ID width of the slave ports
+    .mst_req_t       ( mst_stg_req_t          ),
+    .mst_resp_t      ( mst_stg_resp_t         ),
+    .snoop_req_t     ( snoop_req_t            ),
+    .snoop_resp_t    ( snoop_resp_t           )
 
 ) fsm (
     .clk_i,
