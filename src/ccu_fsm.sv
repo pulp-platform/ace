@@ -160,7 +160,7 @@ module ccu_fsm
 
         WAIT_INVALID_R: begin
             // wait for all snoop masters to assert CR valid
-            if ((cr_valid == '1) && (ccu_req_i.r_ready )) begin
+            if ((cr_valid == '1) && (ccu_req_i.r_ready || ccu_req_holder.ar.lock)) begin
                 if(|(data_available & ~response_error)) begin
                     state_d = SEND_AXI_REQ_WRITE_BACK_R;
                 end else begin
