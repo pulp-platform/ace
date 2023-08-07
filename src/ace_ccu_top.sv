@@ -58,6 +58,7 @@ slv_resp_t [Cfg.NoSlvPorts-1:0] [1:0]      slv_resps;
 // signals into the ace_muxes
 mst_stg_req_t  [Cfg.NoSlvPorts:0]          mst_reqs;   // one extra port for CCU
 mst_stg_resp_t [Cfg.NoSlvPorts:0]          mst_resps;
+mst_stg_req_t  [Cfg.NoSlvPorts-1:0]          mst_reqs_tmp;
 // signals into the CCU
 slv_req_t  [Cfg.NoSlvPorts-1:0]            ccu_reqs_i;
 slv_resp_t [Cfg.NoSlvPorts-1:0]            ccu_resps_o;
@@ -152,8 +153,14 @@ axi_mux #(
 
 // connection reqs and resps for non-shareable tarnsactions with axi_mux
 for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_non_shared_conn
-    `ACE_ASSIGN_REQ_STRUCT(mst_reqs[i], slv_reqs[i][0])
+    `ACE_ASSIGN_REQ_STRUCT(mst_reqs_tmp[i], slv_reqs[i][0])
     `ACE_ASSIGN_RESP_STRUCT(slv_resps[i][0], mst_resps[i])
+
+  always_comb begin
+    mst_reqs[i] = mst_reqs_tmp[i];
+    mst_reqs[i].aw.id[Cfg.AxiIdWidthSlvPorts +: $clog2(Cfg.NoSlvPorts)] = i[$clog2(Cfg.NoSlvPorts)-1:0];
+    mst_reqs[i].ar.id[Cfg.AxiIdWidthSlvPorts +: $clog2(Cfg.NoSlvPorts)] = i[$clog2(Cfg.NoSlvPorts)-1:0];
+  end
 end
 
 // connection reqs and resps for shareable transactions with CCU
