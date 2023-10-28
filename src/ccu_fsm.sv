@@ -80,7 +80,7 @@ module ccu_fsm
     logic [MstIdxBits-1:0]          first_responder;
 
     logic [DcacheLineWords-1:0][AxiDataWidth-1:0] cd_data;
-    logic [clog2(DcacheLineWords+1)-1:0]          stored_cd_data;
+    logic [$clog2(DcacheLineWords+1)-1:0]         stored_cd_data;
 
     logic r_last;
     logic w_last;
@@ -128,7 +128,8 @@ module ccu_fsm
                (ccu_req_i.ar_valid & prio_q.waiting_r) |
                (ccu_req_i.ar_valid & !prio_q.waiting_w)) begin
                 state_d = DECODE_R;
-                initiator_d[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
+                if (|ccu_req_i.ar.id[SlvAxiIDWidth-1:0])
+                  initiator_d[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                 prio_d.waiting_w = ccu_req_i.aw_valid;
             end else if((ccu_req_i.aw_valid & !ccu_req_i.ar_valid) |
                         (ccu_req_i.aw_valid & prio_q.waiting_w)) begin
