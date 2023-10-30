@@ -80,7 +80,7 @@ module ccu_fsm
     logic [MstIdxBits-1:0]          first_responder;
 
     logic [DcacheLineWords-1:0][AxiDataWidth-1:0] cd_data;
-    logic [clog2(DcacheLineWords+1)-1:0]          stored_cd_data;
+    logic [$clog2(DcacheLineWords+1)-1:0]         stored_cd_data;
 
     logic r_last;
     logic w_last;
