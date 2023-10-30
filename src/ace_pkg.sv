@@ -66,10 +66,20 @@ package ace_pkg;
     bit           UniqueIds;
     int unsigned  AxiAddrWidth;
     int unsigned  AxiDataWidth;
+    int unsigned  AxiUserWidth;
     int unsigned  DcacheLineWidth;
   } ccu_cfg_t;
 
- /// transaction type
-  typedef enum logic[2:0] {READ_NO_SNOOP, READ_ONCE, READ_SHARED, READ_UNIQUE, CLEAN_UNIQUE, WRITE_NO_SNOOP, WRITE_BACK, WRITE_UNIQUE} ace_trs_t;
+  // transaction type
+  typedef enum logic[2:0] {
+    READ_NO_SNOOP,
+    READ_ONCE,
+    READ_SHARED,
+    READ_UNIQUE,
+    CLEAN_UNIQUE,
+    WRITE_NO_SNOOP,
+    WRITE_BACK,
+    WRITE_UNIQUE
+  } ace_trs_t;
 
 endpackage
