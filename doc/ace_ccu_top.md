@@ -1,11 +1,11 @@
 # ACE_CCU_TOP
 
-The cache coherence unit (CCU) implements the ACE interconnector functions, which broadcasts the snooping transactions to all the cache controllers and forwards the AXI transactions to a single the AXI master.
+The coherence control unit (CCU) implements the ACE interconnector functions, which broadcasts the snooping transactions to all the cache controllers and forwards the AXI transactions to a single the AXI master.
 The number of ACE slave ports is configurable, but it doesn't scale well beyond 8.
 
 ![Block diagram of the CCU](images/ccu_top.drawio.svg "Block diagram of the CCU")
 
-The cache coherence unit consists of three main components:
+The CCU consists of three main components:
 
 - AXI DEMUX
 - AXI MUX
@@ -17,11 +17,11 @@ The AXI DEMUX and AXI MUX components are sourced from [PULP platform](https://gi
 
 ## CCU logic
 
-The cache coherence unit (CCU) Logic is responsible for translating the AXI requests into snoop requests. CCU logic is further composed of two main components: the AXI MUX and the CCU FSM as shown in diagram below. This AXI MUX, which has been extended to support the ACE protocol. It serializes incoming requests to the CCU from multiple AXI masters. Each request received by the AXI MUX is then passed to the CCU FSM (Finite State Machine) for further processing. The CCU FSM is responsible for managing the data coherence and sharing process. It controls the flow of requests and orchestrates the necessary actions to ensure data coherency among the caches using snoop ports. In case of data unavailability or invalidated dirty cache line, it forwards the request to memory using AXI port. 
+The CCU Logic is responsible for translating the AXI requests into snoop requests. CCU logic is further composed of two main components: the AXI MUX and the CCU FSM as shown in diagram below. This AXI MUX, which has been extended to support the ACE protocol. It serializes incoming requests to the CCU from multiple AXI masters. Each request received by the AXI MUX is then passed to the CCU FSM (Finite State Machine) for further processing. The CCU FSM is responsible for managing the data coherence and sharing process. It controls the flow of requests and orchestrates the necessary actions to ensure data coherency among the caches using snoop ports. In case of data unavailability or invalidated dirty cache line, it forwards the request to memory using AXI port. 
 
 ![ccu_logic](images/ccu_logic.drawio.svg "Block diagram of the CCU logix submodule")
 
-The CCU FSM implements the state transitions and control logic for handling read and write transactions in the cache coherence unit. The breakdown of the different states and their corresponding functionality is as follows:
+The CCU FSM implements the state transitions and control logic for handling read and write transactions in the coherence control unit. The breakdown of the different states and their corresponding functionality is as follows:
 
 ![ccu_fsm](images/ccu_fsm.drawio.svg "FSM of the CCU")
 
@@ -96,3 +96,11 @@ The CCU FSM implements the state transitions and control logic for handling read
   - Once data is written and b_valid is asserted by the main memory:
     - In case of ATOP, state transitions to READ_MEM to receive an extra R beat
     - otherwise state transitions to IDLE
+
+## Known limitations and possible improvements
+
+- Serialization of the incoming transactions: it would in theory be possible to process multiple non-conflicting transactions in parallel. This would require the instantiation of multiple ccu\_logic modules and the logic to avoid them to target the same cacheline at the same time. It would also require the CPUs' cache controllers to be able to handle multiple requests at the same time. This would probably move the bottleneck from the CCU to the cache, which should be able to process an higher number of requests in parallel.
+
+- Serialization of the read operations towards the caches and shared memory: in the current implementation, a read to the shared memory is done only after failing to read a cacheline from another CPU. This situation could be improved by making the two requests in parallel: the new scenario has the drawback of increasing the traffic on the AXI port and of adding a sometimes unnecessary latency to the read transactions which hit data on a CPU's cache. Tests (Splash-3) have shown that the number of cache misses is a fraction of the number of hits, so parallelizing the snoop and AXI reads won't probably bring a lot of benefits.
+
+- Serialization of the writeback in case of invalidation: in the current implementation, in case of CleanInvalid operations, the CCU takes care of the writeback of the dirty cachelines and terminates the transaction only once this is done. The writeback is necessary because otherwise, in case of 2 CPU invalidating each other's cacheline, the system can end up in a situation where the latest data get lost. Performance could be improved by decoupling the writeback from the termination of the transaction, so that the transaction can be finished without waiting for the writeback to be complete. By profiling the Splash-3 benchmarks it has been noticed that the time spent in executing CleanUnique/ReadUnique operations is a negligible fraction of the whole time, so this operation would bring limited benefits.
