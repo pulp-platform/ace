@@ -47,8 +47,22 @@ module ccu_fsm
       SEND_AXI_REQ_WRITE_BACK_W, // 14
       WRITE_BACK_MEM_W,          // 15
       SEND_AXI_REQ_W,            // 16
-      WRITE_MEM                  // 17
-    } state_d, state_q;
+      WRITE_MEM,                 // 17
+      WAIT_AXI,
+      SEND_AXI_RESP
+    } state_d, state_q, axi_state_d, axi_state_q;
+
+//    enum logic [3:0] {
+//      IDLE,                      // 0
+//      SEND_AXI_REQ_WRITE_BACK_R, // 1
+//      WRITE_BACK_MEM_R,          // 2
+//      SEND_AXI_REQ_R,            // 3
+//      READ_MEM,                  // 4
+//      SEND_AXI_REQ_WRITE_BACK_W, // 5
+//      WRITE_BACK_MEM_W,          // 6
+//      SEND_AXI_REQ_W,            // 7
+//      WRITE_MEM                  // 8
+//    } axi_state_d, axi_state_q;
 
 
     // snoop resoponse valid
@@ -81,6 +95,7 @@ module ccu_fsm
 
     logic [DcacheLineWords-1:0][AxiDataWidth-1:0] cd_data;
     logic [$clog2(DcacheLineWords+1)-1:0]         stored_cd_data;
+    logic [DcacheLineWords-1:0][AxiDataWidth-1:0]         axi_data;
 
     logic r_last;
     logic w_last;
@@ -94,16 +109,22 @@ module ccu_fsm
 
     prio_t prio_d, prio_q;
 
+    logic start_axi;
+    logic done_axi_d, done_axi_q;
+    logic axi_r_last;
+
     // ----------------------
     // Current State Block
     // ----------------------
     always_ff @(posedge clk_i, negedge rst_ni) begin : ccu_present_state
         if(!rst_ni) begin
             state_q <= IDLE;
+            axi_state_q <= IDLE;
             initiator_q <= '0;
             prio_q <= '0;
         end else begin
             state_q <= state_d;
+            axi_state_q <= axi_state_d;
             initiator_q <= initiator_d;
             prio_q <= prio_d;
         end
@@ -218,16 +239,30 @@ module ccu_fsm
             end else if(|(data_available & ~response_error)) begin
                 state_d = READ_SNP_DATA;
             end else begin
-                state_d = SEND_AXI_REQ_R;
+              if (done_axi_q)
+                state_d = SEND_AXI_RESP;
             end
         end
 
         READ_SNP_DATA: begin
           if(cd_last == data_available && (r_eot == 1'b1 || (ccu_req_i.r_ready == 1'b1 && r_last == 1'b1))) begin
-            state_d = IDLE;
+            if (done_axi_q)
+              state_d = IDLE;
+            else
+              state_d = WAIT_AXI;
           end else begin
             state_d = READ_SNP_DATA;
           end
+        end
+
+        WAIT_AXI: begin
+          if (done_axi_q)
+            state_d = IDLE;
+        end
+
+        SEND_AXI_RESP: begin
+          if (ccu_resp_o.r.last & ccu_req_i.r_ready)
+            state_d = IDLE;
         end
 
         SEND_AXI_REQ_R: begin
@@ -340,9 +375,13 @@ module ccu_fsm
         ccu_resp_o = '0;
         s2m_req_o  = '0;
 
+        start_axi = 1'b0;
+
+        done_axi_d = done_axi_q;
+
         case(state_q)
         IDLE: begin
-
+          done_axi_d = 1'b0;
         end
 
         //---------------------
@@ -350,7 +389,10 @@ module ccu_fsm
         //---------------------
         DECODE_R:begin
             ccu_resp_o.ar_ready =   'b1;
+            if (ccu_req_holder.ar.snoop != snoop_pkg::CLEAN_UNIQUE && ccu_req_holder.ar.lock == 1'b0)
+              start_axi = 1'b1;
         end
+
         SEND_READ: begin
             // send request to snooping masters
             for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
@@ -409,6 +451,20 @@ module ccu_fsm
             ccu_resp_o.r.resp[3] = |shared;                // update if shared
             ccu_resp_o.r.resp[2] = |dirty;                 // update if any line dirty
           end
+        end
+
+        WAIT_AXI: begin
+          // nothing to be done
+        end
+
+        SEND_AXI_RESP: begin
+          ccu_resp_o.r.id      = ccu_req_holder.ar.id;
+          ccu_resp_o.r.resp[3] = 1'b0;
+          ccu_resp_o.r.resp[2] = 1'b0;
+          ccu_resp_o.r.resp[1:0] = 2'b0;
+          ccu_resp_o.r.data  = axi_data[axi_r_last];
+          ccu_resp_o.r.last  = axi_r_last;
+          ccu_resp_o.r_valid = 1'b1;
         end
 
         SEND_AXI_REQ_WRITE_BACK_R: begin
@@ -512,6 +568,64 @@ module ccu_fsm
         end
 
         endcase
+
+        axi_state_d = axi_state_q;
+    
+        case(axi_state_q)
+    
+        IDLE: begin
+          if (start_axi)
+          axi_state_d = SEND_AXI_REQ_R;
+        end
+    
+        SEND_AXI_REQ_WRITE_BACK_R: begin
+        end
+        
+        WRITE_BACK_MEM_R: begin
+        end
+        
+        SEND_AXI_REQ_R: begin
+          // wait for responding slave to assert ar_ready
+          if(ccu_resp_i.ar_ready !='b1) begin
+            axi_state_d = SEND_AXI_REQ_R;
+          end else begin
+            axi_state_d = READ_MEM;
+          end
+          // forward request to slave (RAM)
+          ccu_req_o.ar_valid  =   'b1;
+          ccu_req_o.ar        =   ccu_req_holder.ar;
+          ccu_req_o.r_ready   =   ccu_req_holder.r_ready ;
+        end
+        
+        READ_MEM: begin
+          // wait for responding slave to assert r_valid
+          if(ccu_resp_i.r_valid && ccu_req_i.r_ready) begin
+            if(ccu_resp_i.r.last) begin
+              axi_state_d = IDLE;
+              done_axi_d = 1'b1;
+            end
+          end
+          // indicate slave to send data on r channel
+          ccu_req_o.r_ready   =   ccu_req_i.r_ready ;
+        end
+        
+        SEND_AXI_REQ_WRITE_BACK_W: begin
+        end
+        
+        WRITE_BACK_MEM_W: begin
+        end
+        
+        SEND_AXI_REQ_W: begin
+        end
+        
+        WRITE_MEM: begin
+        end
+        
+        endcase
+    
+
+
+
     end // end output block
 
     // Hold incoming ACE request
@@ -684,6 +798,27 @@ module ccu_fsm
         if (w_last)
           w_eot <= 1'b1;
       end
+    end
+  end
+
+  always_ff @ (posedge clk_i, negedge rst_ni) begin
+    if(!rst_ni) begin
+      done_axi_q <= 1'b0;
+      axi_data <= '0;
+      axi_r_last <= 1'b0;
+    end else begin
+      if(state_q == IDLE) begin
+        axi_r_last <= 1'b0;
+      end
+      if (ccu_resp_i.r_valid & ccu_req_o.r_ready) begin
+        if (ccu_resp_i.r.last)
+          axi_data[1] <= ccu_resp_i.r.data;
+        else
+          axi_data[0] <= ccu_resp_i.r.data;
+      end
+      if (ccu_req_i.r_ready & ccu_resp_o.r_valid) 
+        axi_r_last <= !axi_r_last;
+      done_axi_q <= done_axi_d;
     end
   end
 
