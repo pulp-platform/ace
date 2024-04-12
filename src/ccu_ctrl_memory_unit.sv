@@ -16,6 +16,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     parameter type snoop_cd_t    = logic,
     parameter type snoop_req_t   = logic,
     parameter type snoop_resp_t  = logic,
+    parameter bit  Legacy        = 1,
     localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth,
     localparam int unsigned MstIdxBits      = $clog2(NoMstPorts)
 ) (
@@ -81,8 +82,6 @@ mst_aw_chan_t aw_out;
 logic ar_valid_out, aw_valid_out;
 
 logic cd_data_incoming;
-
-localparam Legacy = 1;
 
 always_comb begin
     mu_ready_o = 1'b0;

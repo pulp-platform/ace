@@ -16,6 +16,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter type snoop_cd_t    = logic,
     parameter type snoop_req_t   = logic,
     parameter type snoop_resp_t  = logic,
+    parameter bit  Legacy        = 1,
     localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth,
     localparam int unsigned MstIdxBits      = $clog2(NoMstPorts)
 ) (
@@ -173,10 +174,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     end
 
     assign first_responder_o = first_responder_q;
-
-
-    localparam Legacy = 1;
-
 
     // ----------------------
     // Current State Block
