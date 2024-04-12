@@ -38,6 +38,9 @@ module ace_ccu_top
   parameter type mst_resp_t        = logic,
   parameter type mst_stg_req_t     = logic,
   parameter type mst_stg_resp_t    = logic,
+  parameter type snoop_ac_t        = logic,
+  parameter type snoop_cr_t        = logic,
+  parameter type snoop_cd_t        = logic,
   parameter type snoop_req_t       = logic,
   parameter type snoop_resp_t      = logic
 
@@ -214,17 +217,25 @@ axi_mux #(
   .mst_resp_i  ( ccu_resps_mux_i  )
 );
 
-ccu_fsm #(
+ccu_ctrl #(
     .DcacheLineWidth ( Cfg.DcacheLineWidth    ),
     .AxiDataWidth    ( Cfg.AxiDataWidth       ),
     .NoMstPorts      ( Cfg.NoSlvPorts         ),
     .SlvAxiIDWidth   ( Cfg.AxiIdWidthSlvPorts ), // ID width of the slave ports
+    .mst_aw_chan_t   ( mst_stg_aw_chan_t      ), // AW Channel Type, master port
+    .w_chan_t        ( w_chan_t               ), //  W Channel Type, all ports
+    .mst_b_chan_t    ( mst_stg_b_chan_t       ), //  B Channel Type, master port
+    .mst_ar_chan_t   ( mst_stg_ar_chan_t      ), // AR Channel Type, master port
+    .mst_r_chan_t    ( mst_stg_r_chan_t       ), //  R Channel Type, master port
     .mst_req_t       ( mst_stg_req_t          ),
     .mst_resp_t      ( mst_stg_resp_t         ),
+    .snoop_ac_t      ( snoop_ac_t             ),
+    .snoop_cr_t      ( snoop_cr_t             ),
+    .snoop_cd_t      ( snoop_cd_t             ),
     .snoop_req_t     ( snoop_req_t            ),
     .snoop_resp_t    ( snoop_resp_t           )
 
-) fsm (
+) ccu_ctrl_i (
     .clk_i,
     .rst_ni,
     .ccu_req_i       ( ccu_reqs_mux_o     ),
@@ -337,6 +348,9 @@ module ace_ccu_top_intf
     .mst_resp_t         ( mst_ace_resp_t        ),
     .mst_stg_req_t      ( mst_ace_stg_req_t     ),
     .mst_stg_resp_t     ( mst_ace_stg_resp_t    ),
+    .snoop_ac_t         ( snoop_ac_t            ),
+    .snoop_cr_t         ( snoop_cr_t            ),
+    .snoop_cd_t         ( snoop_cd_t            ),
     .snoop_req_t        ( snoop_req_t           ),
     .snoop_resp_t       ( snoop_resp_t          )
   ) i_ccu_top (
