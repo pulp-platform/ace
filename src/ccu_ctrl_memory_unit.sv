@@ -83,6 +83,9 @@ logic ar_valid_out, aw_valid_out;
 
 logic cd_data_incoming;
 
+logic w_busy_d, w_busy_q;
+logic w_last_d, w_last_q;
+
 always_comb begin
     mu_ready_o = 1'b0;
     ax_state_d = ax_state_q;
@@ -97,8 +100,11 @@ always_comb begin
 
     cd_data_incoming = 1'b0;
 
+    w_busy_d = w_busy_q;
+
     case (ax_state_q)
         Ax_IDLE: begin
+            w_busy_d   = 1'b0;
             mu_ready_o = 1'b1;
             if (mu_valid_i) begin
                 sample_dec_data = 1'b1;
@@ -109,16 +115,13 @@ always_comb begin
         Ax_BUSY: begin
             case (ax_op_q)
                 SEND_AXI_REQ_R: begin
-                    // If a lock is present, wait for W to complete
-                    if (!ccu_req_holder_q.ar.lock || ccu_resp_i.w_ready) begin
-                        ar_valid_out  = 'b1;
-                        ar_out        = ccu_req_holder_q.ar;
-                        if (ccu_resp_i.ar_ready) begin
-                            if (Legacy)
-                                ax_op_d = LEGACY_WAIT_READ;
-                            else
-                                ax_state_d = Ax_IDLE;
-                        end
+                    ar_valid_out  = 'b1;
+                    ar_out        = ccu_req_holder_q.ar;
+                    if (ccu_resp_i.ar_ready) begin
+                        if (Legacy)
+                            ax_op_d = AMO_WAIT_READ;
+                        else
+                            ax_state_d = Ax_IDLE;
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_R: begin
@@ -136,19 +139,26 @@ always_comb begin
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
                     if (ccu_resp_i.aw_ready) begin
-                        if (ccu_req_holder_q.ar.lock)
-                            ax_op_d = SEND_AXI_REQ_R;
-                        else if (Legacy)
-                            ax_op_d = LEGACY_WAIT_WB;
+                        if (Legacy)
+                            ax_op_d = AMO_WAIT_WB_R;
+                        else if (ccu_req_holder_q.ar.lock)
+                            // Blocking behavior for AMO operations
+                            // TODO: check if truly needed
+                            ax_op_d = AMO_WAIT_WB_R;
                         else
                             ax_state_d = Ax_IDLE;
                     end
                 end
                 SEND_AXI_REQ_W: begin
+                    w_busy_d      = 1'b1;
                     aw_valid_out  = 'b1;
                     aw_out        = ccu_req_holder_q.aw;
                     if (ccu_resp_i.aw_ready) begin
-                        if (Legacy)
+                        if (ccu_req_holder_q.aw.atop[5])
+                            // Blocking behavior for AMO operations
+                            // TODO: check if truly needed
+                            ax_op_d = AMO_WAIT_READ;
+                        else if (Legacy)
                             ax_op_d = LEGACY_WAIT_WRITE;
                         else
                             ax_state_d = Ax_IDLE;
@@ -170,22 +180,30 @@ always_comb begin
                     aw_out.snoop     = 3'b011;
                     if (ccu_resp_i.aw_ready) begin
                         if (Legacy)
-                            ax_op_d = LEGACY_WAIT_WB;
+                            ax_op_d = LEGACY_WAIT_WB_W;
                         else
-                            ax_state_d = Ax_IDLE;
+                            ax_op_d = SEND_AXI_REQ_W;
                     end
+                end
+                AMO_WAIT_READ: begin
+                    if(ccu_resp_i.r_valid && ccu_req_i.r_ready && ccu_resp_i.r.last)
+                        ax_state_d = Ax_IDLE;
                 end
                 LEGACY_WAIT_WRITE: begin
                     if(ccu_resp_i.b_valid && ccu_req_i.b_ready)
                         ax_state_d = Ax_IDLE;
                 end
-                LEGACY_WAIT_READ: begin
-                    if(ccu_resp_i.r_valid && ccu_req_i.r_ready && ccu_resp_i.r.last)
-                        ax_state_d = Ax_IDLE;
-                end
-                LEGACY_WAIT_WB: begin
+                AMO_WAIT_WB_R: begin
                     if(ccu_resp_i.b_valid && ccu_req_o.b_ready)
-                        ax_state_d = Ax_IDLE;
+                        if (ccu_req_holder_q.ar.lock) begin
+                            ax_op_d = SEND_AXI_REQ_R;
+                        end else begin
+                            ax_state_d = Ax_IDLE;
+                        end
+                end
+                LEGACY_WAIT_WB_W: begin
+                    if(ccu_resp_i.b_valid && ccu_req_o.b_ready)
+                        ax_op_d = SEND_AXI_REQ_W;
                 end
             endcase
         end
@@ -197,20 +215,25 @@ logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
 
 enum { FIFO_IDLE, FIFO_LOWER_HALF, FIFO_UPPER_HALF, FIFO_WAIT } fifo_state_q, fifo_state_d;
 
-logic w_busy_d, w_busy_q;
-logic w_last_d, w_last_q;
-
 always_ff @(posedge clk_i or negedge rst_ni) begin
     if(!rst_ni) begin
         fifo_state_q <= FIFO_IDLE;
-        w_busy_q <= 1'b0;
         fifo_first_responder_q <= '0;
         w_last_q <= 1'b0;
     end else begin
         fifo_state_q <= fifo_state_d;
-        w_busy_q <= w_busy_d;
         fifo_first_responder_q <= fifo_first_responder_d;
         w_last_q <= w_last_d;
+    end
+end
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if(!rst_ni) begin
+        w_busy_q <= 1'b0;
+    end else if(ccu_resp_i.b_valid && ccu_req_o.b_ready) begin
+        w_busy_q <= 1'b0;
+    end else begin
+        w_busy_q <= w_busy_d;
     end
 end
 
@@ -314,7 +337,6 @@ assign ccu_req_o.r_ready = ccu_req_i.r_ready;
 
 always_comb begin
 
-    w_busy_d = 1'b0;
     w_last_d = 1'b0;
 
     // W and B
@@ -327,7 +349,6 @@ always_comb begin
         ccu_req_o.w.last  =  w_last_q;
         ccu_req_o.b_ready = 'b1;
     end else begin
-        w_busy_d            =  (ccu_req_i.w_valid && !ccu_resp_i.w_ready) || (w_busy_q && !(ccu_resp_i.b_valid && ccu_req_i.b_ready));
         ccu_req_o.w         =  ccu_req_i.w;
         ccu_req_o.w_valid   =  ccu_req_i.w_valid;
         ccu_req_o.b_ready   =  ccu_req_i.b_ready;

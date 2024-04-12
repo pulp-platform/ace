@@ -5,9 +5,10 @@ package ccu_ctrl_pkg;
         SEND_AXI_REQ_WRITE_BACK_R,
         SEND_AXI_REQ_W,
         SEND_AXI_REQ_WRITE_BACK_W,
+        AMO_WAIT_READ,
         LEGACY_WAIT_WRITE,
-        LEGACY_WAIT_READ,
-        LEGACY_WAIT_WB
+        LEGACY_WAIT_WB_W,
+        AMO_WAIT_WB_R
     } mu_op_e;
 
     typedef enum logic {
