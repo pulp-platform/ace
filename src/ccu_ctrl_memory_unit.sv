@@ -63,15 +63,15 @@ always_ff @(posedge clk_i , negedge rst_ni) begin
     end
 end
 
-enum {Ax_IDLE, Ax_BUSY} ax_state_q, ax_state_d;
+logic ax_busy_q, ax_busy_d;
 mu_op_e ax_op_q, ax_op_d;
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
-        ax_state_q <= Ax_IDLE;
+        ax_busy_q <= 1'b0;
         ax_op_q <= SEND_AXI_REQ_R;
     end else begin
-        ax_state_q <= ax_state_d;
+        ax_busy_q <= ax_busy_d;
         ax_op_q <= ax_op_d;
     end
 end
@@ -88,7 +88,7 @@ logic w_last_d, w_last_q;
 
 always_comb begin
     mu_ready_o = 1'b0;
-    ax_state_d = ax_state_q;
+    ax_busy_d = ax_busy_q;
     ax_op_d = ax_op_q;
 
     sample_dec_data = 1'b0;
@@ -102,17 +102,17 @@ always_comb begin
 
     w_busy_d = w_busy_q;
 
-    case (ax_state_q)
-        Ax_IDLE: begin
+    case (ax_busy_q)
+        1'b0: begin
             w_busy_d   = 1'b0;
             mu_ready_o = 1'b1;
             if (mu_valid_i) begin
                 sample_dec_data = 1'b1;
                 ax_op_d = mu_op_i;
-                ax_state_d = Ax_BUSY;
+                ax_busy_d = 1'b1;
             end
         end
-        Ax_BUSY: begin
+        1'b1: begin
             case (ax_op_q)
                 SEND_AXI_REQ_R: begin
                     ar_valid_out  = 'b1;
@@ -121,7 +121,7 @@ always_comb begin
                         if (Legacy)
                             ax_op_d = AMO_WAIT_READ;
                         else
-                            ax_state_d = Ax_IDLE;
+                            ax_busy_d = 1'b0;
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_R: begin
@@ -146,7 +146,7 @@ always_comb begin
                             // TODO: check if truly needed
                             ax_op_d = AMO_WAIT_WB_R;
                         else
-                            ax_state_d = Ax_IDLE;
+                            ax_busy_d = 1'b0;
                     end
                 end
                 SEND_AXI_REQ_W: begin
@@ -161,7 +161,7 @@ always_comb begin
                         else if (Legacy)
                             ax_op_d = LEGACY_WAIT_WRITE;
                         else
-                            ax_state_d = Ax_IDLE;
+                            ax_busy_d = 1'b0;
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_W: begin
@@ -187,18 +187,18 @@ always_comb begin
                 end
                 AMO_WAIT_READ: begin
                     if(ccu_resp_i.r_valid && ccu_req_i.r_ready && ccu_resp_i.r.last)
-                        ax_state_d = Ax_IDLE;
+                        ax_busy_d = 1'b0;
                 end
                 LEGACY_WAIT_WRITE: begin
                     if(ccu_resp_i.b_valid && ccu_req_i.b_ready)
-                        ax_state_d = Ax_IDLE;
+                        ax_busy_d = 1'b0;
                 end
                 AMO_WAIT_WB_R: begin
                     if(ccu_resp_i.b_valid && ccu_req_o.b_ready)
                         if (ccu_req_holder_q.ar.lock) begin
                             ax_op_d = SEND_AXI_REQ_R;
                         end else begin
-                            ax_state_d = Ax_IDLE;
+                            ax_busy_d = 1'b0;
                         end
                 end
                 LEGACY_WAIT_WB_W: begin
