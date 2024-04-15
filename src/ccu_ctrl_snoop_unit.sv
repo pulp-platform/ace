@@ -171,17 +171,6 @@ always_comb begin
             r_o.last    = 1'b1;     // No further transactions
 
             if (!fifo_empty) begin
-                // // Single data request
-                // if (ccu_req_holder_q.ar.len == 0) begin
-                //     // The upper 64 bit are required
-                //     if (ar_addr_offset) begin
-                //         r_valid_o   = 1'b1; // There is something to send
-                //     end
-                // end else begin
-                //     // Full cacheline request
-                //     r_valid_o   = 1'b1; // There is something to send
-                // end
-
                 r_valid_o = 1'b1;
 
                 if (r_ready_i) begin
