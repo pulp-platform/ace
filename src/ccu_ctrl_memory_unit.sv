@@ -150,6 +150,10 @@ always_comb begin
                     end
                 end
                 SEND_AXI_REQ_W: begin
+                    // This is a hotfix to avoid serving requests from the core
+                    // with the same ID of the writeback
+                    // TODO: add a bit to the ID to differentiate between WB issued
+                    // by the CCU and requests forwarded from the cores
                     if (wb_id_q != ccu_req_holder_q.aw.id || !cd_busy_o) begin
                         aw_valid_out  = 'b1;
                         aw_out        = ccu_req_holder_q.aw;
@@ -246,6 +250,7 @@ always_comb begin
             end
         end
         FIFO_WAIT: begin
+            // TODO: rework to get rid of this state
             if (ccu_resp_in.b_valid && ccu_req_out.b_ready && ccu_resp_in.b.id == wb_id_q)
                 fifo_state_d = FIFO_IDLE;
         end
@@ -394,6 +399,10 @@ always_comb begin
 
             if(ccu_resp_in.w_ready && !fifo_empty && w_last_q)
                 if (w_state_q == W_FROM_FIFO_W) begin
+                    // This checks is just to ensure that the cores have visibility
+                    // on the W channel only when we actually want to write something
+                    // Removing it would cause a premature forwarding of a W req
+                    // TODO: make this less convoluted
                     w_state_d = ax_busy_q && ax_op_q == AMO_WAIT_WB_W ? W_IDLE : W_PASSTHROUGH;
                 end else begin
                     w_state_d = W_IDLE;
