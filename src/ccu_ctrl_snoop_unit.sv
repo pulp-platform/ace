@@ -117,8 +117,10 @@ always_comb begin
                     r_o.id    =   ccu_req_holder_i.ar.id;
                     r_o.last  =   'b1;
                     r_valid_o =   'b1;
-                    if (!r_ready_i)
+                    if (!r_ready_i) begin
                         state_d = WAIT_R_READY;
+                        sample_dec_data = 1'b1;
+                    end
                 end else if (su_op_i == READ_SNP_DATA) begin
                     sample_dec_data = 1'b1;
                     state_d = SEND_LOWER_HALF;
@@ -181,9 +183,8 @@ always_comb begin
         end
 
         WAIT_R_READY: begin
-
             r_o        =   '0;
-            r_o.id     =   ccu_req_holder_i.ar.id;
+            r_o.id     =   ccu_req_holder_q.ar.id;
             r_o.last   =   'b1;
             r_valid_o  =   'b1;
 

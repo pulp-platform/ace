@@ -38,8 +38,6 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
 );
 
-localparam bit Legacy = 1;
-
 localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned MstIdxBits      = $clog2(NoMstPorts);
 
@@ -81,7 +79,6 @@ for (genvar i = 0; i < NoMstPorts; i++) begin
 end
 
 ccu_ctrl_decoder  #(
-    .Legacy          (Legacy),
     .DcacheLineWidth (DcacheLineWidth),
     .AxiDataWidth    (AxiDataWidth),
     .NoMstPorts      (NoMstPorts),
@@ -161,7 +158,6 @@ ccu_ctrl_snoop_unit #(
 );
 
 ccu_ctrl_memory_unit #(
-    .Legacy          (Legacy),
     .DcacheLineWidth (DcacheLineWidth),
     .AxiDataWidth    (AxiDataWidth),
     .NoMstPorts      (NoMstPorts),

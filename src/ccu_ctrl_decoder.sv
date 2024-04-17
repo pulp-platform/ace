@@ -16,7 +16,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter type snoop_cd_t    = logic,
     parameter type snoop_req_t   = logic,
     parameter type snoop_resp_t  = logic,
-    parameter bit  Legacy        = 1,
     localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth,
     localparam int unsigned MstIdxBits      = $clog2(NoMstPorts)
 ) (
@@ -221,7 +220,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
                 initiator_d = '0;
                 prio_d = '0;
-                if (!Legacy || (mu_ready_i && su_ready_i)) begin
                 //  wait for incoming valid request from master
                 if(ccu_req_i.ar_valid & prio_r) begin
                     decode_r = 1'b1;
@@ -237,7 +235,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
                 slv_ar_ready_o = prio_r;
                 slv_aw_ready_o = prio_w;
-                end
             end
 
             SEND_READ: begin
@@ -311,6 +308,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
                     if (mu_ready_i && (ccu_req_holder_q.ar.lock || su_ready_i)) begin
                         state_d = IDLE;
+                        su_valid_o = !ccu_req_holder_q.ar.lock;
                     end
 
                     if(|(data_available_q & ~response_error_q)) begin
@@ -322,10 +320,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     end
                 end
 
-                if (cr_handshake_q == '1 && !ccu_req_holder_q.ar.lock) begin
-                    su_op_o = SEND_INVALID_ACK_R;
-                    su_valid_o = 1'b1;
-                end
+                su_op_o = SEND_INVALID_ACK_R;
 
                 for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
                     s2m_req_o[n].cr_ready  =   !cr_handshake_q[n];

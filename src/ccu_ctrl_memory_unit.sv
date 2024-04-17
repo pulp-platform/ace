@@ -16,7 +16,6 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     parameter type snoop_cd_t    = logic,
     parameter type snoop_req_t   = logic,
     parameter type snoop_resp_t  = logic,
-    parameter bit  Legacy        = 1,
     localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth,
     localparam int unsigned MstIdxBits      = $clog2(NoMstPorts)
 ) (
@@ -45,11 +44,16 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
 
 localparam FIFO_DEPTH = 2;
 
+mst_req_t  ccu_req_out;
+mst_resp_t ccu_resp_in;
+
 mst_req_t ccu_req_holder_q;
 logic [MstIdxBits-1:0] first_responder_q, fifo_first_responder_q, fifo_first_responder_d;
 logic [NoMstPorts-1:0] data_available_q;
 
 logic sample_dec_data;
+
+logic fifo_push, fifo_flush, fifo_pop, fifo_full, fifo_empty;
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
@@ -83,8 +87,9 @@ logic ar_valid_out, aw_valid_out;
 
 logic cd_data_incoming;
 
-logic w_busy_d, w_busy_q;
 logic w_last_d, w_last_q;
+
+logic [$bits(ccu_resp_in.b.id)-1:0] wb_id_q, wb_id_d;
 
 always_comb begin
     mu_ready_o = 1'b0;
@@ -100,11 +105,10 @@ always_comb begin
 
     cd_data_incoming = 1'b0;
 
-    w_busy_d = w_busy_q;
+    wb_id_d = wb_id_q;
 
     case (ax_busy_q)
         1'b0: begin
-            w_busy_d   = 1'b0;
             mu_ready_o = 1'b1;
             if (mu_valid_i) begin
                 sample_dec_data = 1'b1;
@@ -117,17 +121,15 @@ always_comb begin
                 SEND_AXI_REQ_R: begin
                     ar_valid_out  = 'b1;
                     ar_out        = ccu_req_holder_q.ar;
-                    if (ccu_resp_i.ar_ready) begin
-                        if (Legacy)
-                            ax_op_d = AMO_WAIT_READ;
-                        else
-                            ax_busy_d = 1'b0;
+                    if (ccu_resp_in.ar_ready) begin
+                        ax_busy_d = 1'b0;
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_R: begin
+                    wb_id_d = {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]};
                     cd_data_incoming = 1'b1;
                     // send writeback request
-                    aw_valid_out     = 'b1;
+                    aw_valid_out     = fifo_empty;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.ar.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
@@ -138,36 +140,34 @@ always_comb begin
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_i.aw_ready) begin
-                        if (Legacy)
-                            ax_op_d = AMO_WAIT_WB_R;
-                        else if (ccu_req_holder_q.ar.lock)
+                    if (ccu_resp_in.aw_ready && fifo_empty) begin
+                        if (ccu_req_holder_q.ar.lock)
                             // Blocking behavior for AMO operations
                             // TODO: check if truly needed
                             ax_op_d = AMO_WAIT_WB_R;
                         else
-                            ax_busy_d = 1'b0;
+                            ax_busy_d = !ccu_resp_in.w_ready;
                     end
                 end
                 SEND_AXI_REQ_W: begin
-                    w_busy_d      = 1'b1;
-                    aw_valid_out  = 'b1;
-                    aw_out        = ccu_req_holder_q.aw;
-                    if (ccu_resp_i.aw_ready) begin
-                        if (ccu_req_holder_q.aw.atop[5])
-                            // Blocking behavior for AMO operations
-                            // TODO: check if truly needed
-                            ax_op_d = AMO_WAIT_READ;
-                        else if (Legacy)
-                            ax_op_d = LEGACY_WAIT_WRITE;
-                        else
-                            ax_busy_d = 1'b0;
+                    if (wb_id_q != ccu_req_holder_q.aw.id || !cd_busy_o) begin
+                        aw_valid_out  = 'b1;
+                        aw_out        = ccu_req_holder_q.aw;
+                        if (ccu_resp_in.aw_ready) begin
+                            if (ccu_req_holder_q.aw.atop[5])
+                                // Blocking behavior for AMO operations
+                                // TODO: check if truly needed
+                                ax_op_d = AMO_WAIT_READ;
+                            else
+                                ax_busy_d = !ccu_resp_in.w_ready;
+                        end
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_W: begin
+                    wb_id_d = {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]};
                     cd_data_incoming = 1'b1;
                     // send writeback request
-                    aw_valid_out     = 'b1;
+                    aw_valid_out     = fifo_empty;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.aw.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
@@ -178,37 +178,36 @@ always_comb begin
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_i.aw_ready) begin
-                        if (Legacy)
-                            ax_op_d = LEGACY_WAIT_WB_W;
+                    if (ccu_resp_in.aw_ready && fifo_empty) begin
+                        if (ccu_req_holder_q.aw.atop[5])
+                            ax_op_d = AMO_WAIT_WB_W;
                         else
                             ax_op_d = SEND_AXI_REQ_W;
                     end
                 end
                 AMO_WAIT_READ: begin
-                    if(ccu_resp_i.r_valid && ccu_req_i.r_ready && ccu_resp_i.r.last)
-                        ax_busy_d = 1'b0;
-                end
-                LEGACY_WAIT_WRITE: begin
-                    if(ccu_resp_i.b_valid && ccu_req_i.b_ready)
+                    if(ccu_resp_in.r_valid && ccu_req_i.r_ready && ccu_resp_in.r.last
+                    && ccu_resp_in.r.id == ccu_req_holder_q.aw.id)
                         ax_busy_d = 1'b0;
                 end
                 AMO_WAIT_WB_R: begin
-                    if(ccu_resp_i.b_valid && ccu_req_o.b_ready)
-                        if (ccu_req_holder_q.ar.lock) begin
-                            ax_op_d = SEND_AXI_REQ_R;
-                        end else begin
-                            ax_busy_d = 1'b0;
-                        end
+                    if(ccu_resp_in.b_valid && ccu_req_out.b_ready
+                    && ccu_resp_in.b.id == {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
+                        ax_op_d = SEND_AXI_REQ_R;
                 end
-                LEGACY_WAIT_WB_W: begin
-                    if(ccu_resp_i.b_valid && ccu_req_o.b_ready)
+                AMO_WAIT_WB_W: begin
+                    if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
+                    ccu_resp_in.b.id == {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
                         ax_op_d = SEND_AXI_REQ_W;
                 end
             endcase
         end
     endcase
 end
+
+typedef enum logic [1:0] {W_IDLE, W_PASSTHROUGH, W_FROM_FIFO_W, W_FROM_FIFO_R} w_state_t;
+
+w_state_t w_state_q, w_state_d;
 
 logic [AxiDataWidth-1:0] fifo_data_in, fifo_data_out;
 logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
@@ -219,25 +218,11 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     if(!rst_ni) begin
         fifo_state_q <= FIFO_IDLE;
         fifo_first_responder_q <= '0;
-        w_last_q <= 1'b0;
     end else begin
         fifo_state_q <= fifo_state_d;
         fifo_first_responder_q <= fifo_first_responder_d;
-        w_last_q <= w_last_d;
     end
 end
-
-always_ff @(posedge clk_i or negedge rst_ni) begin
-    if(!rst_ni) begin
-        w_busy_q <= 1'b0;
-    end else if(ccu_resp_i.b_valid && ccu_req_o.b_ready) begin
-        w_busy_q <= 1'b0;
-    end else begin
-        w_busy_q <= w_busy_d;
-    end
-end
-
-logic fifo_push, fifo_flush, fifo_pop, fifo_full, fifo_empty;
 
 always_comb begin
     fifo_state_d = fifo_state_q;
@@ -261,7 +246,7 @@ always_comb begin
             end
         end
         FIFO_WAIT: begin
-            if (ccu_resp_i.b_valid && ccu_req_o.b_ready)
+            if (ccu_resp_in.b_valid && ccu_req_out.b_ready && ccu_resp_in.b.id == wb_id_q)
                 fifo_state_d = FIFO_IDLE;
         end
     endcase
@@ -270,9 +255,9 @@ end
 
 assign cd_busy_o    = fifo_state_q != FIFO_IDLE;
 assign fifo_push    = cd_busy_o && cd_valid_i[fifo_first_responder_q] && cd_ready_o[fifo_first_responder_q];
-assign fifo_flush   = !cd_busy_o;
+assign fifo_flush   = fifo_state_q == FIFO_IDLE;
 assign fifo_data_in = cd_i[fifo_first_responder_q].data;
-assign fifo_pop     = w_busy_q ? '0 : ccu_resp_i.w_ready && ccu_req_o.w_valid;
+assign fifo_pop     = w_state_q inside {W_FROM_FIFO_W, W_FROM_FIFO_R} ? ccu_resp_in.w_ready && ccu_req_out.w_valid : '0;
 
 
   fifo_v3 #(
@@ -323,40 +308,135 @@ always_comb begin
 end
 
 // AR
-assign ccu_req_o.ar = ar_out;
-assign ccu_req_o.ar_valid = ar_valid_out;
+assign ccu_req_out.ar = ar_out;
+assign ccu_req_out.ar_valid = ar_valid_out;
 
 // AW
-assign ccu_req_o.aw = aw_out;
-assign ccu_req_o.aw_valid = aw_valid_out;
+assign ccu_req_out.aw = aw_out;
+assign ccu_req_out.aw_valid = aw_valid_out;
 
 // R passthrough
-assign ccu_resp_o.r = ccu_resp_i.r;
-assign ccu_resp_o.r_valid = ccu_resp_i.r_valid;
-assign ccu_req_o.r_ready = ccu_req_i.r_ready;
+assign ccu_resp_o.r = ccu_resp_in.r;
+assign ccu_resp_o.r_valid = ccu_resp_in.r_valid;
+assign ccu_req_out.r_ready = ccu_req_i.r_ready;
 
-always_comb begin
+// W and B
 
-    w_last_d = 1'b0;
-
-    // W and B
-    // Connect the FIFO as long as the transmission is ongoing
-    if (cd_busy_o && !w_busy_q) begin
-        w_last_d = ccu_resp_i.w_ready && !fifo_empty;
-        ccu_req_o.w_valid =  !fifo_empty;
-        ccu_req_o.w.strb  =  '1;
-        ccu_req_o.w.data  =  fifo_data_out;
-        ccu_req_o.w.last  =  w_last_q;
-        ccu_req_o.b_ready = 'b1;
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if(!rst_ni) begin
+        w_state_q <= W_IDLE;
+        w_last_q <= 1'b0;
     end else begin
-        ccu_req_o.w         =  ccu_req_i.w;
-        ccu_req_o.w_valid   =  ccu_req_i.w_valid;
-        ccu_req_o.b_ready   =  ccu_req_i.b_ready;
-
-        ccu_resp_o.b        =  ccu_resp_i.b;
-        ccu_resp_o.b_valid  =  ccu_resp_i.b_valid;
-        ccu_resp_o.w_ready  =  ccu_resp_i.w_ready;
+        w_state_q <= w_state_d;
+        w_last_q <= w_last_d;
     end
 end
+
+logic wb_expected_q;
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if(!rst_ni) begin
+        wb_expected_q <= 1'b0;
+        wb_id_q <= '0;
+    end else if(ccu_resp_in.b_valid &&
+                ccu_req_out.b_ready &&
+                ccu_resp_in.b.id == wb_id_q) begin
+        wb_expected_q <= 1'b0;
+        wb_id_q <= '0;
+    end else if(cd_data_incoming) begin
+        wb_expected_q <= 1'b1;
+        wb_id_q <= wb_id_d;
+    end
+end
+
+
+
+always_comb begin
+    w_last_d = w_last_q;
+    w_state_d = w_state_q;
+
+    ccu_req_out.w  = ccu_req_i.w;
+    ccu_req_out.w_valid = 1'b0;
+    ccu_resp_o.w_ready  =  1'b0;
+
+    case (w_state_q)
+        W_IDLE: begin
+            w_last_d = 1'b0;
+            if (ax_busy_q && ccu_req_out.aw_valid) begin
+                case (ax_op_q)
+                    SEND_AXI_REQ_WRITE_BACK_W: begin
+                        w_state_d = W_FROM_FIFO_W;
+                    end
+                    SEND_AXI_REQ_WRITE_BACK_R:
+                        w_state_d = W_FROM_FIFO_R;
+                    SEND_AXI_REQ_W: begin
+                        w_state_d = W_PASSTHROUGH;
+                    end
+                    default:
+                        w_state_d = W_IDLE;
+                endcase
+            end
+        end
+        W_PASSTHROUGH: begin
+            ccu_req_out.w_valid   =  ccu_req_i.w_valid;
+            ccu_resp_o.w_ready  =  ccu_resp_in.w_ready;
+
+            if(ccu_resp_in.w_ready && ccu_req_i.w_valid && ccu_req_i.w.last)
+                w_state_d = W_IDLE;
+        end
+        W_FROM_FIFO_R, W_FROM_FIFO_W: begin
+            // Connect the FIFO as long as the transmission is ongoing
+            w_last_d = ccu_resp_in.w_ready && !fifo_empty;
+            ccu_req_out.w_valid =  !fifo_empty;
+            ccu_req_out.w.strb  =  '1;
+            ccu_req_out.w.data  =  fifo_data_out;
+            ccu_req_out.w.last  =  w_last_q;
+
+            if(ccu_resp_in.w_ready && !fifo_empty && w_last_q)
+                if (w_state_q == W_FROM_FIFO_W) begin
+                    w_state_d = ax_busy_q && ax_op_q == AMO_WAIT_WB_W ? W_IDLE : W_PASSTHROUGH;
+                end else begin
+                    w_state_d = W_IDLE;
+                end
+        end
+    endcase
+end
+
+assign ccu_resp_o.b =  ccu_resp_in.b;
+
+always_comb begin
+    ccu_req_out.b_ready = 1'b0;
+    ccu_resp_o.b_valid  =  1'b0;
+
+    if (wb_expected_q && ccu_resp_in.b.id == wb_id_q) begin
+        ccu_req_out.b_ready = 'b1;
+    end else begin
+        ccu_req_out.b_ready =  ccu_req_i.b_ready;
+        ccu_resp_o.b_valid  =  ccu_resp_in.b_valid;
+    end
+end
+
+
+axi_fifo #(
+    .Depth     (4),
+    .aw_chan_t (mst_aw_chan_t),
+    .w_chan_t  (w_chan_t),
+    .b_chan_t  (mst_b_chan_t),
+    .ar_chan_t (mst_ar_chan_t),
+    .r_chan_t  (mst_r_chan_t),
+    .axi_req_t (mst_req_t),
+    .axi_resp_t(mst_resp_t)
+) fifo_to_from_mem_i (
+    .clk_i,
+    .rst_ni,
+    .test_i (1'b0),
+    // slave port
+    .slv_req_i (ccu_req_out),
+    .slv_resp_o (ccu_resp_in),
+    // master port
+    .mst_req_o (ccu_req_o),
+    .mst_resp_i (ccu_resp_i)
+);
+
 
 endmodule
