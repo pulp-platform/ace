@@ -49,7 +49,7 @@ mst_resp_t ccu_resp_in;
 
 mst_req_t ccu_req_holder_q;
 logic [MstIdxBits-1:0] first_responder_q, fifo_first_responder_q, fifo_first_responder_d;
-logic [NoMstPorts-1:0] data_available_q;
+logic [NoMstPorts-1:0] data_available_q, fifo_data_available_q, fifo_data_available_d;
 
 logic sample_dec_data;
 
@@ -129,9 +129,8 @@ always_comb begin
                 end
                 SEND_AXI_REQ_WRITE_BACK_R: begin
                     wb_id_d = {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]};
-                    cd_data_incoming = 1'b1;
                     // send writeback request
-                    aw_valid_out     = fifo_empty;
+                    aw_valid_out     = !wb_expected_q;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.ar.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
@@ -142,7 +141,8 @@ always_comb begin
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_in.aw_ready && fifo_empty) begin
+                    if (ccu_resp_in.aw_ready && !wb_expected_q) begin
+                        cd_data_incoming = 1'b1;
                         if (ccu_req_holder_q.ar.lock)
                             // Blocking behavior for AMO operations
                             // TODO: check if truly needed
@@ -171,9 +171,8 @@ always_comb begin
                 end
                 SEND_AXI_REQ_WRITE_BACK_W: begin
                     wb_id_d = {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]};
-                    cd_data_incoming = 1'b1;
                     // send writeback request
-                    aw_valid_out     = fifo_empty;
+                    aw_valid_out     = !wb_expected_q;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.aw.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
@@ -184,7 +183,8 @@ always_comb begin
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_in.aw_ready && fifo_empty) begin
+                    if (ccu_resp_in.aw_ready && !wb_expected_q) begin
+                        cd_data_incoming = 1'b1;
                         if (ccu_req_holder_q.aw.atop[5])
                             ax_op_d = AMO_WAIT_WB_W;
                         else
@@ -224,9 +224,11 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     if(!rst_ni) begin
         fifo_state_q <= FIFO_IDLE;
         fifo_first_responder_q <= '0;
+        fifo_data_available_q <= '0;
     end else begin
         fifo_state_q <= fifo_state_d;
         fifo_first_responder_q <= fifo_first_responder_d;
+        fifo_data_available_q <= fifo_data_available_d;
     end
 end
 
@@ -235,6 +237,7 @@ logic [NoMstPorts-1:0] cd_last_q;
 always_comb begin
     fifo_state_d = fifo_state_q;
     fifo_first_responder_d = fifo_first_responder_q;
+    fifo_data_available_d  = fifo_data_available_q;
 
     fifo_push = 1'b0;
 
@@ -243,6 +246,7 @@ always_comb begin
             if (cd_data_incoming) begin
                 fifo_state_d = FIFO_LOWER_HALF;
                 fifo_first_responder_d = first_responder_q;
+                fifo_data_available_d  = data_available_q;
             end
         end
         FIFO_LOWER_HALF: begin
@@ -254,18 +258,18 @@ always_comb begin
         FIFO_UPPER_HALF: begin
             if(cd_valid_i[fifo_first_responder_q] && cd_ready_o[fifo_first_responder_q]) begin
                 fifo_push = 1'b1;
-                fifo_state_d = cd_last_q == data_available_q ? FIFO_IDLE : FIFO_WAIT_LAST_CD;
+                fifo_state_d = cd_last_q == fifo_data_available_q ? FIFO_IDLE : FIFO_WAIT_LAST_CD;
             end
         end
         FIFO_WAIT_LAST_CD: begin
-            if (cd_last_q == data_available_q)
+            if (cd_last_q == fifo_data_available_q)
                 fifo_state_d = FIFO_IDLE;
         end
     endcase
 
 end
 
-assign cd_busy_o    = cd_last_q != data_available_q;
+assign cd_busy_o    = cd_last_q != fifo_data_available_q;
 assign fifo_flush   = 1'b0;
 assign fifo_data_in = cd_i[fifo_first_responder_q].data;
 assign fifo_pop     = w_state_q inside {W_FROM_FIFO_W, W_FROM_FIFO_R} ? ccu_resp_in.w_ready && ccu_req_out.w_valid : '0;
@@ -296,7 +300,7 @@ for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
         end else if(fifo_state_q == FIFO_IDLE) begin
             cd_last_q[i] <= '0;
         end else if(cd_valid_i[i]) begin
-            cd_last_q[i] <= (cd_i[i].last & data_available_q[i]);
+            cd_last_q[i] <= (cd_i[i].last & fifo_data_available_q[i]);
         end
     end
 end
@@ -306,7 +310,7 @@ always_comb begin
 
     if (fifo_state_q != FIFO_IDLE) begin
         for (int i = 0; i < NoMstPorts; i = i + 1) begin
-            cd_ready_o[i] = !cd_last_q[i] && data_available_q[i];
+            cd_ready_o[i] = !cd_last_q[i] && fifo_data_available_q[i];
         end
 
         if (fifo_full) begin
