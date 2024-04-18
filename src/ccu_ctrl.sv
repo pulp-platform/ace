@@ -46,6 +46,42 @@ localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(ariane_pkg::DCACHE_LINE_WIDTH/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
 
+logic   [SlvAxiIDWidth:0] b_inp_id;
+logic  [AxiAddrWidth-1:0] b_inp_data;
+logic                     b_inp_req;
+logic                     b_inp_gnt;
+
+logic [AxiAddrWidth-1:0]  b_exists_data;
+logic [AxiAddrWidth-1:0]  b_exists_mask;
+logic                     b_exists_req;
+logic                     b_exists;
+logic                     b_exists_gnt;
+
+logic   [SlvAxiIDWidth:0] b_oup_id;
+logic                     b_oup_pop;
+logic                     b_oup_req;
+logic [AxiAddrWidth-1:0]  b_oup_data;
+logic                     b_oup_data_valid;
+logic                     b_oup_gnt;
+
+logic  [SlvAxiIDWidth :0] r_inp_id;
+logic  [AxiAddrWidth-1:0] r_inp_data;
+logic                     r_inp_req;
+logic                     r_inp_gnt;
+
+logic [AxiAddrWidth-1:0]  r_exists_data;
+logic [AxiAddrWidth-1:0]  r_exists_mask;
+logic                     r_exists_req;
+logic                     r_exists;
+logic                     r_exists_gnt;
+
+logic   [SlvAxiIDWidth:0] r_oup_id;
+logic                     r_oup_pop;
+logic                     r_oup_req;
+logic [AxiAddrWidth-1:0]  r_oup_data;
+logic                     r_oup_data_valid;
+logic                     r_oup_gnt;
+
 
 mst_resp_t mu_ccu_resp;
 mst_req_t  mu_ccu_req;
@@ -83,7 +119,7 @@ for (genvar i = 0; i < NoMstPorts; i++) begin
     assign cd_valid[i] = m2s_resp_i[i].cd_valid;
 end
 
-logic dec_lookup_req, dec_collision;
+logic dec_lookup_req, dec_collision, dec_b_queue_full, dec_r_queue_full;
 
 ccu_ctrl_decoder  #(
     .DcacheLineWidth (DcacheLineWidth),
@@ -127,7 +163,9 @@ ccu_ctrl_decoder  #(
     .first_responder_o    (dec_first_responder),
 
     .lookup_req_o         (dec_lookup_req),
-    .collision_i          (dec_collision)
+    .collision_i          (dec_collision),
+    .b_queue_full_i       (~b_inp_gnt),
+    .r_queue_full_i       (~r_inp_gnt)
 );
 
 ccu_ctrl_snoop_unit #(
@@ -263,42 +301,6 @@ always_comb begin
     end
 end
 
-logic   [SlvAxiIDWidth:0] b_inp_id;
-logic  [AxiAddrWidth-1:0] b_inp_data;
-logic                     b_inp_req;
-logic                     b_inp_gnt;
-
-logic [AxiAddrWidth-1:0]  b_exists_data;
-logic [AxiAddrWidth-1:0]  b_exists_mask;
-logic                     b_exists_req;
-logic                     b_exists;
-logic                     b_exists_gnt;
-
-logic   [SlvAxiIDWidth:0] b_oup_id;
-logic                     b_oup_pop;
-logic                     b_oup_req;
-logic [AxiAddrWidth-1:0]  b_oup_data;
-logic                     b_oup_data_valid;
-logic                     b_oup_gnt;
-
-logic  [SlvAxiIDWidth :0] r_inp_id;
-logic  [AxiAddrWidth-1:0] r_inp_data;
-logic                     r_inp_req;
-logic                     r_inp_gnt;
-
-logic [AxiAddrWidth-1:0]  r_exists_data;
-logic [AxiAddrWidth-1:0]  r_exists_mask;
-logic                     r_exists_req;
-logic                     r_exists;
-logic                     r_exists_gnt;
-
-logic   [SlvAxiIDWidth:0] r_oup_id;
-logic                     r_oup_pop;
-logic                     r_oup_req;
-logic [AxiAddrWidth-1:0]  r_oup_data;
-logic                     r_oup_data_valid;
-logic                     r_oup_gnt;
-
 // Exists
 assign dec_collision = (b_exists || r_exists);
 
@@ -306,11 +308,11 @@ assign dec_collision = (b_exists || r_exists);
 
 
 assign b_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
-assign b_exists_mask = {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset;
+assign b_exists_mask = ~{DCacheByteOffset{1'b1}};
 assign b_exists_req  = dec_lookup_req;
 
 assign r_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
-assign r_exists_mask = {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset;
+assign r_exists_mask = ~{DCacheByteOffset{1'b1}};
 assign r_exists_req  = dec_lookup_req;
 
 // Oup
@@ -339,7 +341,7 @@ typedef logic [AxiAddrWidth-1:0] id_queue_data_t;
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (16),
+    .CAPACITY (4),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
 ) b_id_queue (
@@ -367,7 +369,7 @@ id_queue #(
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (16),
+    .CAPACITY (4),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
 ) r_id_queue (
