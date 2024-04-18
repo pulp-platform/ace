@@ -11,6 +11,7 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
+    parameter bit          CollisionOnSetOnly = 0,
     parameter type mst_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type mst_b_chan_t  = logic,
@@ -308,11 +309,13 @@ assign dec_collision = (b_exists || r_exists);
 
 
 assign b_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
-assign b_exists_mask = ~{DCacheByteOffset{1'b1}};
+assign b_exists_mask = CollisionOnSetOnly ? {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset
+                                          : ~{DCacheByteOffset{1'b1}};
 assign b_exists_req  = dec_lookup_req;
 
 assign r_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
-assign r_exists_mask = ~{DCacheByteOffset{1'b1}};
+assign r_exists_mask = CollisionOnSetOnly ? {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset
+                                          : ~{DCacheByteOffset{1'b1}};
 assign r_exists_req  = dec_lookup_req;
 
 // Oup
