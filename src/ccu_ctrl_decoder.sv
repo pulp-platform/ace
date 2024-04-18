@@ -43,7 +43,10 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                         shared_o,
     output logic                         dirty_o,
     output logic        [NoMstPorts-1:0] data_available_o,
-    output logic        [MstIdxBits-1:0] first_responder_o
+    output logic        [MstIdxBits-1:0] first_responder_o,
+
+    output logic                         lookup_req_o,
+    input  logic                         collision_i
 );
 
     logic [NoMstPorts-1:0] initiator_d, initiator_q;
@@ -52,6 +55,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     enum {
       IDLE,
+      DECODE_R,
+      DECODE_W,
       SEND_READ,
       SEND_INVALID_R,
       SEND_INVALID_W,
@@ -76,7 +81,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     logic send_invalid_r;
 
-    assign send_invalid_r = ccu_req_i.ar.snoop == snoop_pkg::CLEAN_UNIQUE || ccu_req_i.ar.lock;
+    assign send_invalid_r = ccu_req_holder_q.ar.snoop == snoop_pkg::CLEAN_UNIQUE || ccu_req_holder_q.ar.lock;
 
     for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
         assign ac_handshake[i] = m2s_resp_i[i].ac_ready & s2m_req_o[i].ac_valid;
@@ -106,7 +111,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         always_ff @ (posedge clk_i, negedge rst_ni) begin
             if(!rst_ni) begin
                 ac_handshake_q[i] <= '0;
-            end else if(decode_r || decode_w) begin
+            end else if(state_q inside {DECODE_R, DECODE_W}) begin
                 ac_handshake_q[i] <= initiator_d[i];
             end else if(state_q inside {SEND_READ, SEND_INVALID_R, SEND_INVALID_W}) begin
                 if (ac_handshake[i])
@@ -215,6 +220,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         decode_r = 1'b0;
         decode_w = 1'b0;
 
+        lookup_req_o = 1'b0;
+
         case (state_q)
             IDLE: begin
 
@@ -223,18 +230,31 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                 //  wait for incoming valid request from master
                 if(ccu_req_i.ar_valid & prio_r) begin
                     decode_r = 1'b1;
-                    state_d = send_invalid_r ? SEND_INVALID_R : SEND_READ;
+                    state_d = DECODE_R;
                     initiator_d[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                     prio_d.waiting_w = ccu_req_i.aw_valid;
                 end else if(ccu_req_i.aw_valid & prio_w) begin
                     decode_w = 1'b1;
-                    state_d = SEND_INVALID_W;
+                    state_d = DECODE_W;
                     initiator_d[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                     prio_d.waiting_r = ccu_req_i.ar_valid;
                 end
+            end
 
-                slv_ar_ready_o = prio_r;
-                slv_aw_ready_o = prio_w;
+            DECODE_W: begin
+                lookup_req_o = 1'b1;
+                if (!collision_i) begin
+                    state_d = SEND_INVALID_W;
+                    slv_aw_ready_o = 1'b1;
+                end
+            end
+
+            DECODE_R: begin
+                lookup_req_o = 1'b1;
+                if (!collision_i) begin
+                    state_d = send_invalid_r ? SEND_INVALID_R : SEND_READ;
+                    slv_ar_ready_o = 1'b1;
+                end
             end
 
             SEND_READ: begin

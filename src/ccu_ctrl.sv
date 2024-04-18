@@ -38,8 +38,13 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
 );
 
-localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth;
-localparam int unsigned MstIdxBits      = $clog2(NoMstPorts);
+import axi_pkg::*;
+import ariane_pkg::*;
+
+localparam int unsigned AxiAddrWidth     = 64;
+localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
+localparam int unsigned DCacheByteOffset = $clog2(ariane_pkg::DCACHE_LINE_WIDTH/8);
+localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
 
 
 mst_resp_t mu_ccu_resp;
@@ -77,6 +82,8 @@ for (genvar i = 0; i < NoMstPorts; i++) begin
     assign cd[i] = m2s_resp_i[i].cd;
     assign cd_valid[i] = m2s_resp_i[i].cd_valid;
 end
+
+logic dec_lookup_req, dec_collision;
 
 ccu_ctrl_decoder  #(
     .DcacheLineWidth (DcacheLineWidth),
@@ -117,7 +124,10 @@ ccu_ctrl_decoder  #(
     .shared_o             (dec_shared),
     .dirty_o              (dec_dirty),
     .data_available_o     (data_available),
-    .first_responder_o    (dec_first_responder)
+    .first_responder_o    (dec_first_responder),
+
+    .lookup_req_o         (dec_lookup_req),
+    .collision_i          (dec_collision)
 );
 
 ccu_ctrl_snoop_unit #(
@@ -253,4 +263,133 @@ always_comb begin
     end
 end
 
+logic   [SlvAxiIDWidth:0] b_inp_id;
+logic  [AxiAddrWidth-1:0] b_inp_data;
+logic                     b_inp_req;
+logic                     b_inp_gnt;
+
+logic [AxiAddrWidth-1:0]  b_exists_data;
+logic [AxiAddrWidth-1:0]  b_exists_mask;
+logic                     b_exists_req;
+logic                     b_exists;
+logic                     b_exists_gnt;
+
+logic   [SlvAxiIDWidth:0] b_oup_id;
+logic                     b_oup_pop;
+logic                     b_oup_req;
+logic [AxiAddrWidth-1:0]  b_oup_data;
+logic                     b_oup_data_valid;
+logic                     b_oup_gnt;
+
+logic  [SlvAxiIDWidth :0] r_inp_id;
+logic  [AxiAddrWidth-1:0] r_inp_data;
+logic                     r_inp_req;
+logic                     r_inp_gnt;
+
+logic [AxiAddrWidth-1:0]  r_exists_data;
+logic [AxiAddrWidth-1:0]  r_exists_mask;
+logic                     r_exists_req;
+logic                     r_exists;
+logic                     r_exists_gnt;
+
+logic   [SlvAxiIDWidth:0] r_oup_id;
+logic                     r_oup_pop;
+logic                     r_oup_req;
+logic [AxiAddrWidth-1:0]  r_oup_data;
+logic                     r_oup_data_valid;
+logic                     r_oup_gnt;
+
+// Exists
+assign dec_collision = (b_exists || r_exists);
+
+// _gnt is not used as it is combinationally set when req = 1
+
+
+assign b_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
+assign b_exists_mask = {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset;
+assign b_exists_req  = dec_lookup_req;
+
+assign r_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
+assign r_exists_mask = {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset;
+assign r_exists_req  = dec_lookup_req;
+
+// Oup
+assign b_oup_id  = ccu_resp_o.b.id;
+assign b_oup_pop = 1'b1;
+assign b_oup_req = ccu_resp_o.b_valid && ccu_req_i.b_ready;
+
+assign r_oup_id  = ccu_resp_o.r.id;
+assign r_oup_pop = 1'b1;
+assign r_oup_req = ccu_resp_o.r_valid && ccu_req_i.r_ready && ccu_resp_o.r.last;
+
+// _data_* not used
+// _gnt is not used as it is combinationally set when req = 1
+
+// Inp
+assign b_inp_id   = ccu_req_i.aw.id;
+assign b_inp_data = axi_pkg::aligned_addr(ccu_req_i.aw.addr,ccu_req_i.aw.size);
+assign b_inp_req  = ccu_req_i.aw_valid && ccu_resp_o.aw_ready;
+
+assign r_inp_id   = ccu_req_i.ar.id;
+assign r_inp_data = axi_pkg::aligned_addr(ccu_req_i.ar.addr,ccu_req_i.ar.size);
+assign r_inp_req  = ccu_req_i.ar_valid && ccu_resp_o.ar_ready;
+
+
+typedef logic [AxiAddrWidth-1:0] id_queue_data_t;
+
+id_queue #(
+    .ID_WIDTH (SlvAxiIDWidth+1),
+    .CAPACITY (16),
+    .FULL_BW  (1),
+    .data_t   (id_queue_data_t)
+) b_id_queue (
+    .clk_i,
+    .rst_ni,
+
+    .inp_id_i         (b_inp_id),
+    .inp_data_i       (b_inp_data),
+    .inp_req_i        (b_inp_req),
+    .inp_gnt_o        (b_inp_gnt),
+
+    .exists_data_i    (b_exists_data),
+    .exists_mask_i    (b_exists_mask),
+    .exists_req_i     (b_exists_req),
+    .exists_o         (b_exists),
+    .exists_gnt_o     (b_exists_gnt),
+
+    .oup_id_i         (b_oup_id),
+    .oup_pop_i        (b_oup_pop),
+    .oup_req_i        (b_oup_req),
+    .oup_data_o       (b_oup_data),
+    .oup_data_valid_o (b_oup_data_valid),
+    .oup_gnt_o        (b_oup_gnt)
+);
+
+id_queue #(
+    .ID_WIDTH (SlvAxiIDWidth+1),
+    .CAPACITY (16),
+    .FULL_BW  (1),
+    .data_t   (id_queue_data_t)
+) r_id_queue (
+    .clk_i,
+    .rst_ni,
+
+    .inp_id_i         (r_inp_id),
+    .inp_data_i       (r_inp_data),
+    .inp_req_i        (r_inp_req),
+    .inp_gnt_o        (r_inp_gnt),
+
+    .exists_data_i    (r_exists_data),
+    .exists_mask_i    (r_exists_mask),
+    .exists_req_i     (r_exists_req),
+    .exists_o         (r_exists),
+    .exists_gnt_o     (r_exists_gnt),
+
+    .oup_id_i         (r_oup_id),
+    .oup_pop_i        (r_oup_pop),
+    .oup_req_i        (r_oup_req),
+    .oup_data_o       (r_oup_data),
+    .oup_data_valid_o (r_oup_data_valid),
+    .oup_gnt_o        (r_oup_gnt)
+);
 endmodule
