@@ -101,20 +101,22 @@ logic dec_shared, dec_dirty;
 logic [MstIdxBits-1:0] dec_first_responder, cd_first_responder_in, cd_first_responder_out;
 
 snoop_cd_t [NoMstPorts-1:0] cd;
-logic [NoMstPorts-1:0] cd_valid, mu_cd_valid, su_cd_valid;
-logic [NoMstPorts-1:0] cd_ready, mu_cd_ready, su_cd_ready;
-logic mu_cd_done, su_cd_done;
+snoop_cd_t                  cd_first_responder;
+logic                       cd_handshake, mu_cd_handshake, su_cd_handshake;
+logic      [NoMstPorts-1:0] cd_valid;
+logic      [NoMstPorts-1:0] cd_ready;
+logic      [NoMstPorts-1:0] cd_data_available_in, cd_data_available_out;
+logic      [NoMstPorts-1:0] cd_last_q;
+logic                       cd_fifo_full, mu_cd_fifo_full, su_cd_fifo_full;
 
 mst_r_chan_t su_r;
 logic        su_r_valid, su_r_ready;
-
-logic [NoMstPorts-1:0] data_available, cd_data_available_in, cd_data_available_out;
 
 logic ccu_ar_ready, ccu_aw_ready;
 
 snoop_req_t [NoMstPorts-1:0] dec_snoop_req;
 
-logic dec_lookup_req, dec_collision, dec_b_queue_full, dec_r_queue_full;
+logic dec_lookup_req, dec_collision;
 
 logic dec_cd_fifo_stall;
 
@@ -156,7 +158,7 @@ ccu_ctrl_decoder  #(
     .mu_op_o              (mu_op),
     .shared_o             (dec_shared),
     .dirty_o              (dec_dirty),
-    .data_available_o     (data_available),
+    .data_available_o     (cd_data_available_in),
     .first_responder_o    (dec_first_responder),
 
     .lookup_req_o         (dec_lookup_req),
@@ -186,19 +188,21 @@ ccu_ctrl_snoop_unit #(
 ) ccu_ctrl_snoop_unit_i (
     .clk_i,
     .rst_ni,
+
     .r_o                   (su_r),
     .r_valid_o             (su_r_valid),
     .r_ready_i             (su_r_ready),
-    .cd_i                  (cd),
-    .cd_valid_i            (su_cd_valid),
-    .cd_ready_o            (su_cd_ready),
-    .cd_done_o             (su_cd_done),
-    .cd_data_available_i   (cd_data_available_out),
-    .cd_first_responder_i  (cd_first_responder_out),
+
+    .cd_i                  (cd_first_responder),
+    .cd_handshake_i        (su_cd_handshake),
+    .cd_fifo_full_o        (su_cd_fifo_full),
+
     .ccu_req_holder_i      (dec_ccu_req_holder),
+
     .su_ready_o            (su_ready),
     .su_valid_i            (su_valid),
     .su_op_i               (su_op),
+
     .shared_i              (dec_shared),
     .dirty_i               (dec_dirty)
 );
@@ -230,12 +234,9 @@ ccu_ctrl_memory_unit #(
     .ccu_req_o,
     .ccu_resp_i,
 
-    .cd_i                 (cd),
-    .cd_valid_i           (mu_cd_valid),
-    .cd_ready_o           (mu_cd_ready),
-    .cd_done_o            (mu_cd_done),
-    .cd_first_responder_i (cd_first_responder_out),
-    .cd_data_available_i  (cd_data_available_out),
+    .cd_i              (cd_first_responder),
+    .cd_handshake_i    (mu_cd_handshake),
+    .cd_fifo_full_o    (mu_cd_fifo_full),
 
     .ccu_req_holder_i  (dec_ccu_req_holder),
     .mu_ready_o        (mu_ready),
@@ -404,6 +405,8 @@ typedef enum logic { MEMORY_UNIT, SNOOP_UNIT } cd_user_t;
 
 cd_user_t cd_user_in, cd_user_out;
 
+logic cd_done;
+
 assign mu_wb_op = mu_op inside {SEND_AXI_REQ_WRITE_BACK_R, SEND_AXI_REQ_WRITE_BACK_W};
 assign su_wb_op = su_op == READ_SNP_DATA;
 
@@ -422,25 +425,29 @@ always_comb begin
 end
 
 always_comb begin
-    su_cd_valid = '0;
-    mu_cd_valid = '0;
-    cd_ready    = '0;
-    cd_user_pop = 1'b0;
+    su_cd_handshake = '0;
+    mu_cd_handshake = '0;
+    cd_fifo_full = '0;
+    cd_done      = '0;
 
     if (!cd_user_empty) begin
+        cd_done     = cd_last_q == cd_data_available_out;
         case (cd_user_out)
             MEMORY_UNIT: begin
-                mu_cd_valid = cd_valid;
-                cd_ready = mu_cd_ready;
-                cd_user_pop = mu_cd_done;
+                mu_cd_handshake = cd_handshake;
+                cd_fifo_full    = mu_cd_fifo_full;
             end
             SNOOP_UNIT: begin
-                su_cd_valid = cd_valid;
-                cd_ready = su_cd_ready;
-                cd_user_pop = su_cd_done;
+                su_cd_handshake = cd_handshake;
+                cd_fifo_full    = su_cd_fifo_full;
             end
         endcase
     end
+end
+
+for (genvar i = 0; i < NoMstPorts; i++) begin
+    assign cd_ready[i] = (cd_first_responder_out == i && cd_fifo_full) ? '0 :
+                         !cd_user_empty && !cd_last_q[i] && cd_data_available_out[i];
 end
 
 for (genvar i = 0; i < NoMstPorts; i++) begin
@@ -453,10 +460,11 @@ logic cd_user_out_temp, cd_user_in_temp;
 assign cd_user_in_temp        = logic'(cd_user_in);
 assign cd_user_out            = cd_user_t'(cd_user_out_temp);
 assign cd_first_responder_in  = dec_first_responder;
-assign cd_data_available_in   = data_available;
+
+assign cd_user_pop            = cd_done;
 
 fifo_v3 #(
-    .FALL_THROUGH(0),
+    .FALL_THROUGH(1),
     .DATA_WIDTH(1 + 2 * NoMstPorts),
     .DEPTH(4)
 ) cd_ordering_fifo_i (
@@ -472,5 +480,20 @@ fifo_v3 #(
     .data_o     ({cd_user_out_temp, cd_first_responder_out, cd_data_available_out}),
     .pop_i      (cd_user_pop)
 );
+
+for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
+    always_ff @ (posedge clk_i, negedge rst_ni) begin
+        if(!rst_ni) begin
+            cd_last_q[i] <= '0;
+        end else if(cd_done) begin
+            cd_last_q[i] <= '0;
+        end else if(cd_valid[i]) begin
+            cd_last_q[i] <= (cd[i].last & cd_data_available_out[i]);
+        end
+    end
+end
+
+assign cd_first_responder = cd[cd_first_responder_out];
+assign cd_handshake       = cd_valid[cd_first_responder_out] && cd_ready[cd_first_responder_out];
 
 endmodule

@@ -27,12 +27,9 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     output logic                         r_valid_o,
     input  logic                         r_ready_i,
 
-    input  snoop_cd_t   [NoMstPorts-1:0] cd_i,
-    input  logic        [NoMstPorts-1:0] cd_valid_i,
-    output logic        [NoMstPorts-1:0] cd_ready_o,
-    output logic                         cd_done_o,
-    input  logic        [NoMstPorts-1:0] cd_data_available_i,
-    input  logic        [MstIdxBits-1:0] cd_first_responder_i,
+    input  snoop_cd_t                    cd_i,
+    input  logic                         cd_handshake_i,
+    output logic                         cd_fifo_full_o,
 
     input  mst_req_t                     ccu_req_holder_i,
     output logic                         su_ready_o,
@@ -87,7 +84,7 @@ assign ar_addr_offset = ccu_req_holder_q.ar.addr[3];
 
 logic fifo_full, fifo_empty, fifo_push, fifo_pop;
 
-logic [NoMstPorts-1:0] cd_last_q;
+assign cd_fifo_full_o = fifo_full;
 
 always_comb begin
 
@@ -101,8 +98,6 @@ always_comb begin
     fifo_pop  = 1'b0;
 
     sample_dec_data = 1'b0;
-
-    cd_done_o = 1'b0;
 
     case (state_q)
         IDLE: begin
@@ -173,12 +168,7 @@ always_comb begin
 
                 if (r_ready_i) begin
                     fifo_pop = 1'b1;
-                    if (cd_last_q == cd_data_available_i) begin
-                        state_d = IDLE;
-                        cd_done_o = 1'b1;
-                    end else begin
-                        state_d = WAIT_CD_LAST;
-                    end
+                    state_d = IDLE;
                 end
             end
         end
@@ -192,19 +182,12 @@ always_comb begin
             if (r_ready_i)
                 state_d = IDLE;
         end
-
-        WAIT_CD_LAST: begin
-            if (cd_last_q == cd_data_available_i) begin
-                state_d = IDLE;
-                cd_done_o = 1'b1;
-            end
-        end
     endcase
 end
 
-assign fifo_push    = cd_valid_i[cd_first_responder_i] && cd_ready_o[cd_first_responder_i];
+assign fifo_push    = cd_handshake_i;
 assign fifo_flush   = 1'b0;
-assign fifo_data_in = cd_i[cd_first_responder_i].data;
+assign fifo_data_in = cd_i.data;
 
 
   fifo_v3 #(
@@ -224,30 +207,5 @@ assign fifo_data_in = cd_i[cd_first_responder_i].data;
     .data_o     (fifo_data_out),
     .pop_i      (fifo_pop)
 );
-
-// TODO: unify cd_last handling
-for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
-    always_ff @ (posedge clk_i, negedge rst_ni) begin
-        if(!rst_ni) begin
-            cd_last_q[i] <= '0;
-        end else if(cd_done_o) begin
-            cd_last_q[i] <= '0;
-        end else if(cd_valid_i[i]) begin
-            cd_last_q[i] <= (cd_i[i].last & cd_data_available_i[i]);
-        end
-    end
-end
-
-always_comb begin
-    cd_ready_o = '0;
-
-    for (int i = 0; i < NoMstPorts; i = i + 1) begin
-        cd_ready_o[i] = !cd_last_q[i] && cd_data_available_i[i];
-    end
-
-    if (fifo_full) begin
-        cd_ready_o[cd_first_responder_i] = 1'b0;
-    end
-end
 
 endmodule
