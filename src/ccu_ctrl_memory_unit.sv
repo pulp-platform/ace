@@ -32,14 +32,15 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     input  snoop_cd_t   [NoMstPorts-1:0] cd_i,
     input  logic        [NoMstPorts-1:0] cd_valid_i,
     output logic        [NoMstPorts-1:0] cd_ready_o,
-    output logic                         cd_busy_o,
     output logic                         cd_done_o,
+    input  logic        [NoMstPorts-1:0] cd_data_available_i,
+    input  logic        [MstIdxBits-1:0] cd_first_responder_i,
+
 
     input  mst_req_t                     ccu_req_holder_i,
     output logic                         mu_ready_o,
     input  logic                         mu_valid_i,
     input  mu_op_e                       mu_op_i,
-    input  logic        [NoMstPorts-1:0] data_available_i,
     input  logic        [MstIdxBits-1:0] first_responder_i
 );
 
@@ -49,10 +50,7 @@ mst_req_t  ccu_req_out;
 mst_resp_t ccu_resp_in;
 
 mst_req_t ccu_req_holder_q;
-logic [MstIdxBits-1:0] first_responder_q, fifo_first_responder_q, fifo_first_responder_d;
-logic [NoMstPorts-1:0] data_available_q, fifo_data_available_q, fifo_data_available_d;
-
-logic sample_dec_data;
+logic [MstIdxBits-1:0] first_responder_q;
 
 logic fifo_push, fifo_flush, fifo_pop, fifo_full, fifo_empty;
 
@@ -60,11 +58,9 @@ always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
         first_responder_q <= '0;
-        data_available_q <= '0;
-    end else if (sample_dec_data) begin
+    end else if (mu_ready_o && mu_valid_i) begin
         ccu_req_holder_q <= ccu_req_holder_i;
         first_responder_q <= first_responder_i;
-        data_available_q <= data_available_i;
     end
 end
 
@@ -86,7 +82,7 @@ mst_aw_chan_t aw_out;
 
 logic ar_valid_out, aw_valid_out;
 
-logic cd_data_incoming;
+logic wb_expected_en;
 
 logic w_last_d, w_last_q;
 
@@ -99,14 +95,12 @@ always_comb begin
     ax_busy_d = ax_busy_q;
     ax_op_d = ax_op_q;
 
-    sample_dec_data = 1'b0;
-
     ar_out = '0;
     aw_out = '0;
     ar_valid_out = 1'b0;
     aw_valid_out = 1'b0;
 
-    cd_data_incoming = 1'b0;
+    wb_expected_en = 1'b0;
 
     wb_id_d = wb_id_q;
 
@@ -114,7 +108,6 @@ always_comb begin
         1'b0: begin
             mu_ready_o = 1'b1;
             if (mu_valid_i) begin
-                sample_dec_data = 1'b1;
                 ax_op_d = mu_op_i;
                 ax_busy_d = 1'b1;
             end
@@ -143,7 +136,7 @@ always_comb begin
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
                     if (ccu_resp_in.aw_ready && !wb_expected_q) begin
-                        cd_data_incoming = 1'b1;
+                        wb_expected_en = 1'b1;
                         if (ccu_req_holder_q.ar.lock)
                             // Blocking behavior for AMO operations
                             // TODO: check if truly needed
@@ -185,7 +178,7 @@ always_comb begin
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
                     if (ccu_resp_in.aw_ready && !wb_expected_q) begin
-                        cd_data_incoming = 1'b1;
+                        wb_expected_en = 1'b1;
                         if (ccu_req_holder_q.aw.atop[5])
                             ax_op_d = AMO_WAIT_WB_W;
                         else
@@ -219,58 +212,35 @@ w_state_t w_state_q, w_state_d;
 logic [AxiDataWidth-1:0] fifo_data_in, fifo_data_out;
 logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
 
-enum { FIFO_IDLE, FIFO_LOWER_HALF, FIFO_UPPER_HALF, FIFO_WAIT_LAST_CD } fifo_state_q, fifo_state_d;
+enum { FIFO_IDLE, FIFO_BUSY } fifo_state_q, fifo_state_d;
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
     if(!rst_ni) begin
         fifo_state_q <= FIFO_IDLE;
-        fifo_first_responder_q <= '0;
-        fifo_data_available_q <= '0;
     end else begin
         fifo_state_q <= fifo_state_d;
-        fifo_first_responder_q <= fifo_first_responder_d;
-        fifo_data_available_q <= fifo_data_available_d;
     end
 end
 
 logic [NoMstPorts-1:0] cd_last_q;
 
+logic wb_op;
+
+assign wb_op = mu_op_i inside {SEND_AXI_REQ_WRITE_BACK_R, SEND_AXI_REQ_WRITE_BACK_W};
+
 always_comb begin
     fifo_state_d = fifo_state_q;
-    fifo_first_responder_d = fifo_first_responder_q;
-    fifo_data_available_d  = fifo_data_available_q;
-
-    fifo_push = 1'b0;
 
     cd_done_o = 1'b0;
 
     case (fifo_state_q)
         FIFO_IDLE: begin
-            if (cd_data_incoming) begin
-                fifo_state_d = FIFO_LOWER_HALF;
-                fifo_first_responder_d = first_responder_q;
-                fifo_data_available_d  = data_available_q;
+            if (mu_valid_i && wb_op) begin
+                fifo_state_d = FIFO_BUSY;
             end
         end
-        FIFO_LOWER_HALF: begin
-            if(cd_valid_i[fifo_first_responder_q] && cd_ready_o[fifo_first_responder_q]) begin
-                fifo_push = 1'b1;
-                fifo_state_d = FIFO_UPPER_HALF;
-            end
-        end
-        FIFO_UPPER_HALF: begin
-            if(cd_valid_i[fifo_first_responder_q] && cd_ready_o[fifo_first_responder_q]) begin
-                fifo_push = 1'b1;
-                if (cd_last_q == fifo_data_available_q) begin
-                    fifo_state_d = FIFO_IDLE;
-                    cd_done_o = 1'b1;
-                end else begin
-                    fifo_state_d = FIFO_WAIT_LAST_CD;
-                end
-            end
-        end
-        FIFO_WAIT_LAST_CD: begin
-            if (cd_last_q == fifo_data_available_q) begin
+        FIFO_BUSY: begin
+            if (cd_last_q == cd_data_available_i) begin
                 cd_done_o = 1'b1;
                 fifo_state_d = FIFO_IDLE;
             end
@@ -279,9 +249,9 @@ always_comb begin
 
 end
 
-assign cd_busy_o    = fifo_state_q != FIFO_IDLE;
+assign fifo_push    = cd_valid_i[cd_first_responder_i] && cd_ready_o[cd_first_responder_i];
 assign fifo_flush   = 1'b0;
-assign fifo_data_in = cd_i[fifo_first_responder_q].data;
+assign fifo_data_in = cd_i[cd_first_responder_i].data;
 assign fifo_pop     = w_state_q inside {W_FROM_FIFO_W, W_FROM_FIFO_R} ? ccu_resp_in.w_ready && ccu_req_out.w_valid : '0;
 
 
@@ -303,14 +273,16 @@ fifo_v3 #(
     .pop_i      (fifo_pop)
 );
 
+// TODO: unify cd_last handling
+
 for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
     always_ff @ (posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
             cd_last_q[i] <= '0;
-        end else if(fifo_state_q == FIFO_IDLE) begin
+        end else if(cd_done_o) begin
             cd_last_q[i] <= '0;
         end else if(cd_valid_i[i]) begin
-            cd_last_q[i] <= (cd_i[i].last & fifo_data_available_q[i]);
+            cd_last_q[i] <= (cd_i[i].last & cd_data_available_i[i]);
         end
     end
 end
@@ -318,14 +290,12 @@ end
 always_comb begin
     cd_ready_o = '0;
 
-    if (fifo_state_q != FIFO_IDLE) begin
-        for (int i = 0; i < NoMstPorts; i = i + 1) begin
-            cd_ready_o[i] = !cd_last_q[i] && fifo_data_available_q[i];
-        end
+    for (int i = 0; i < NoMstPorts; i = i + 1) begin
+        cd_ready_o[i] = !cd_last_q[i] && cd_data_available_i[i];
+    end
 
-        if (fifo_full) begin
-            cd_ready_o[fifo_first_responder_q] = 1'b0;
-        end
+    if (fifo_full) begin
+        cd_ready_o[cd_first_responder_i] = 1'b0;
     end
 
 end
@@ -364,7 +334,7 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
                 ccu_resp_in.b.id == wb_id_q) begin
         wb_expected_q <= 1'b0;
         wb_id_q <= '0;
-    end else if(cd_data_incoming) begin
+    end else if(wb_expected_en) begin
         wb_expected_q <= 1'b1;
         wb_id_q <= wb_id_d;
     end

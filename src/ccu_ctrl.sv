@@ -98,18 +98,17 @@ mst_req_t dec_ccu_req_holder;
 
 logic dec_shared, dec_dirty;
 
-logic [MstIdxBits-1:0] dec_first_responder;
+logic [MstIdxBits-1:0] dec_first_responder, cd_first_responder_in, cd_first_responder_out;
 
 snoop_cd_t [NoMstPorts-1:0] cd;
 logic [NoMstPorts-1:0] cd_valid, mu_cd_valid, su_cd_valid;
 logic [NoMstPorts-1:0] cd_ready, mu_cd_ready, su_cd_ready;
-logic mu_cd_busy, su_cd_busy;
 logic mu_cd_done, su_cd_done;
 
 mst_r_chan_t su_r;
 logic        su_r_valid, su_r_ready;
 
-logic [NoMstPorts-1:0] data_available;
+logic [NoMstPorts-1:0] data_available, cd_data_available_in, cd_data_available_out;
 
 logic ccu_ar_ready, ccu_aw_ready;
 
@@ -187,22 +186,21 @@ ccu_ctrl_snoop_unit #(
 ) ccu_ctrl_snoop_unit_i (
     .clk_i,
     .rst_ni,
-    .r_o               (su_r),
-    .r_valid_o         (su_r_valid),
-    .r_ready_i         (su_r_ready),
-    .cd_i              (cd),
-    .cd_valid_i        (su_cd_valid),
-    .cd_ready_o        (su_cd_ready),
-    .cd_busy_o         (su_cd_busy),
-    .cd_done_o         (su_cd_done),
-    .ccu_req_holder_i  (dec_ccu_req_holder),
-    .su_ready_o        (su_ready),
-    .su_valid_i        (su_valid),
-    .su_op_i           (su_op),
-    .shared_i          (dec_shared),
-    .dirty_i           (dec_dirty),
-    .data_available_i  (data_available),
-    .first_responder_i (dec_first_responder)
+    .r_o                   (su_r),
+    .r_valid_o             (su_r_valid),
+    .r_ready_i             (su_r_ready),
+    .cd_i                  (cd),
+    .cd_valid_i            (su_cd_valid),
+    .cd_ready_o            (su_cd_ready),
+    .cd_done_o             (su_cd_done),
+    .cd_data_available_i   (cd_data_available_out),
+    .cd_first_responder_i  (cd_first_responder_out),
+    .ccu_req_holder_i      (dec_ccu_req_holder),
+    .su_ready_o            (su_ready),
+    .su_valid_i            (su_valid),
+    .su_op_i               (su_op),
+    .shared_i              (dec_shared),
+    .dirty_i               (dec_dirty)
 );
 
 ccu_ctrl_memory_unit #(
@@ -232,17 +230,17 @@ ccu_ctrl_memory_unit #(
     .ccu_req_o,
     .ccu_resp_i,
 
-    .cd_i              (cd),
-    .cd_valid_i        (mu_cd_valid),
-    .cd_ready_o        (mu_cd_ready),
-    .cd_busy_o         (mu_cd_busy),
-    .cd_done_o         (mu_cd_done),
+    .cd_i                 (cd),
+    .cd_valid_i           (mu_cd_valid),
+    .cd_ready_o           (mu_cd_ready),
+    .cd_done_o            (mu_cd_done),
+    .cd_first_responder_i (cd_first_responder_out),
+    .cd_data_available_i  (cd_data_available_out),
 
     .ccu_req_holder_i  (dec_ccu_req_holder),
     .mu_ready_o        (mu_ready),
     .mu_valid_i        (mu_valid),
     .mu_op_i           (mu_op),
-    .data_available_i  (data_available),
     .first_responder_i (dec_first_responder)
 );
 
@@ -396,6 +394,8 @@ id_queue #(
     .oup_gnt_o        (r_oup_gnt)
 );
 
+// CD arbitration
+
 logic mu_wb_op, su_wb_op;
 
 logic cd_user_pop, cd_user_push, cd_user_empty, cd_user_full;
@@ -427,7 +427,7 @@ always_comb begin
     cd_ready    = '0;
     cd_user_pop = 1'b0;
 
-    if (mu_cd_busy || su_cd_busy) begin
+    if (!cd_user_empty) begin
         case (cd_user_out)
             MEMORY_UNIT: begin
                 mu_cd_valid = cd_valid;
@@ -449,12 +449,15 @@ for (genvar i = 0; i < NoMstPorts; i++) begin
     assign s2m_req_o[i].cd_ready = cd_ready[i];
 end
 
-logic cd_user_out_temp;
-assign cd_user_out = cd_user_t'(cd_user_out_temp);
+logic cd_user_out_temp, cd_user_in_temp;
+assign cd_user_in_temp        = logic'(cd_user_in);
+assign cd_user_out            = cd_user_t'(cd_user_out_temp);
+assign cd_first_responder_in  = dec_first_responder;
+assign cd_data_available_in   = data_available;
 
 fifo_v3 #(
     .FALL_THROUGH(0),
-    .DATA_WIDTH(1),
+    .DATA_WIDTH(1 + 2 * NoMstPorts),
     .DEPTH(4)
 ) cd_ordering_fifo_i (
     .clk_i      (clk_i),
@@ -464,9 +467,9 @@ fifo_v3 #(
     .full_o     (cd_user_full),
     .empty_o    (cd_user_empty),
     .usage_o    (),
-    .data_i     (cd_user_in),
+    .data_i     ({cd_user_in_temp, cd_first_responder_in, cd_data_available_in}),
     .push_i     (cd_user_push),
-    .data_o     (cd_user_out_temp),
+    .data_o     ({cd_user_out_temp, cd_first_responder_out, cd_data_available_out}),
     .pop_i      (cd_user_pop)
 );
 

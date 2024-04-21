@@ -30,17 +30,16 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     input  snoop_cd_t   [NoMstPorts-1:0] cd_i,
     input  logic        [NoMstPorts-1:0] cd_valid_i,
     output logic        [NoMstPorts-1:0] cd_ready_o,
-    output logic                         cd_busy_o,
     output logic                         cd_done_o,
+    input  logic        [NoMstPorts-1:0] cd_data_available_i,
+    input  logic        [MstIdxBits-1:0] cd_first_responder_i,
 
     input  mst_req_t                     ccu_req_holder_i,
     output logic                         su_ready_o,
     input  logic                         su_valid_i,
     input  su_op_e                       su_op_i,
     input  logic                         shared_i,
-    input  logic                         dirty_i,
-    input logic         [NoMstPorts-1:0] data_available_i,
-    input  logic        [MstIdxBits-1:0] first_responder_i
+    input  logic                         dirty_i
 );
 
 localparam FIFO_DEPTH = 2;
@@ -61,22 +60,16 @@ logic sample_dec_data;
 mst_req_t ccu_req_holder_q;
 logic shared_q;
 logic dirty_q;
-logic [MstIdxBits-1:0] first_responder_q;
-logic [NoMstPorts-1:0] data_available_q;
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
         shared_q <= '0;
         dirty_q <= '0;
-        first_responder_q <= '0;
-        data_available_q <= '0;
     end else if(sample_dec_data) begin
         ccu_req_holder_q <= ccu_req_holder_i;
         shared_q <= shared_i;
         dirty_q <= dirty_i;
-        first_responder_q <= first_responder_i;
-        data_available_q <= data_available_i;
     end
 end
 
@@ -180,7 +173,7 @@ always_comb begin
 
                 if (r_ready_i) begin
                     fifo_pop = 1'b1;
-                    if (cd_last_q == data_available_q) begin
+                    if (cd_last_q == cd_data_available_i) begin
                         state_d = IDLE;
                         cd_done_o = 1'b1;
                     end else begin
@@ -201,7 +194,7 @@ always_comb begin
         end
 
         WAIT_CD_LAST: begin
-            if (cd_last_q == data_available_q) begin
+            if (cd_last_q == cd_data_available_i) begin
                 state_d = IDLE;
                 cd_done_o = 1'b1;
             end
@@ -209,11 +202,9 @@ always_comb begin
     endcase
 end
 
-assign cd_busy_o = !(state_q inside {IDLE, WAIT_R_READY});
-
-assign fifo_push    = cd_busy_o && cd_valid_i[first_responder_q] && cd_ready_o[first_responder_q];
-assign fifo_flush   = !cd_busy_o;
-assign fifo_data_in = cd_i[first_responder_q].data;
+assign fifo_push    = cd_valid_i[cd_first_responder_i] && cd_ready_o[cd_first_responder_i];
+assign fifo_flush   = 1'b0;
+assign fifo_data_in = cd_i[cd_first_responder_i].data;
 
 
   fifo_v3 #(
@@ -234,15 +225,15 @@ assign fifo_data_in = cd_i[first_responder_q].data;
     .pop_i      (fifo_pop)
 );
 
-
+// TODO: unify cd_last handling
 for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
     always_ff @ (posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
             cd_last_q[i] <= '0;
-        end else if(!cd_busy_o) begin
+        end else if(cd_done_o) begin
             cd_last_q[i] <= '0;
         end else if(cd_valid_i[i]) begin
-            cd_last_q[i] <= (cd_i[i].last & data_available_q[i]);
+            cd_last_q[i] <= (cd_i[i].last & cd_data_available_i[i]);
         end
     end
 end
@@ -250,16 +241,13 @@ end
 always_comb begin
     cd_ready_o = '0;
 
-    if (cd_busy_o) begin
-        for (int i = 0; i < NoMstPorts; i = i + 1) begin
-            cd_ready_o[i] = !cd_last_q[i] && data_available_q[i];
-        end
-
-        if (fifo_full) begin
-            cd_ready_o[first_responder_q] = 1'b0;
-        end
+    for (int i = 0; i < NoMstPorts; i = i + 1) begin
+        cd_ready_o[i] = !cd_last_q[i] && cd_data_available_i[i];
     end
 
+    if (fifo_full) begin
+        cd_ready_o[cd_first_responder_i] = 1'b0;
+    end
 end
 
 endmodule
