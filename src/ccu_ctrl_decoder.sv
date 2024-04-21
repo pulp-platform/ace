@@ -48,7 +48,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                         lookup_req_o,
     input  logic                         collision_i,
     input  logic                         b_queue_full_i,
-    input  logic                         r_queue_full_i
+    input  logic                         r_queue_full_i,
+
+    input  logic                         cd_fifo_stall_i
 );
 
     logic [NoMstPorts-1:0] initiator_d, initiator_q;
@@ -245,7 +247,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
             DECODE_W: begin
                 lookup_req_o = 1'b1;
-                if (!collision_i && !b_queue_full_i) begin
+                if (!collision_i && !b_queue_full_i && !cd_fifo_stall_i) begin
                     state_d = SEND_INVALID_W;
                     slv_aw_ready_o = 1'b1;
                 end
@@ -253,7 +255,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
             DECODE_R: begin
                 lookup_req_o = 1'b1;
-                if (!collision_i && !r_queue_full_i) begin
+                if (!collision_i && !r_queue_full_i && !cd_fifo_stall_i) begin
                     state_d = send_invalid_r ? SEND_INVALID_R : SEND_READ;
                     slv_ar_ready_o = 1'b1;
                 end

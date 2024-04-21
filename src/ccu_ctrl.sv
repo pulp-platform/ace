@@ -100,8 +100,11 @@ logic dec_shared, dec_dirty;
 
 logic [MstIdxBits-1:0] dec_first_responder;
 
-logic [NoMstPorts-1:0] su_cd_ready, mu_cd_ready;
-logic su_cd_busy, mu_cd_busy;
+snoop_cd_t [NoMstPorts-1:0] cd;
+logic [NoMstPorts-1:0] cd_valid, mu_cd_valid, su_cd_valid;
+logic [NoMstPorts-1:0] cd_ready, mu_cd_ready, su_cd_ready;
+logic mu_cd_busy, su_cd_busy;
+logic mu_cd_done, su_cd_done;
 
 mst_r_chan_t su_r;
 logic        su_r_valid, su_r_ready;
@@ -112,15 +115,9 @@ logic ccu_ar_ready, ccu_aw_ready;
 
 snoop_req_t [NoMstPorts-1:0] dec_snoop_req;
 
-snoop_cd_t [NoMstPorts-1:0] cd;
-logic [NoMstPorts-1:0] cd_valid;
-
-for (genvar i = 0; i < NoMstPorts; i++) begin
-    assign cd[i] = m2s_resp_i[i].cd;
-    assign cd_valid[i] = m2s_resp_i[i].cd_valid;
-end
-
 logic dec_lookup_req, dec_collision, dec_b_queue_full, dec_r_queue_full;
+
+logic dec_cd_fifo_stall;
 
 ccu_ctrl_decoder  #(
     .DcacheLineWidth (DcacheLineWidth),
@@ -165,6 +162,7 @@ ccu_ctrl_decoder  #(
 
     .lookup_req_o         (dec_lookup_req),
     .collision_i          (dec_collision),
+    .cd_fifo_stall_i      (dec_cd_fifo_stall),
     .b_queue_full_i       (~b_inp_gnt),
     .r_queue_full_i       (~r_inp_gnt)
 );
@@ -193,9 +191,10 @@ ccu_ctrl_snoop_unit #(
     .r_valid_o         (su_r_valid),
     .r_ready_i         (su_r_ready),
     .cd_i              (cd),
-    .cd_valid_i        (cd_valid),
+    .cd_valid_i        (su_cd_valid),
     .cd_ready_o        (su_cd_ready),
     .cd_busy_o         (su_cd_busy),
+    .cd_done_o         (su_cd_done),
     .ccu_req_holder_i  (dec_ccu_req_holder),
     .su_ready_o        (su_ready),
     .su_valid_i        (su_valid),
@@ -234,9 +233,10 @@ ccu_ctrl_memory_unit #(
     .ccu_resp_i,
 
     .cd_i              (cd),
-    .cd_valid_i        (cd_valid),
+    .cd_valid_i        (mu_cd_valid),
     .cd_ready_o        (mu_cd_ready),
     .cd_busy_o         (mu_cd_busy),
+    .cd_done_o         (mu_cd_done),
 
     .ccu_req_holder_i  (dec_ccu_req_holder),
     .mu_ready_o        (mu_ready),
@@ -291,15 +291,13 @@ always_comb begin
 
     ccu_resp_o.ar_ready = ccu_ar_ready;
     ccu_resp_o.aw_ready = ccu_aw_ready;
+end
 
-    // Snoop
-    for (int unsigned i = 0; i < NoMstPorts; i++) begin
-        s2m_req_o[i] = '0;
-        s2m_req_o[i].ac = dec_snoop_req[i].ac;
-        s2m_req_o[i].ac_valid = dec_snoop_req[i].ac_valid;
-        s2m_req_o[i].cr_ready = dec_snoop_req[i].cr_ready;
-        s2m_req_o[i].cd_ready = su_cd_ready[i] || mu_cd_ready[i]; // TODO arb tree
-    end
+// Snoop AC and CR
+for (genvar i = 0; i < NoMstPorts; i++) begin
+    assign s2m_req_o[i].ac = dec_snoop_req[i].ac;
+    assign s2m_req_o[i].ac_valid = dec_snoop_req[i].ac_valid;
+    assign s2m_req_o[i].cr_ready = dec_snoop_req[i].cr_ready;
 end
 
 // Exists
@@ -397,4 +395,79 @@ id_queue #(
     .oup_data_valid_o (r_oup_data_valid),
     .oup_gnt_o        (r_oup_gnt)
 );
+
+logic mu_wb_op, su_wb_op;
+
+logic cd_user_pop, cd_user_push, cd_user_empty, cd_user_full;
+
+typedef enum logic { MEMORY_UNIT, SNOOP_UNIT } cd_user_t;
+
+cd_user_t cd_user_in, cd_user_out;
+
+assign mu_wb_op = mu_op inside {SEND_AXI_REQ_WRITE_BACK_R, SEND_AXI_REQ_WRITE_BACK_W};
+assign su_wb_op = su_op == READ_SNP_DATA;
+
+assign dec_cd_fifo_stall = cd_user_full;
+
+always_comb begin
+    cd_user_push = 1'b0;
+    cd_user_in    = '0;
+    if (mu_ready && mu_valid && mu_wb_op) begin
+        cd_user_push = 1'b1;
+        cd_user_in   = MEMORY_UNIT;
+    end else if (su_ready && su_valid && su_wb_op) begin
+        cd_user_push = 1'b1;
+        cd_user_in   = SNOOP_UNIT;
+    end
+end
+
+always_comb begin
+    su_cd_valid = '0;
+    mu_cd_valid = '0;
+    cd_ready    = '0;
+    cd_user_pop = 1'b0;
+
+    if (mu_cd_busy || su_cd_busy) begin
+        case (cd_user_out)
+            MEMORY_UNIT: begin
+                mu_cd_valid = cd_valid;
+                cd_ready = mu_cd_ready;
+                cd_user_pop = mu_cd_done;
+            end
+            SNOOP_UNIT: begin
+                su_cd_valid = cd_valid;
+                cd_ready = su_cd_ready;
+                cd_user_pop = su_cd_done;
+            end
+        endcase
+    end
+end
+
+for (genvar i = 0; i < NoMstPorts; i++) begin
+    assign cd[i] = m2s_resp_i[i].cd;
+    assign cd_valid[i] = m2s_resp_i[i].cd_valid;
+    assign s2m_req_o[i].cd_ready = cd_ready[i];
+end
+
+logic cd_user_out_temp;
+assign cd_user_out = cd_user_t'(cd_user_out_temp);
+
+fifo_v3 #(
+    .FALL_THROUGH(0),
+    .DATA_WIDTH(1),
+    .DEPTH(4)
+) cd_ordering_fifo_i (
+    .clk_i      (clk_i),
+    .rst_ni     (rst_ni),
+    .flush_i    (1'b0),
+    .testmode_i (1'b0),
+    .full_o     (cd_user_full),
+    .empty_o    (cd_user_empty),
+    .usage_o    (),
+    .data_i     (cd_user_in),
+    .push_i     (cd_user_push),
+    .data_o     (cd_user_out_temp),
+    .pop_i      (cd_user_pop)
+);
+
 endmodule

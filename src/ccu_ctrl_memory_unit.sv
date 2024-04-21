@@ -33,6 +33,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     input  logic        [NoMstPorts-1:0] cd_valid_i,
     output logic        [NoMstPorts-1:0] cd_ready_o,
     output logic                         cd_busy_o,
+    output logic                         cd_done_o,
 
     input  mst_req_t                     ccu_req_holder_i,
     output logic                         mu_ready_o,
@@ -241,6 +242,8 @@ always_comb begin
 
     fifo_push = 1'b0;
 
+    cd_done_o = 1'b0;
+
     case (fifo_state_q)
         FIFO_IDLE: begin
             if (cd_data_incoming) begin
@@ -258,24 +261,31 @@ always_comb begin
         FIFO_UPPER_HALF: begin
             if(cd_valid_i[fifo_first_responder_q] && cd_ready_o[fifo_first_responder_q]) begin
                 fifo_push = 1'b1;
-                fifo_state_d = cd_last_q == fifo_data_available_q ? FIFO_IDLE : FIFO_WAIT_LAST_CD;
+                if (cd_last_q == fifo_data_available_q) begin
+                    fifo_state_d = FIFO_IDLE;
+                    cd_done_o = 1'b1;
+                end else begin
+                    fifo_state_d = FIFO_WAIT_LAST_CD;
+                end
             end
         end
         FIFO_WAIT_LAST_CD: begin
-            if (cd_last_q == fifo_data_available_q)
+            if (cd_last_q == fifo_data_available_q) begin
+                cd_done_o = 1'b1;
                 fifo_state_d = FIFO_IDLE;
+            end
         end
     endcase
 
 end
 
-assign cd_busy_o    = cd_last_q != fifo_data_available_q;
+assign cd_busy_o    = fifo_state_q != FIFO_IDLE;
 assign fifo_flush   = 1'b0;
 assign fifo_data_in = cd_i[fifo_first_responder_q].data;
 assign fifo_pop     = w_state_q inside {W_FROM_FIFO_W, W_FROM_FIFO_R} ? ccu_resp_in.w_ready && ccu_req_out.w_valid : '0;
 
 
-  fifo_v3 #(
+fifo_v3 #(
     .FALL_THROUGH(0),
     .DATA_WIDTH(AxiDataWidth),
     .DEPTH(FIFO_DEPTH)

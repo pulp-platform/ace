@@ -31,6 +31,7 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     input  logic        [NoMstPorts-1:0] cd_valid_i,
     output logic        [NoMstPorts-1:0] cd_ready_o,
     output logic                         cd_busy_o,
+    output logic                         cd_done_o,
 
     input  mst_req_t                     ccu_req_holder_i,
     output logic                         su_ready_o,
@@ -108,6 +109,8 @@ always_comb begin
 
     sample_dec_data = 1'b0;
 
+    cd_done_o = 1'b0;
+
     case (state_q)
         IDLE: begin
             su_ready_o = 1'b1;
@@ -177,7 +180,12 @@ always_comb begin
 
                 if (r_ready_i) begin
                     fifo_pop = 1'b1;
-                    state_d  = (cd_last_q == data_available_q) ? IDLE : WAIT_CD_LAST;
+                    if (cd_last_q == data_available_q) begin
+                        state_d = IDLE;
+                        cd_done_o = 1'b1;
+                    end else begin
+                        state_d = WAIT_CD_LAST;
+                    end
                 end
             end
         end
@@ -193,8 +201,10 @@ always_comb begin
         end
 
         WAIT_CD_LAST: begin
-            if (cd_last_q == data_available_q)
+            if (cd_last_q == data_available_q) begin
                 state_d = IDLE;
+                cd_done_o = 1'b1;
+            end
         end
     endcase
 end
