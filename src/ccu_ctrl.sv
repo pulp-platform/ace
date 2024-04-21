@@ -52,8 +52,8 @@ logic  [AxiAddrWidth-1:0] b_inp_data;
 logic                     b_inp_req;
 logic                     b_inp_gnt;
 
-logic [AxiAddrWidth-1:0]  b_exists_data;
-logic [AxiAddrWidth-1:0]  b_exists_mask;
+logic  [AxiAddrWidth-1:0] b_exists_data;
+logic  [AxiAddrWidth-1:0] b_exists_mask;
 logic                     b_exists_req;
 logic                     b_exists;
 logic                     b_exists_gnt;
@@ -61,7 +61,7 @@ logic                     b_exists_gnt;
 logic   [SlvAxiIDWidth:0] b_oup_id;
 logic                     b_oup_pop;
 logic                     b_oup_req;
-logic [AxiAddrWidth-1:0]  b_oup_data;
+logic  [AxiAddrWidth-1:0] b_oup_data;
 logic                     b_oup_data_valid;
 logic                     b_oup_gnt;
 
@@ -70,8 +70,8 @@ logic  [AxiAddrWidth-1:0] r_inp_data;
 logic                     r_inp_req;
 logic                     r_inp_gnt;
 
-logic [AxiAddrWidth-1:0]  r_exists_data;
-logic [AxiAddrWidth-1:0]  r_exists_mask;
+logic  [AxiAddrWidth-1:0] r_exists_data;
+logic  [AxiAddrWidth-1:0] r_exists_mask;
 logic                     r_exists_req;
 logic                     r_exists;
 logic                     r_exists_gnt;
@@ -79,7 +79,7 @@ logic                     r_exists_gnt;
 logic   [SlvAxiIDWidth:0] r_oup_id;
 logic                     r_oup_pop;
 logic                     r_oup_req;
-logic [AxiAddrWidth-1:0]  r_oup_data;
+logic  [AxiAddrWidth-1:0] r_oup_data;
 logic                     r_oup_data_valid;
 logic                     r_oup_gnt;
 
