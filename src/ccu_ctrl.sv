@@ -414,7 +414,7 @@ assign dec_cd_fifo_stall = cd_user_full;
 
 always_comb begin
     cd_user_push = 1'b0;
-    cd_user_in    = '0;
+    cd_user_in    = MEMORY_UNIT;
     if (mu_ready && mu_valid && mu_wb_op) begin
         cd_user_push = 1'b1;
         cd_user_in   = MEMORY_UNIT;
