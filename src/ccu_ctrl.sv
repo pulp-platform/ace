@@ -8,6 +8,7 @@
 module ccu_ctrl import ccu_ctrl_pkg::*;
 #(
     parameter int unsigned DcacheLineWidth = 0,
+    parameter int unsigned DCacheIndexWidth = 0,
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
@@ -44,7 +45,7 @@ import ariane_pkg::*;
 
 localparam int unsigned AxiAddrWidth     = 64;
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
-localparam int unsigned DCacheByteOffset = $clog2(ariane_pkg::DCACHE_LINE_WIDTH/8);
+localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
 
 logic   [SlvAxiIDWidth:0] b_inp_id;
@@ -306,12 +307,12 @@ assign dec_collision = (b_exists || r_exists);
 
 
 assign b_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
-assign b_exists_mask = CollisionOnSetOnly ? {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset
+assign b_exists_mask = CollisionOnSetOnly ? {DCacheIndexWidth{1'b1}} << DCacheByteOffset
                                           : ~{DCacheByteOffset{1'b1}};
 assign b_exists_req  = dec_lookup_req;
 
 assign r_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
-assign r_exists_mask = CollisionOnSetOnly ? {ariane_pkg::DCACHE_INDEX_WIDTH{1'b1}} << DCacheByteOffset
+assign r_exists_mask = CollisionOnSetOnly ? {DCacheIndexWidth{1'b1}} << DCacheByteOffset
                                           : ~{DCacheByteOffset{1'b1}};
 assign r_exists_req  = dec_lookup_req;
 

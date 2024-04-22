@@ -219,6 +219,7 @@ axi_mux #(
 
 ccu_ctrl #(
     .DcacheLineWidth ( Cfg.DcacheLineWidth    ),
+    .DCacheIndexWidth( Cfg.DCacheIndexWidth   ),
     .AxiDataWidth    ( Cfg.AxiDataWidth       ),
     .NoMstPorts      ( Cfg.NoSlvPorts         ),
     .SlvAxiIDWidth   ( Cfg.AxiIdWidthSlvPorts ), // ID width of the slave ports
