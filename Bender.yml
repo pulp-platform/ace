@@ -23,7 +23,7 @@ sources:
   # Level 2
   - src/ace_trs_dec.sv
   - src/ccu_ctrl_decoder.sv
-  - src/ccu_ctrl_memory_units.sv
+  - src/ccu_ctrl_memory_unit.sv
   - src/ccu_ctrl_snoop_unit.sv
   # Level 3
   - src/ccu_ctrl.sv
