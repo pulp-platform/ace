@@ -4,13 +4,13 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
-    parameter type mst_aw_chan_t = logic,
+    parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
-    parameter type mst_b_chan_t  = logic,
-    parameter type mst_ar_chan_t = logic,
-    parameter type mst_r_chan_t  = logic,
-    parameter type mst_req_t     = logic,
-    parameter type mst_resp_t    = logic,
+    parameter type slv_b_chan_t  = logic,
+    parameter type slv_ar_chan_t = logic,
+    parameter type slv_r_chan_t  = logic,
+    parameter type slv_req_t     = logic,
+    parameter type slv_resp_t    = logic,
     parameter type snoop_ac_t    = logic,
     parameter type snoop_cr_t    = logic,
     parameter type snoop_cd_t    = logic,
@@ -23,7 +23,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     input                               clk_i,
     input                               rst_ni,
     // CCU Request in
-    input  mst_req_t                    ccu_req_i,
+    input  slv_req_t                    ccu_req_i,
     // Snoop channel resuest and response
     output snoop_req_t  [NoMstPorts-1:0] s2m_req_o,
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i,
@@ -31,7 +31,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                         slv_aw_ready_o,
     output logic                         slv_ar_ready_o,
 
-    output mst_req_t                     ccu_req_holder_o,
+    output slv_req_t                     ccu_req_holder_o,
 
     output logic                         su_valid_o,
     input  logic                         su_ready_i,
@@ -93,7 +93,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     end
 
     // Hold incoming ACE request
-    mst_req_t ccu_req_holder_q;
+    slv_req_t ccu_req_holder_q;
 
     always_ff @(posedge clk_i , negedge rst_ni) begin
         if(!rst_ni) begin

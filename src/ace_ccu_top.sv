@@ -38,6 +38,13 @@ module ace_ccu_top
   parameter type mst_resp_t        = logic,
   parameter type mst_stg_req_t     = logic,
   parameter type mst_stg_resp_t    = logic,
+  parameter type reqs_mux_aw_chan_t= logic,
+  parameter type reqs_mux_ar_chan_t= logic,
+  parameter type reqs_mux_w_chan_t = logic,
+  parameter type reqs_mux_r_chan_t = logic,
+  parameter type reqs_mux_b_chan_t = logic,
+  parameter type reqs_mux_req_t    = logic,
+  parameter type reqs_mux_resp_t   = logic,
   parameter type snoop_ac_t        = logic,
   parameter type snoop_cr_t        = logic,
   parameter type snoop_cd_t        = logic,
@@ -67,8 +74,8 @@ mst_stg_req_t  [Cfg.NoSlvPorts:0]          mst_reqs_tmp;
 slv_req_t  [Cfg.NoSlvPorts-1:0]            ccu_reqs_i;
 slv_resp_t [Cfg.NoSlvPorts-1:0]            ccu_resps_o;
 // signals from the CCU
-mst_stg_req_t                              ccu_reqs_mux_o;
-mst_stg_resp_t                             ccu_resps_mux_i;
+reqs_mux_req_t                             ccu_reqs_mux_o;
+reqs_mux_resp_t                            ccu_resps_mux_i;
 mst_stg_req_t                              ccu_reqs_o;
 mst_stg_resp_t                             ccu_resps_i;
 
@@ -122,7 +129,7 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
 end
 
 axi_mux #(
-  .SlvAxiIDWidth ( Cfg.AxiIdWidthSlvPorts+$clog2(Cfg.NoSlvPorts) ), // ID width of the slave ports
+  .SlvAxiIDWidth ( Cfg.AxiIdWidthSlvPorts+$clog2(Cfg.NoSlvPorts)+1 ), // ID width of the slave ports
   .slv_aw_chan_t ( mst_stg_aw_chan_t      ), // AW Channel Type, slave ports
   .mst_aw_chan_t ( mst_aw_chan_t          ), // AW Channel Type, master port
   .w_chan_t      ( w_chan_t               ), //  W Channel Type, all ports
@@ -187,18 +194,18 @@ end
 axi_mux #(
   .SlvAxiIDWidth ( Cfg.AxiIdWidthSlvPorts ), // ID width of the slave ports
   .slv_aw_chan_t ( slv_aw_chan_t          ), // AW Channel Type, slave ports
-  .mst_aw_chan_t ( mst_stg_aw_chan_t      ), // AW Channel Type, master port
+  .mst_aw_chan_t ( reqs_mux_aw_chan_t     ), // AW Channel Type, master port
   .w_chan_t      ( w_chan_t               ), //  W Channel Type, all ports
   .slv_b_chan_t  ( slv_b_chan_t           ), //  B Channel Type, slave ports
-  .mst_b_chan_t  ( mst_stg_b_chan_t       ), //  B Channel Type, master port
+  .mst_b_chan_t  ( reqs_mux_b_chan_t      ), //  B Channel Type, master port
   .slv_ar_chan_t ( slv_ar_chan_t          ), // AR Channel Type, slave ports
-  .mst_ar_chan_t ( mst_stg_ar_chan_t      ), // AR Channel Type, master port
+  .mst_ar_chan_t ( reqs_mux_ar_chan_t     ), // AR Channel Type, master port
   .slv_r_chan_t  ( slv_r_chan_t           ), //  R Channel Type, slave ports
-  .mst_r_chan_t  ( mst_stg_r_chan_t       ), //  R Channel Type, master port
+  .mst_r_chan_t  ( reqs_mux_r_chan_t      ), //  R Channel Type, master port
   .slv_req_t     ( slv_req_t              ),
   .slv_resp_t    ( slv_resp_t             ),
-  .mst_req_t     ( mst_stg_req_t          ),
-  .mst_resp_t    ( mst_stg_resp_t         ),
+  .mst_req_t     ( reqs_mux_req_t         ),
+  .mst_resp_t    ( reqs_mux_resp_t        ),
   .NoSlvPorts    ( Cfg.NoSlvPorts         ), // Number of Masters for the modules
   .MaxWTrans     ( Cfg.MaxMstTrans        ),
   .FallThrough   ( Cfg.FallThrough        ),
@@ -230,6 +237,12 @@ ccu_ctrl #(
     .mst_r_chan_t    ( mst_stg_r_chan_t       ), //  R Channel Type, master port
     .mst_req_t       ( mst_stg_req_t          ),
     .mst_resp_t      ( mst_stg_resp_t         ),
+    .slv_aw_chan_t   ( reqs_mux_aw_chan_t     ),
+    .slv_b_chan_t    ( reqs_mux_b_chan_t      ),
+    .slv_ar_chan_t   ( reqs_mux_ar_chan_t     ),
+    .slv_r_chan_t    ( reqs_mux_r_chan_t      ),
+    .slv_req_t       ( reqs_mux_req_t         ),
+    .slv_resp_t      ( reqs_mux_resp_t        ),
     .snoop_ac_t      ( snoop_ac_t             ),
     .snoop_cr_t      ( snoop_cr_t             ),
     .snoop_cd_t      ( snoop_cd_t             ),
@@ -265,9 +278,11 @@ module ace_ccu_top_intf
   AXI_BUS.Master   mst_ports
 );
 
-  localparam int unsigned AxiIdWidthMstPortsStage = Cfg.AxiIdWidthSlvPorts +$clog2(Cfg.NoSlvPorts);
+  localparam int unsigned AxiIdWidthReqsMux    = Cfg.AxiIdWidthSlvPorts +$clog2(Cfg.NoSlvPorts);
+  localparam int unsigned AxiIdWidthMstPortsStage = AxiIdWidthReqsMux + 1; // Add one bit used by the CCU
   localparam int unsigned AxiIdWidthMstPorts = AxiIdWidthMstPortsStage + $clog2(Cfg.NoSlvPorts+1);
 
+  typedef logic [AxiIdWidthReqsMux      -1:0] id_width_reqs_mux_t;
   typedef logic [AxiIdWidthMstPortsStage-1:0] id_mst_stg_t;
   typedef logic [AxiIdWidthMstPorts     -1:0] id_mst_t;
   typedef logic [Cfg.AxiIdWidthSlvPorts -1:0] id_slv_t;
@@ -301,6 +316,8 @@ module ace_ccu_top_intf
   `SNOOP_TYPEDEF_CR_CHAN_T(snoop_cr_t)
   `SNOOP_TYPEDEF_REQ_T(snoop_req_t, snoop_ac_t)
   `SNOOP_TYPEDEF_RESP_T(snoop_resp_t, snoop_cd_t, snoop_cr_t)
+
+  `ACE_TYPEDEF_ALL(reqs_mux, addr_t, id_width_reqs_mux_t, data_t, strb_t, user_t)
 
 
   mst_ace_req_t                           mst_ace_reqs;
@@ -349,6 +366,13 @@ module ace_ccu_top_intf
     .mst_resp_t         ( mst_ace_resp_t        ),
     .mst_stg_req_t      ( mst_ace_stg_req_t     ),
     .mst_stg_resp_t     ( mst_ace_stg_resp_t    ),
+    .reqs_mux_aw_chan_t ( reqs_mux_aw_chan_t    ),
+    .reqs_mux_ar_chan_t ( reqs_mux_ar_chan_t    ),
+    .reqs_mux_w_chan_t  ( reqs_mux_w_chan_t     ),
+    .reqs_mux_r_chan_t  ( reqs_mux_r_chan_t     ),
+    .reqs_mux_b_chan_t  ( reqs_mux_b_chan_t     ),
+    .reqs_mux_req_t     ( reqs_mux_req_t        ),
+    .reqs_mux_resp_t    ( reqs_mux_resp_t       ),
     .snoop_ac_t         ( snoop_ac_t            ),
     .snoop_cr_t         ( snoop_cr_t            ),
     .snoop_cd_t         ( snoop_cd_t            ),

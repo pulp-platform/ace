@@ -4,13 +4,13 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
-    parameter type mst_aw_chan_t = logic,
+    parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
-    parameter type mst_b_chan_t  = logic,
-    parameter type mst_ar_chan_t = logic,
-    parameter type mst_r_chan_t  = logic,
-    parameter type mst_req_t     = logic,
-    parameter type mst_resp_t    = logic,
+    parameter type slv_b_chan_t  = logic,
+    parameter type slv_ar_chan_t = logic,
+    parameter type slv_r_chan_t  = logic,
+    parameter type slv_req_t     = logic,
+    parameter type slv_resp_t    = logic,
     parameter type snoop_ac_t    = logic,
     parameter type snoop_cr_t    = logic,
     parameter type snoop_cd_t    = logic,
@@ -23,7 +23,7 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     input                                clk_i,
     input                                rst_ni,
     // CCU Request In and response out
-    output mst_r_chan_t                  r_o,
+    output slv_r_chan_t                  r_o,
     output logic                         r_valid_o,
     input  logic                         r_ready_i,
 
@@ -31,7 +31,7 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     input  logic                         cd_handshake_i,
     output logic                         cd_fifo_full_o,
 
-    input  mst_req_t                     ccu_req_holder_i,
+    input  slv_req_t                     ccu_req_holder_i,
     output logic                         su_ready_o,
     input  logic                         su_valid_i,
     input  su_op_e                       su_op_i,
@@ -54,7 +54,7 @@ logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
 
 logic sample_dec_data;
 
-mst_req_t ccu_req_holder_q;
+slv_req_t ccu_req_holder_q;
 logic shared_q;
 logic dirty_q;
 

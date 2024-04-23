@@ -11,6 +11,12 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     parameter type mst_r_chan_t  = logic,
     parameter type mst_req_t     = logic,
     parameter type mst_resp_t    = logic,
+    parameter type slv_aw_chan_t = logic,
+    parameter type slv_b_chan_t  = logic,
+    parameter type slv_ar_chan_t = logic,
+    parameter type slv_r_chan_t  = logic,
+    parameter type slv_req_t     = logic,
+    parameter type slv_resp_t    = logic,
     parameter type snoop_ac_t    = logic,
     parameter type snoop_cr_t    = logic,
     parameter type snoop_cd_t    = logic,
@@ -23,8 +29,8 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     input                               clk_i,
     input                               rst_ni,
     // CCU Request In and response out
-    input  mst_req_t                    ccu_req_i,
-    output mst_resp_t                   ccu_resp_o,
+    input  slv_req_t                    ccu_req_i,
+    output slv_resp_t                   ccu_resp_o,
     //CCU Request Out and response in
     output mst_req_t                    ccu_req_o,
     input  mst_resp_t                   ccu_resp_i,
@@ -34,22 +40,25 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     output logic                        cd_fifo_full_o,
 
 
-    input  mst_req_t                     ccu_req_holder_i,
+    input  slv_req_t                     ccu_req_holder_i,
     output logic                         mu_ready_o,
     input  logic                         mu_valid_i,
     input  mu_op_e                       mu_op_i,
     input  logic        [MstIdxBits-1:0] first_responder_i
 );
 
-localparam FIFO_DEPTH = 2;
+localparam CD_FIFO_DEPTH  = 2;
+localparam AXI_FIFO_DEPTH = 4;
+localparam W_FIFO_DEPTH   = 2;
 
 mst_req_t  ccu_req_out;
 mst_resp_t ccu_resp_in;
 
-mst_req_t ccu_req_holder_q;
+slv_req_t ccu_req_holder_q;
 logic [MstIdxBits-1:0] first_responder_q;
 
-logic fifo_push, fifo_flush, fifo_pop, fifo_full, fifo_empty;
+logic cd_fifo_pop, cd_fifo_empty;
+logic [AxiDataWidth-1:0] cd_fifo_data_out;
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
@@ -79,13 +88,15 @@ mst_aw_chan_t aw_out;
 
 logic ar_valid_out, aw_valid_out;
 
-logic wb_expected_en;
-
 logic w_last_d, w_last_q;
 
-logic [$bits(ccu_resp_in.b.id)-1:0] wb_id_q, wb_id_d;
+typedef enum logic {W_PASSTHROUGH, W_FROM_FIFO} w_state_t;
 
-logic wb_expected_q;
+w_state_t w_state_in, w_state_out;
+
+logic w_fifo_full, w_fifo_empty;
+logic w_fifo_push, w_fifo_pop;
+w_state_t w_fifo_data_in, w_fifo_data_out;
 
 always_comb begin
     mu_ready_o = 1'b0;
@@ -97,9 +108,8 @@ always_comb begin
     ar_valid_out = 1'b0;
     aw_valid_out = 1'b0;
 
-    wb_expected_en = 1'b0;
-
-    wb_id_d = wb_id_q;
+    w_fifo_push    = 1'b0;
+    w_fifo_data_in = W_PASSTHROUGH;
 
     case (ax_busy_q)
         1'b0: begin
@@ -119,21 +129,23 @@ always_comb begin
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_R: begin
-                    wb_id_d = {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]};
                     // send writeback request
-                    aw_valid_out     = !wb_expected_q;
+                    aw_valid_out     = !w_fifo_full;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.ar.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                     aw_out.size      = 2'b11;
                     aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                     aw_out.len       = DcacheLineWords-1;
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_in.aw_ready && !wb_expected_q) begin
-                        wb_expected_en = 1'b1;
+
+                    w_fifo_data_in   = W_FROM_FIFO;
+
+                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                        w_fifo_push    = 1'b1;
                         if (ccu_req_holder_q.ar.lock)
                             // Blocking behavior for AMO operations
                             // TODO: check if truly needed
@@ -143,39 +155,39 @@ always_comb begin
                     end
                 end
                 SEND_AXI_REQ_W: begin
-                    // This is a hotfix to avoid serving requests from the core
-                    // with the same ID of the writeback
-                    // TODO: add a bit to the ID to differentiate between WB issued
-                    // by the CCU and requests forwarded from the cores
-                    if (wb_id_q != ccu_req_holder_q.aw.id || !wb_expected_q) begin
-                        aw_valid_out  = 'b1;
-                        aw_out        = ccu_req_holder_q.aw;
-                        if (ccu_resp_in.aw_ready) begin
-                            if (ccu_req_holder_q.aw.atop[5])
-                                // Blocking behavior for AMO operations
-                                // TODO: check if truly needed
-                                ax_op_d = AMO_WAIT_READ;
-                            else
-                                ax_busy_d = 1'b0;
-                        end
+                    aw_valid_out  = !w_fifo_full;
+                    aw_out        = ccu_req_holder_q.aw;
+
+                    w_fifo_data_in = W_PASSTHROUGH;
+
+                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                        w_fifo_push = 1'b1;
+                        if (ccu_req_holder_q.aw.atop[5])
+                            // Blocking behavior for AMO operations
+                            // TODO: check if truly needed
+                            ax_op_d = AMO_WAIT_READ;
+                        else
+                            ax_busy_d = 1'b0;
                     end
                 end
                 SEND_AXI_REQ_WRITE_BACK_W: begin
-                    wb_id_d = {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]};
                     // send writeback request
-                    aw_valid_out     = !wb_expected_q;
+                    aw_valid_out     = !w_fifo_full;
                     aw_out           = '0; //default
                     aw_out.addr      = ccu_req_holder_q.aw.addr;
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                     aw_out.size      = 2'b11;
                     aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                     aw_out.len       = DcacheLineWords-1;
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
                     aw_out.snoop     = 3'b011;
-                    if (ccu_resp_in.aw_ready && !wb_expected_q) begin
-                        wb_expected_en = 1'b1;
+
+                    w_fifo_data_in   = W_FROM_FIFO;
+
+                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                        w_fifo_push = 1'b1;
                         if (ccu_req_holder_q.aw.atop[5])
                             ax_op_d = AMO_WAIT_WB_W;
                         else
@@ -189,12 +201,12 @@ always_comb begin
                 end
                 AMO_WAIT_WB_R: begin
                     if(ccu_resp_in.b_valid && ccu_req_out.b_ready
-                    && ccu_resp_in.b.id == {first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
+                    && ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
                         ax_op_d = SEND_AXI_REQ_R;
                 end
                 AMO_WAIT_WB_W: begin
                     if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
-                    ccu_resp_in.b.id == {first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
+                    ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
                         ax_op_d = SEND_AXI_REQ_W;
                 end
             endcase
@@ -202,35 +214,25 @@ always_comb begin
     endcase
 end
 
-typedef enum logic [1:0] {W_IDLE, W_PASSTHROUGH, W_FROM_FIFO_W, W_FROM_FIFO_R} w_state_t;
-
-w_state_t w_state_q, w_state_d;
-
-logic [AxiDataWidth-1:0] fifo_data_in, fifo_data_out;
-logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
-
-assign fifo_push      = cd_handshake_i;
-assign fifo_flush     = 1'b0;
-assign fifo_data_in   = cd_i.data;
-assign fifo_pop       = w_state_q inside {W_FROM_FIFO_W, W_FROM_FIFO_R} ? ccu_resp_in.w_ready && ccu_req_out.w_valid : '0;
-assign cd_fifo_full_o = fifo_full;
+assign cd_fifo_pop = w_fifo_data_out inside {W_FROM_FIFO} &&
+                     ccu_resp_in.w_ready && ccu_req_out.w_valid;
 
 fifo_v3 #(
     .FALL_THROUGH(0),
     .DATA_WIDTH(AxiDataWidth),
-    .DEPTH(FIFO_DEPTH)
+    .DEPTH(CD_FIFO_DEPTH)
   ) cd_memory_fifo_i (
     .clk_i      (clk_i),
     .rst_ni     (rst_ni),
-    .flush_i    (fifo_flush),
+    .flush_i    (1'b0),
     .testmode_i (1'b0),
-    .full_o     (fifo_full),
-    .empty_o    (fifo_empty),
-    .usage_o    (fifo_usage),
-    .data_i     (fifo_data_in),
-    .push_i     (fifo_push),
-    .data_o     (fifo_data_out),
-    .pop_i      (fifo_pop)
+    .full_o     (cd_fifo_full_o),
+    .empty_o    (cd_fifo_empty),
+    .usage_o    (),
+    .data_i     (cd_i.data),
+    .push_i     (cd_handshake_i),
+    .data_o     (cd_fifo_data_out),
+    .pop_i      (cd_fifo_pop)
 );
 
 // AR
@@ -250,95 +252,88 @@ assign ccu_req_out.r_ready = ccu_req_i.r_ready;
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
     if(!rst_ni) begin
-        w_state_q <= W_IDLE;
         w_last_q <= 1'b0;
     end else begin
-        w_state_q <= w_state_d;
         w_last_q <= w_last_d;
     end
 end
 
-always_ff @(posedge clk_i or negedge rst_ni) begin
-    if(!rst_ni) begin
-        wb_expected_q <= 1'b0;
-        wb_id_q <= '0;
-    end else if(ccu_resp_in.b_valid &&
-                ccu_req_out.b_ready &&
-                ccu_resp_in.b.id == wb_id_q) begin
-        wb_expected_q <= 1'b0;
-        wb_id_q <= '0;
-    end else if(wb_expected_en) begin
-        wb_expected_q <= 1'b1;
-        wb_id_q <= wb_id_d;
-    end
-end
+logic w_fifo_data_in_temp, w_fifo_data_out_temp;
+
+assign w_fifo_data_in_temp = logic'(w_fifo_data_in);
+assign w_fifo_data_out     = w_state_t'(w_fifo_data_out_temp);
+
+fifo_v3 #(
+    .FALL_THROUGH(0),
+    .DATA_WIDTH($bits(w_state_t)),
+    .DEPTH(W_FIFO_DEPTH)
+  ) w_fifo_i (
+    .clk_i      (clk_i),
+    .rst_ni     (rst_ni),
+    .flush_i    (1'b0),
+    .testmode_i (1'b0),
+    .full_o     (w_fifo_full),
+    .empty_o    (w_fifo_empty),
+    .usage_o    (),
+    .data_i     (w_fifo_data_in_temp),
+    .push_i     (w_fifo_push),
+    .data_o     (w_fifo_data_out_temp),
+    .pop_i      (w_fifo_pop)
+);
 
 
 
 always_comb begin
-    w_last_d = w_last_q;
-    w_state_d = w_state_q;
-
     ccu_req_out.w  = ccu_req_i.w;
     ccu_req_out.w_valid = 1'b0;
     ccu_resp_o.w_ready  =  1'b0;
 
-    case (w_state_q)
-        W_IDLE: begin
-            w_last_d = 1'b0;
-            if (ax_busy_q && ccu_req_out.aw_valid) begin
-                case (ax_op_q)
-                    SEND_AXI_REQ_WRITE_BACK_W: begin
-                        w_state_d = W_FROM_FIFO_W;
-                    end
-                    SEND_AXI_REQ_WRITE_BACK_R:
-                        w_state_d = W_FROM_FIFO_R;
-                    SEND_AXI_REQ_W: begin
-                        w_state_d = W_PASSTHROUGH;
-                    end
-                    default:
-                        w_state_d = W_IDLE;
-                endcase
+    w_fifo_pop = 1'b0;
+
+    w_last_d = w_last_q;
+
+    if (!w_fifo_empty) begin
+        case (w_fifo_data_out)
+            W_PASSTHROUGH: begin
+                ccu_req_out.w_valid =  ccu_req_i.w_valid;
+                ccu_resp_o.w_ready  =  ccu_resp_in.w_ready;
+
+                if(ccu_resp_in.w_ready && ccu_req_i.w_valid && ccu_req_i.w.last)
+                    w_fifo_pop = 1'b1;
             end
-        end
-        W_PASSTHROUGH: begin
-            ccu_req_out.w_valid   =  ccu_req_i.w_valid;
-            ccu_resp_o.w_ready  =  ccu_resp_in.w_ready;
+            W_FROM_FIFO: begin
+                // Connect the FIFO as long as the transmission is ongoing
+                w_last_d            = ccu_resp_in.w_ready && !cd_fifo_empty;
+                ccu_req_out.w_valid =  !cd_fifo_empty;
+                ccu_req_out.w.strb  =  '1;
+                ccu_req_out.w.data  =  cd_fifo_data_out;
+                ccu_req_out.w.last  =  w_last_q;
 
-            if(ccu_resp_in.w_ready && ccu_req_i.w_valid && ccu_req_i.w.last)
-                w_state_d = W_IDLE;
-        end
-        W_FROM_FIFO_R, W_FROM_FIFO_W: begin
-            // Connect the FIFO as long as the transmission is ongoing
-            w_last_d = ccu_resp_in.w_ready && !fifo_empty;
-            ccu_req_out.w_valid =  !fifo_empty;
-            ccu_req_out.w.strb  =  '1;
-            ccu_req_out.w.data  =  fifo_data_out;
-            ccu_req_out.w.last  =  w_last_q;
-
-            if(ccu_resp_in.w_ready && !fifo_empty && w_last_q)
-                if (w_state_q == W_FROM_FIFO_W) begin
-                    // This checks is just to ensure that the cores have visibility
-                    // on the W channel only when we actually want to write something
-                    // Removing it would cause a premature forwarding of a W req
-                    // TODO: make this less convoluted
-                    w_state_d = ax_busy_q && ax_op_q == AMO_WAIT_WB_W ? W_IDLE : W_PASSTHROUGH;
-                end else begin
-                    w_state_d = W_IDLE;
+                if(ccu_resp_in.w_ready && !cd_fifo_empty && w_last_q) begin
+                    w_last_d = 1'b0;
+                    w_fifo_pop = 1'b1;
                 end
-        end
-    endcase
+            end
+        endcase
+    end
 end
 
-assign ccu_resp_o.b =  ccu_resp_in.b;
+assign ccu_resp_o.b = ccu_resp_in.b;
+
+// An additional bit in the ID is used to verify whether the CCU
+// issued the request or simply forwarded one from the core
+logic is_wb_resp;
+assign is_wb_resp = (ccu_resp_in.b.id[SlvAxiIDWidth+$clog2(NoMstPorts)] == 1'b1);
 
 always_comb begin
     ccu_req_out.b_ready = 1'b0;
     ccu_resp_o.b_valid  =  1'b0;
 
-    if (wb_expected_q && ccu_resp_in.b.id == wb_id_q) begin
+    if (is_wb_resp) begin
+        // Response to a WB issued by the CCU
         ccu_req_out.b_ready = 'b1;
     end else begin
+        // Response to a core request
         ccu_req_out.b_ready =  ccu_req_i.b_ready;
         ccu_resp_o.b_valid  =  ccu_resp_in.b_valid;
     end
@@ -346,7 +341,7 @@ end
 
 
 axi_fifo #(
-    .Depth     (4),
+    .Depth     (AXI_FIFO_DEPTH),
     .aw_chan_t (mst_aw_chan_t),
     .w_chan_t  (w_chan_t),
     .b_chan_t  (mst_b_chan_t),
@@ -359,10 +354,10 @@ axi_fifo #(
     .rst_ni,
     .test_i (1'b0),
     // slave port
-    .slv_req_i (ccu_req_out),
+    .slv_req_i  (ccu_req_out),
     .slv_resp_o (ccu_resp_in),
     // master port
-    .mst_req_o (ccu_req_o),
+    .mst_req_o  (ccu_req_o),
     .mst_resp_i (ccu_resp_i)
 );
 

@@ -5,7 +5,7 @@
 `include "ace/assign.svh"
 `include "ace/typedef.svh"
 
-module ccu_ctrl import ccu_ctrl_pkg::*;
+module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
 #(
     parameter int unsigned DcacheLineWidth = 0,
     parameter int unsigned DCacheIndexWidth = 0,
@@ -20,6 +20,12 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     parameter type mst_r_chan_t  = logic,
     parameter type mst_req_t     = logic,
     parameter type mst_resp_t    = logic,
+    parameter type slv_aw_chan_t = logic,
+    parameter type slv_b_chan_t  = logic,
+    parameter type slv_ar_chan_t = logic,
+    parameter type slv_r_chan_t  = logic,
+    parameter type slv_req_t     = logic,
+    parameter type slv_resp_t    = logic,
     parameter type snoop_ac_t    = logic,
     parameter type snoop_cr_t    = logic,
     parameter type snoop_cd_t    = logic,
@@ -30,8 +36,8 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     input                               clk_i,
     input                               rst_ni,
     // CCU Request In and response out
-    input  mst_req_t                    ccu_req_i,
-    output mst_resp_t                   ccu_resp_o,
+    input  slv_req_t                    ccu_req_i,
+    output slv_resp_t                   ccu_resp_o,
     //CCU Request Out and response in
     output mst_req_t                    ccu_req_o,
     input  mst_resp_t                   ccu_resp_i,
@@ -39,9 +45,6 @@ module ccu_ctrl import ccu_ctrl_pkg::*;
     output snoop_req_t  [NoMstPorts-1:0] s2m_req_o,
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
 );
-
-import axi_pkg::*;
-import ariane_pkg::*;
 
 localparam int unsigned AxiAddrWidth     = 64;
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
@@ -85,8 +88,8 @@ logic                     r_oup_data_valid;
 logic                     r_oup_gnt;
 
 
-mst_resp_t mu_ccu_resp;
-mst_req_t  mu_ccu_req;
+slv_resp_t mu_ccu_resp;
+slv_req_t  mu_ccu_req;
 
 su_op_e su_op;
 mu_op_e mu_op;
@@ -95,7 +98,7 @@ logic su_valid, mu_valid;
 
 logic su_ready, mu_ready;
 
-mst_req_t dec_ccu_req_holder;
+slv_req_t dec_ccu_req_holder;
 
 logic dec_shared, dec_dirty;
 
@@ -110,7 +113,7 @@ logic      [NoMstPorts-1:0] cd_data_available_in, cd_data_available_out;
 logic      [NoMstPorts-1:0] cd_last_q;
 logic                       cd_fifo_full, mu_cd_fifo_full, su_cd_fifo_full;
 
-mst_r_chan_t su_r;
+slv_r_chan_t su_r;
 logic        su_r_valid, su_r_ready;
 
 logic ccu_ar_ready, ccu_aw_ready;
@@ -126,13 +129,13 @@ ccu_ctrl_decoder  #(
     .AxiDataWidth    (AxiDataWidth),
     .NoMstPorts      (NoMstPorts),
     .SlvAxiIDWidth   (SlvAxiIDWidth),
-    .mst_aw_chan_t   (mst_aw_chan_t),
+    .slv_aw_chan_t   (slv_aw_chan_t),
     .w_chan_t        (w_chan_t),
-    .mst_b_chan_t    (mst_b_chan_t),
-    .mst_ar_chan_t   (mst_ar_chan_t),
-    .mst_r_chan_t    (mst_r_chan_t),
-    .mst_req_t       (mst_req_t),
-    .mst_resp_t      (mst_resp_t),
+    .slv_b_chan_t    (slv_b_chan_t),
+    .slv_ar_chan_t   (slv_ar_chan_t),
+    .slv_r_chan_t    (slv_r_chan_t),
+    .slv_req_t       (slv_req_t),
+    .slv_resp_t      (slv_resp_t),
     .snoop_ac_t      (snoop_ac_t),
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
@@ -174,13 +177,13 @@ ccu_ctrl_snoop_unit #(
     .AxiDataWidth    (AxiDataWidth),
     .NoMstPorts      (NoMstPorts),
     .SlvAxiIDWidth   (SlvAxiIDWidth),
-    .mst_aw_chan_t   (mst_aw_chan_t),
+    .slv_aw_chan_t   (slv_aw_chan_t),
     .w_chan_t        (w_chan_t),
-    .mst_b_chan_t    (mst_b_chan_t),
-    .mst_ar_chan_t   (mst_ar_chan_t),
-    .mst_r_chan_t    (mst_r_chan_t),
-    .mst_req_t       (mst_req_t),
-    .mst_resp_t      (mst_resp_t),
+    .slv_b_chan_t    (slv_b_chan_t),
+    .slv_ar_chan_t   (slv_ar_chan_t),
+    .slv_r_chan_t    (slv_r_chan_t),
+    .slv_req_t       (slv_req_t),
+    .slv_resp_t      (slv_resp_t),
     .snoop_ac_t      (snoop_ac_t),
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
@@ -220,6 +223,12 @@ ccu_ctrl_memory_unit #(
     .mst_r_chan_t    (mst_r_chan_t),
     .mst_req_t       (mst_req_t),
     .mst_resp_t      (mst_resp_t),
+    .slv_aw_chan_t   (slv_aw_chan_t),
+    .slv_b_chan_t    (slv_b_chan_t),
+    .slv_ar_chan_t   (slv_ar_chan_t),
+    .slv_r_chan_t    (slv_r_chan_t),
+    .slv_req_t       (slv_req_t),
+    .slv_resp_t      (slv_resp_t),
     .snoop_ac_t      (snoop_ac_t),
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
@@ -246,40 +255,42 @@ ccu_ctrl_memory_unit #(
     .first_responder_i (dec_first_responder)
 );
 
-    logic [1:0] r_valid_in, r_ready_in;
-    mst_r_chan_t [1:0] r_chans_in;
+///////////////////
+// R arbitration //
+///////////////////
 
-    mst_r_chan_t       r_chan_out;
-    logic              r_valid_out, r_ready_out;
+logic [1:0] r_valid_in, r_ready_in;
+slv_r_chan_t [1:0] r_chans_in;
 
-    always_comb begin
-        mu_ccu_req = ccu_req_i;
+slv_r_chan_t       r_chan_out;
+logic              r_valid_out, r_ready_out;
 
-        r_valid_in = {mu_ccu_resp.r_valid, su_r_valid};
-        r_chans_in = {mu_ccu_resp.r, su_r};
-        {mu_ccu_req.r_ready, su_r_ready} = r_ready_in;
-    end
+always_comb begin
+    mu_ccu_req = ccu_req_i;
 
-    rr_arb_tree #(
-      .NumIn    ( 2             ),
-      .DataType ( mst_r_chan_t  ),
-      .AxiVldRdy( 1'b1          ),
-      .LockIn   ( 1'b1          )
-    ) r_arbiter_i (
-      .clk_i  ( clk_i           ),
-      .rst_ni ( rst_ni          ),
-      .flush_i( 1'b0            ),
-      .rr_i   ( '0              ),
-      .req_i  ( r_valid_in      ),
-      .gnt_o  ( r_ready_in      ),
-      .data_i ( r_chans_in      ),
-      .gnt_i  ( r_ready_out     ),
-      .req_o  ( r_valid_out     ),
-      .data_o ( r_chan_out      ),
-      .idx_o  (                 )
-    );
+    r_valid_in = {mu_ccu_resp.r_valid, su_r_valid};
+    r_chans_in = {mu_ccu_resp.r, su_r};
+    {mu_ccu_req.r_ready, su_r_ready} = r_ready_in;
+end
 
-
+rr_arb_tree #(
+    .NumIn    ( 2             ),
+    .DataType ( slv_r_chan_t  ),
+    .AxiVldRdy( 1'b1          ),
+    .LockIn   ( 1'b1          )
+) r_arbiter_i (
+    .clk_i  ( clk_i           ),
+    .rst_ni ( rst_ni          ),
+    .flush_i( 1'b0            ),
+    .rr_i   ( '0              ),
+    .req_i  ( r_valid_in      ),
+    .gnt_o  ( r_ready_in      ),
+    .data_i ( r_chans_in      ),
+    .gnt_i  ( r_ready_out     ),
+    .req_o  ( r_valid_out     ),
+    .data_o ( r_chan_out      ),
+    .idx_o  (                 )
+);
 
 always_comb begin
     // Resp
@@ -299,6 +310,10 @@ for (genvar i = 0; i < NoMstPorts; i++) begin
     assign s2m_req_o[i].ac_valid = dec_snoop_req[i].ac_valid;
     assign s2m_req_o[i].cr_ready = dec_snoop_req[i].cr_ready;
 end
+
+/////////////////////
+// Collision Check //
+/////////////////////
 
 // Exists
 assign dec_collision = (b_exists || r_exists);
@@ -396,7 +411,9 @@ id_queue #(
     .oup_gnt_o        (r_oup_gnt)
 );
 
-// CD arbitration
+////////////////////
+// CD arbitration //
+////////////////////
 
 logic mu_wb_op, su_wb_op;
 
@@ -466,7 +483,7 @@ assign cd_user_pop            = cd_done;
 
 fifo_v3 #(
     .FALL_THROUGH(1),
-    .DATA_WIDTH(1 + 2 * NoMstPorts),
+    .DATA_WIDTH(1 + NoMstPorts + MstIdxBits),
     .DEPTH(4)
 ) cd_ordering_fifo_i (
     .clk_i      (clk_i),
