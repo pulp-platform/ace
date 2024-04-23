@@ -51,41 +51,47 @@ localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
 
-logic   [SlvAxiIDWidth:0] b_inp_id;
-logic  [AxiAddrWidth-1:0] b_inp_data;
-logic                     b_inp_req;
-logic                     b_inp_gnt;
+localparam int unsigned IdQueueDataWidth = CollisionOnSetOnly ?
+                                           DCacheIndexWidth   :
+                                           AxiAddrWidth - DCacheByteOffset;
 
-logic  [AxiAddrWidth-1:0] b_exists_data;
-logic  [AxiAddrWidth-1:0] b_exists_mask;
-logic                     b_exists_req;
-logic                     b_exists;
-logic                     b_exists_gnt;
+typedef logic [IdQueueDataWidth-1:0] id_queue_data_t;
 
-logic   [SlvAxiIDWidth:0] b_oup_id;
-logic                     b_oup_pop;
-logic                     b_oup_req;
-logic  [AxiAddrWidth-1:0] b_oup_data;
-logic                     b_oup_data_valid;
-logic                     b_oup_gnt;
+logic           [SlvAxiIDWidth:0] b_inp_id;
+id_queue_data_t                   b_inp_data;
+logic                             b_inp_req;
+logic                             b_inp_gnt;
 
-logic  [SlvAxiIDWidth :0] r_inp_id;
-logic  [AxiAddrWidth-1:0] r_inp_data;
-logic                     r_inp_req;
-logic                     r_inp_gnt;
+id_queue_data_t                   b_exists_data;
+id_queue_data_t                   b_exists_mask;
+logic                             b_exists_req;
+logic                             b_exists;
+logic                             b_exists_gnt;
 
-logic  [AxiAddrWidth-1:0] r_exists_data;
-logic  [AxiAddrWidth-1:0] r_exists_mask;
-logic                     r_exists_req;
-logic                     r_exists;
-logic                     r_exists_gnt;
+logic           [SlvAxiIDWidth:0] b_oup_id;
+logic                             b_oup_pop;
+logic                             b_oup_req;
+id_queue_data_t                   b_oup_data;
+logic                             b_oup_data_valid;
+logic                             b_oup_gnt;
 
-logic   [SlvAxiIDWidth:0] r_oup_id;
-logic                     r_oup_pop;
-logic                     r_oup_req;
-logic  [AxiAddrWidth-1:0] r_oup_data;
-logic                     r_oup_data_valid;
-logic                     r_oup_gnt;
+logic           [SlvAxiIDWidth:0] r_inp_id;
+id_queue_data_t                   r_inp_data;
+logic                             r_inp_req;
+logic                             r_inp_gnt;
+
+id_queue_data_t                   r_exists_data;
+id_queue_data_t                   r_exists_mask;
+logic                             r_exists_req;
+logic                             r_exists;
+logic                             r_exists_gnt;
+
+logic           [SlvAxiIDWidth:0] r_oup_id;
+logic                             r_oup_pop;
+logic                             r_oup_req;
+id_queue_data_t                   r_oup_data;
+logic                             r_oup_data_valid;
+logic                             r_oup_gnt;
 
 
 slv_resp_t mu_ccu_resp;
@@ -315,20 +321,32 @@ end
 // Collision Check //
 /////////////////////
 
+localparam logic [AxiAddrWidth-1:0] EXISTS_MASK = CollisionOnSetOnly ?
+                                                  {DCacheIndexWidth{1'b1}} << DCacheByteOffset :
+                                                  ~{DCacheByteOffset{1'b1}};
+
+logic [AxiAddrWidth-1:0] b_inp_aligned_addr;
+logic [AxiAddrWidth-1:0] b_exists_aligned_addr;
+logic [AxiAddrWidth-1:0] r_inp_aligned_addr;
+logic [AxiAddrWidth-1:0] r_exists_aligned_addr;
+
+assign b_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.aw.addr,ccu_req_i.aw.size);
+assign b_exists_aligned_addr = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
+
+assign r_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.ar.addr,ccu_req_i.ar.size);
+assign r_exists_aligned_addr = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
+
 // Exists
 assign dec_collision = (b_exists || r_exists);
 
 // _gnt is not used as it is combinationally set when req = 1
 
-
-assign b_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
-assign b_exists_mask = CollisionOnSetOnly ? {DCacheIndexWidth{1'b1}} << DCacheByteOffset
-                                          : ~{DCacheByteOffset{1'b1}};
+assign b_exists_data = b_exists_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
+assign b_exists_mask = '1;
 assign b_exists_req  = dec_lookup_req;
 
-assign r_exists_data = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
-assign r_exists_mask = CollisionOnSetOnly ? {DCacheIndexWidth{1'b1}} << DCacheByteOffset
-                                          : ~{DCacheByteOffset{1'b1}};
+assign r_exists_data = r_exists_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
+assign r_exists_mask = '1;
 assign r_exists_req  = dec_lookup_req;
 
 // Oup
@@ -345,15 +363,12 @@ assign r_oup_req = ccu_resp_o.r_valid && ccu_req_i.r_ready && ccu_resp_o.r.last;
 
 // Inp
 assign b_inp_id   = ccu_req_i.aw.id;
-assign b_inp_data = axi_pkg::aligned_addr(ccu_req_i.aw.addr,ccu_req_i.aw.size);
+assign b_inp_data = b_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
 assign b_inp_req  = ccu_req_i.aw_valid && ccu_resp_o.aw_ready;
 
 assign r_inp_id   = ccu_req_i.ar.id;
-assign r_inp_data = axi_pkg::aligned_addr(ccu_req_i.ar.addr,ccu_req_i.ar.size);
+assign r_inp_data = r_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
 assign r_inp_req  = ccu_req_i.ar_valid && ccu_resp_o.ar_ready;
-
-
-typedef logic [AxiAddrWidth-1:0] id_queue_data_t;
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),

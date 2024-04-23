@@ -92,8 +92,6 @@ logic w_last_d, w_last_q;
 
 typedef enum logic {W_PASSTHROUGH, W_FROM_FIFO} w_state_t;
 
-w_state_t w_state_in, w_state_out;
-
 logic w_fifo_full, w_fifo_empty;
 logic w_fifo_push, w_fifo_pop;
 w_state_t w_fifo_data_in, w_fifo_data_out;
@@ -214,7 +212,7 @@ always_comb begin
     endcase
 end
 
-assign cd_fifo_pop = w_fifo_data_out inside {W_FROM_FIFO} &&
+assign cd_fifo_pop = w_fifo_data_out == W_FROM_FIFO &&
                      ccu_resp_in.w_ready && ccu_req_out.w_valid;
 
 fifo_v3 #(
