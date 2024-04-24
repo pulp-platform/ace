@@ -126,13 +126,15 @@ logic ccu_ar_ready, ccu_aw_ready;
 
 snoop_req_t [NoMstPorts-1:0] dec_snoop_req;
 
-logic dec_lookup_req, dec_collision;
+logic                    dec_lookup_req;
+logic [AxiAddrWidth-1:0] dec_lookup_addr;
 
 logic dec_cd_fifo_stall;
 
 ccu_ctrl_decoder  #(
     .DcacheLineWidth (DcacheLineWidth),
     .AxiDataWidth    (AxiDataWidth),
+    .AxiAddrWidth    (AxiAddrWidth),
     .NoMstPorts      (NoMstPorts),
     .SlvAxiIDWidth   (SlvAxiIDWidth),
     .slv_aw_chan_t   (slv_aw_chan_t),
@@ -172,10 +174,12 @@ ccu_ctrl_decoder  #(
     .first_responder_o    (dec_first_responder),
 
     .lookup_req_o         (dec_lookup_req),
-    .collision_i          (dec_collision),
+    .lookup_addr_o        (dec_lookup_addr),
     .cd_fifo_stall_i      (dec_cd_fifo_stall),
     .b_queue_full_i       (~b_inp_gnt),
-    .r_queue_full_i       (~r_inp_gnt)
+    .r_queue_full_i       (~r_inp_gnt),
+    .b_collision_i        (b_exists),
+    .r_collision_i        (r_exists)
 );
 
 ccu_ctrl_snoop_unit #(
@@ -331,13 +335,12 @@ logic [AxiAddrWidth-1:0] r_inp_aligned_addr;
 logic [AxiAddrWidth-1:0] r_exists_aligned_addr;
 
 assign b_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.aw.addr,ccu_req_i.aw.size);
-assign b_exists_aligned_addr = axi_pkg::aligned_addr(dec_ccu_req_holder.aw.addr,dec_ccu_req_holder.aw.size);
+assign b_exists_aligned_addr = dec_lookup_addr;
 
 assign r_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.ar.addr,ccu_req_i.ar.size);
-assign r_exists_aligned_addr = axi_pkg::aligned_addr(dec_ccu_req_holder.ar.addr,dec_ccu_req_holder.ar.size);
+assign r_exists_aligned_addr = dec_lookup_addr;
 
 // Exists
-assign dec_collision = (b_exists || r_exists);
 
 // _gnt is not used as it is combinationally set when req = 1
 
