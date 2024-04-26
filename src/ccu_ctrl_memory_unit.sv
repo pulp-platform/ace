@@ -48,7 +48,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
 );
 
 localparam CD_FIFO_DEPTH  = 2;
-localparam AXI_FIFO_DEPTH = 4;
+localparam AXI_FIFO_DEPTH = 0; // Passthrough
 localparam W_FIFO_DEPTH   = 2;
 
 mst_req_t  ccu_req_out;
@@ -256,15 +256,10 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     end
 end
 
-logic w_fifo_data_in_temp, w_fifo_data_out_temp;
-
-assign w_fifo_data_in_temp = logic'(w_fifo_data_in);
-assign w_fifo_data_out     = w_state_t'(w_fifo_data_out_temp);
-
 fifo_v3 #(
     .FALL_THROUGH(0),
-    .DATA_WIDTH($bits(w_state_t)),
-    .DEPTH(W_FIFO_DEPTH)
+    .DEPTH(W_FIFO_DEPTH),
+    .dtype(w_state_t)
   ) w_fifo_i (
     .clk_i      (clk_i),
     .rst_ni     (rst_ni),
@@ -273,9 +268,9 @@ fifo_v3 #(
     .full_o     (w_fifo_full),
     .empty_o    (w_fifo_empty),
     .usage_o    (),
-    .data_i     (w_fifo_data_in_temp),
+    .data_i     (w_fifo_data_in),
     .push_i     (w_fifo_push),
-    .data_o     (w_fifo_data_out_temp),
+    .data_o     (w_fifo_data_out),
     .pop_i      (w_fifo_pop)
 );
 

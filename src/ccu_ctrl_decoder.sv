@@ -56,9 +56,29 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     input  logic                         cd_fifo_stall_i
 );
 
-    logic [NoMstPorts-1:0] initiator_d, initiator_q;
+    typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
+
+    logic [NoMstPorts-1:0] ac_initiator;
     logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake;
+
+    logic [NoMstPorts-1:0] cr_aw_initiator, cr_ar_initiator;
+    logic [NoMstPorts-1:0] cr_aw_mask, cr_ar_mask;
     logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake;
+
+    // AW FIFO
+    logic aw_fifo_empty, aw_fifo_full;
+    logic aw_fifo_pop, aw_fifo_push;
+    slv_aw_chan_t aw_fifo_in, aw_fifo_out;
+
+    // AR FIFO
+    logic ar_fifo_empty, ar_fifo_full;
+    logic ar_fifo_pop, ar_fifo_push;
+    slv_ar_chan_t ar_fifo_in, ar_fifo_out;
+
+    // CR CMD FIFO
+    logic cr_cmd_fifo_empty, cr_cmd_fifo_full;
+    logic cr_cmd_fifo_pop, cr_cmd_fifo_push;
+    cr_cmd_fifo_t cr_cmd_fifo_in, cr_cmd_fifo_out;
 
     logic collision;
 
@@ -70,10 +90,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
       DECODE_W,
       SEND_READ,
       SEND_INVALID_R,
-      SEND_INVALID_W,
-      WAIT_RESP_R,
-      WAIT_INVALID_R,
-      WAIT_INVALID_W
+      SEND_INVALID_W
     } state_d, state_q;
 
     typedef struct packed {
@@ -99,6 +116,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         assign cr_handshake[i] = m2s_resp_i[i].cr_valid & s2m_req_o[i].cr_ready;
     end
 
+    logic cr_done;
+
+    snoop_ac_t [NoMstPorts-1:0] ac;
+    logic      [NoMstPorts-1:0] ac_valid;
+    logic      [NoMstPorts-1:0] cr_ready;
+
     // Hold incoming ACE request
     slv_req_t ccu_req_holder_q;
 
@@ -115,15 +138,13 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         end
     end
 
-    assign ccu_req_holder_o = ccu_req_holder_q;
-
     // Hold snoop AC handshakes
     for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
         always_ff @ (posedge clk_i, negedge rst_ni) begin
             if(!rst_ni) begin
                 ac_handshake_q[i] <= '0;
             end else if(state_q inside {DECODE_R, DECODE_W}) begin
-                ac_handshake_q[i] <= initiator_d[i];
+                ac_handshake_q[i] <= ac_initiator[i];
             end else if(state_q inside {SEND_READ, SEND_INVALID_R, SEND_INVALID_W}) begin
                 if (ac_handshake[i])
                     ac_handshake_q[i] <= 1'b1;
@@ -142,14 +163,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         shared_q         <= '0;
         dirty_q          <= '0;
         response_error_q <= '0;
-      end else if(state_q == IDLE) begin
+      end else if(cr_done) begin
         cr_handshake_q   <= '0;
         data_available_q <= '0;
         shared_q         <= '0;
         dirty_q          <= '0;
         response_error_q <= '0;
-      end else if(state_q inside {SEND_READ, SEND_INVALID_R, SEND_INVALID_W}) begin
-        cr_handshake_q <= initiator_q;
       end else begin
         for (int i = 0; i < NoMstPorts; i = i + 1) begin
             if(cr_handshake[i]) begin
@@ -174,7 +193,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         if(!rst_ni) begin
             first_responder_q  <= '0;
             snoop_resp_found_q <= 1'b0;
-        end else if(state_q == IDLE) begin
+        end else if(cr_done) begin
             first_responder_q  <= '0;
             snoop_resp_found_q <= 1'b0;
         end else if (!snoop_resp_found_q) begin
@@ -196,11 +215,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     always_ff @(posedge clk_i, negedge rst_ni) begin : ccu_present_state
         if(!rst_ni) begin
             state_q <= IDLE;
-            initiator_q <= '0;
             prio_q <= '0;
         end else begin
             state_q <= state_d;
-            initiator_q <= initiator_d;
             prio_q <= prio_d;
         end
     end
@@ -211,21 +228,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     always_comb begin
 
+        ac = '0;
+        ac_valid = '0;
+
         // Next state
         state_d = state_q;
-        initiator_d = initiator_q;
         prio_d = prio_q;
-
-        // Output
-        s2m_req_o  = '0;
 
         slv_ar_ready_o = '0;
         slv_aw_ready_o = '0;
-
-        su_valid_o  = 1'b0;
-        mu_valid_o  = 1'b0;
-        su_op_o = READ_SNP_DATA;
-        mu_op_o = SEND_AXI_REQ_R;
 
         // Ctrl flags
         decode_r = 1'b0;
@@ -234,28 +245,36 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         lookup_req_o  = 1'b0;
         lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.ar.addr,ccu_req_holder_q.ar.size);
 
+        cr_cmd_fifo_in = RESP_R;
+        aw_fifo_push = 1'b0;
+        ar_fifo_push = 1'b0;
+
+        ac_initiator = '0;
+
         case (state_q)
             IDLE: begin
 
-                initiator_d = '0;
                 prio_d = '0;
                 //  wait for incoming valid request from master
                 if(ccu_req_i.ar_valid & prio_r) begin
                     decode_r = 1'b1;
                     state_d = DECODE_R;
-                    initiator_d[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                     prio_d.waiting_w = ccu_req_i.aw_valid;
                 end else if(ccu_req_i.aw_valid & prio_w) begin
                     decode_w = 1'b1;
                     state_d = DECODE_W;
-                    initiator_d[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                     prio_d.waiting_r = ccu_req_i.ar_valid;
                 end
             end
 
             DECODE_W: begin
+                // AC initiator
+                ac_initiator = '0;
+                ac_initiator[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
+                // Collision lookup
                 lookup_req_o = 1'b1;
                 lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.aw.addr,ccu_req_holder_q.aw.size);
+                // Stall or accept request
                 if (!collision && !b_queue_full_i && !cd_fifo_stall_i) begin
                     state_d = SEND_INVALID_W;
                     slv_aw_ready_o = 1'b1;
@@ -263,8 +282,13 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
             end
 
             DECODE_R: begin
+                // AC initiator
+                ac_initiator = '0;
+                ac_initiator[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
+                // Collision lookup
                 lookup_req_o = 1'b1;
                 lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.ar.addr,ccu_req_holder_q.ar.size);
+                // Stall or accept request
                 if (!collision && !r_queue_full_i && !cd_fifo_stall_i) begin
                     state_d = send_invalid_r ? SEND_INVALID_R : SEND_READ;
                     slv_ar_ready_o = 1'b1;
@@ -272,115 +296,218 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
             end
 
             SEND_READ: begin
+                cr_cmd_fifo_in = RESP_R;
                 // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1) begin
-                    state_d = WAIT_RESP_R;
+                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !ar_fifo_full) begin
+                    state_d = IDLE;
+                    ar_fifo_push = 1'b1;
                 end
                 // send request to snooping masters
                 for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                    s2m_req_o[n].ac.addr   =   ccu_req_holder_q.ar.addr;
-                    s2m_req_o[n].ac.prot   =   ccu_req_holder_q.ar.prot;
-                    s2m_req_o[n].ac.snoop  =   ccu_req_holder_q.ar.snoop;
-                    s2m_req_o[n].ac_valid  =   !ac_handshake_q[n];
+                    ac[n].addr   =   ccu_req_holder_q.ar.addr;
+                    ac[n].prot   =   ccu_req_holder_q.ar.prot;
+                    ac[n].snoop  =   ccu_req_holder_q.ar.snoop;
+                    ac_valid[n]  =   !ac_handshake_q[n];
                 end
             end
 
             SEND_INVALID_R: begin
+                cr_cmd_fifo_in = INVALID_R;
                 // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1) begin
-                    state_d = WAIT_INVALID_R;
+                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !ar_fifo_full) begin
+                    state_d = IDLE;
+                    ar_fifo_push = 1'b1;
                 end
                 // send request to snooping masters
                 for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                s2m_req_o[n].ac.addr   =   ccu_req_holder_q.ar.addr;
-                s2m_req_o[n].ac.prot   =   ccu_req_holder_q.ar.prot;
-                s2m_req_o[n].ac.snoop  =   snoop_pkg::CLEAN_INVALID;
-                s2m_req_o[n].ac_valid  =   !ac_handshake_q[n];
+                ac[n].addr   =   ccu_req_holder_q.ar.addr;
+                ac[n].prot   =   ccu_req_holder_q.ar.prot;
+                ac[n].snoop  =   snoop_pkg::CLEAN_INVALID;
+                ac_valid[n]  =   !ac_handshake_q[n];
             end
             end
 
             SEND_INVALID_W: begin
+                cr_cmd_fifo_in = INVALID_W;
                  // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1) begin
-                    state_d = WAIT_INVALID_W;
+                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !aw_fifo_full) begin
+                    state_d = IDLE;
+                    aw_fifo_push = 1'b1;
                 end
                 // send request to snooping masters
                 for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                    s2m_req_o[n].ac.addr  = ccu_req_holder_q.aw.addr;
-                    s2m_req_o[n].ac.prot  = ccu_req_holder_q.aw.prot;
-                    s2m_req_o[n].ac.snoop = snoop_pkg::CLEAN_INVALID;
-                    s2m_req_o[n].ac_valid = !ac_handshake_q[n];
+                    ac[n].addr  = ccu_req_holder_q.aw.addr;
+                    ac[n].prot  = ccu_req_holder_q.aw.prot;
+                    ac[n].snoop = snoop_pkg::CLEAN_INVALID;
+                    ac_valid[n] = !ac_handshake_q[n];
                 end
-            end
-
-            WAIT_RESP_R: begin
-                // wait for all CR handshakes
-                if (cr_handshake_q == '1) begin
-
-                    if(|(data_available_q & ~response_error_q)) begin
-                        su_op_o = READ_SNP_DATA;
-                        su_valid_o = 1'b1;
-                        if (su_ready_i) begin
-                            state_d = IDLE;
-                        end
-                    end else begin
-                        mu_op_o = SEND_AXI_REQ_R;
-                        mu_valid_o = 1'b1;
-                        if (mu_ready_i) begin
-                            state_d = IDLE;
-                        end
-                    end
-                end
-
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                    s2m_req_o[n].cr_ready  = !cr_handshake_q[n];
-            end
-
-            WAIT_INVALID_R: begin
-                // wait for all CR handshakes
-                if (cr_handshake_q == '1 && (ccu_req_i.r_ready || ccu_req_holder_q.ar.lock)) begin
-
-                    if (mu_ready_i && (ccu_req_holder_q.ar.lock || su_ready_i)) begin
-                        state_d = IDLE;
-                        su_valid_o = !ccu_req_holder_q.ar.lock;
-                    end
-
-                    if(|(data_available_q & ~response_error_q)) begin
-                        mu_op_o = SEND_AXI_REQ_WRITE_BACK_R;
-                        mu_valid_o = 1'b1;
-                    end else if (ccu_req_holder_q.ar.lock) begin
-                        mu_op_o = SEND_AXI_REQ_R;
-                        mu_valid_o = 1'b1;
-                    end
-                end
-
-                su_op_o = SEND_INVALID_ACK_R;
-
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                    s2m_req_o[n].cr_ready  =   !cr_handshake_q[n];
-            end
-
-            WAIT_INVALID_W: begin
-                // wait for all CR handshakes
-                if (cr_handshake_q == '1) begin
-
-                    mu_valid_o = 1'b1;
-
-                    if (mu_ready_i) begin
-                        state_d = IDLE;
-                    end
-
-                    if(|(data_available_q & ~response_error_q)) begin
-                        mu_op_o = SEND_AXI_REQ_WRITE_BACK_W;
-                    end else begin
-                        mu_op_o = SEND_AXI_REQ_W;
-                    end
-                end
-
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                    s2m_req_o[n].cr_ready  = !cr_handshake_q[n];
             end
         endcase
     end
+
+    assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
+    assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
+    assign cr_aw_mask      = cr_aw_initiator | cr_handshake_q;
+    assign cr_ar_mask      = cr_ar_initiator | cr_handshake_q;
+
+    assign cr_done         = (mu_valid_o && mu_ready_i) || (su_valid_o && su_ready_i);
+
+    always_comb begin
+
+        su_valid_o  = 1'b0;
+        mu_valid_o  = 1'b0;
+        su_op_o = READ_SNP_DATA;
+        mu_op_o = SEND_AXI_REQ_R;
+
+        aw_fifo_pop = '0;
+        ar_fifo_pop = '0;
+
+        cr_ready = '0;
+
+        if (!cr_cmd_fifo_empty) begin
+            case (cr_cmd_fifo_out)
+
+                RESP_R: begin
+                    // wait for all CR handshakes
+                    if (cr_ar_mask == '1) begin
+
+                        if(|(data_available_q & ~response_error_q)) begin
+                            su_op_o = READ_SNP_DATA;
+                            su_valid_o = 1'b1;
+                            if (su_ready_i) begin
+                                ar_fifo_pop = 1'b1;
+                            end
+                        end else begin
+                            mu_op_o = SEND_AXI_REQ_R;
+                            mu_valid_o = 1'b1;
+                            if (mu_ready_i) begin
+                                ar_fifo_pop = 1'b1;
+                            end
+                        end
+                    end
+
+                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
+                        cr_ready[n]  = !cr_ar_mask[n];
+                end
+
+                INVALID_R: begin
+                    // wait for all CR handshakes
+                    if (cr_ar_mask == '1) begin
+
+                        if (mu_ready_i && (ar_fifo_out.lock || su_ready_i)) begin
+                            ar_fifo_pop = 1'b1;
+                            su_valid_o = !ar_fifo_out.lock;
+                        end
+
+                        if(|(data_available_q & ~response_error_q)) begin
+                            mu_op_o = SEND_AXI_REQ_WRITE_BACK_R;
+                            mu_valid_o = 1'b1;
+                        end else if (ar_fifo_out.lock) begin
+                            mu_op_o = SEND_AXI_REQ_R;
+                            mu_valid_o = 1'b1;
+                        end
+                    end
+
+                    su_op_o = SEND_INVALID_ACK_R;
+
+                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
+                        cr_ready[n]  =  !cr_ar_mask[n];
+                end
+
+                INVALID_W: begin
+                    // wait for all CR handshakes
+                    if (cr_aw_mask == '1) begin
+
+                        mu_valid_o = 1'b1;
+
+                        if (mu_ready_i) begin
+                            aw_fifo_pop = 1'b1;
+                        end
+
+                        if(|(data_available_q & ~response_error_q)) begin
+                            mu_op_o = SEND_AXI_REQ_WRITE_BACK_W;
+                        end else begin
+                            mu_op_o = SEND_AXI_REQ_W;
+                        end
+                    end
+
+                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
+                        cr_ready[n]  = !cr_aw_mask[n];
+                end
+            endcase
+        end
+    end
+
+    always_comb begin
+        s2m_req_o = '0;
+        for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
+            s2m_req_o[n].ac = ac[n];
+            s2m_req_o[n].ac_valid = ac_valid[n];
+            s2m_req_o[n].cr_ready = cr_ready[n];
+        end
+    end
+
+    assign cr_cmd_fifo_push = aw_fifo_push || ar_fifo_push;
+    assign cr_cmd_fifo_pop  = aw_fifo_pop  || ar_fifo_pop;
+
+    fifo_v3 #(
+        .FALL_THROUGH(1),
+        .DEPTH(NoMstPorts),
+        .dtype (cr_cmd_fifo_t)
+    ) cr_cmd_fifo_i (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (cr_cmd_fifo_full),
+        .empty_o    (cr_cmd_fifo_empty),
+        .usage_o    (),
+        .data_i     (cr_cmd_fifo_in),
+        .push_i     (cr_cmd_fifo_push),
+        .data_o     (cr_cmd_fifo_out),
+        .pop_i      (cr_cmd_fifo_pop)
+    );
+
+    assign ar_fifo_in = ccu_req_holder_q.ar;
+    assign ccu_req_holder_o.ar = ar_fifo_out;
+
+    fifo_v3 #(
+        .FALL_THROUGH(1),
+        .DEPTH(NoMstPorts),
+        .dtype (slv_ar_chan_t)
+    ) ar_fifo_i (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (ar_fifo_full),
+        .empty_o    (ar_fifo_empty),
+        .usage_o    (),
+        .data_i     (ar_fifo_in),
+        .push_i     (ar_fifo_push),
+        .data_o     (ar_fifo_out),
+        .pop_i      (ar_fifo_pop)
+    );
+
+    assign aw_fifo_in = ccu_req_holder_q.aw;
+    assign ccu_req_holder_o.aw = aw_fifo_out;
+
+    fifo_v3 #(
+        .FALL_THROUGH(1),
+        .DEPTH(NoMstPorts),
+        .dtype (slv_aw_chan_t)
+    ) aw_fifo_i (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (aw_fifo_full),
+        .empty_o    (aw_fifo_empty),
+        .usage_o    (),
+        .data_i     (aw_fifo_in),
+        .push_i     (aw_fifo_push),
+        .data_o     (aw_fifo_out),
+        .pop_i      (aw_fifo_pop)
+    );
 
 endmodule
