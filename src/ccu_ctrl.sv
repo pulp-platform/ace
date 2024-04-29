@@ -129,6 +129,11 @@ snoop_req_t [NoMstPorts-1:0] dec_snoop_req;
 logic                    dec_lookup_req;
 logic [AxiAddrWidth-1:0] dec_lookup_addr;
 
+slv_aw_chan_t b_queue_aw;
+slv_ar_chan_t r_queue_ar;
+
+logic b_queue_push, r_queue_push;
+
 logic dec_cd_fifo_stall;
 
 ccu_ctrl_decoder  #(
@@ -176,10 +181,15 @@ ccu_ctrl_decoder  #(
     .lookup_req_o         (dec_lookup_req),
     .lookup_addr_o        (dec_lookup_addr),
     .cd_fifo_stall_i      (dec_cd_fifo_stall),
+
     .b_queue_full_i       (~b_inp_gnt),
     .r_queue_full_i       (~r_inp_gnt),
     .b_collision_i        (b_exists),
-    .r_collision_i        (r_exists)
+    .r_collision_i        (r_exists),
+    .b_queue_push_o       (b_queue_push),
+    .r_queue_push_o       (r_queue_push),
+    .b_queue_aw_o         (b_queue_aw),
+    .r_queue_ar_o         (r_queue_ar)
 );
 
 ccu_ctrl_snoop_unit #(
@@ -325,19 +335,15 @@ end
 // Collision Check //
 /////////////////////
 
-localparam logic [AxiAddrWidth-1:0] EXISTS_MASK = CollisionOnSetOnly ?
-                                                  {DCacheIndexWidth{1'b1}} << DCacheByteOffset :
-                                                  ~{DCacheByteOffset{1'b1}};
-
 logic [AxiAddrWidth-1:0] b_inp_aligned_addr;
 logic [AxiAddrWidth-1:0] b_exists_aligned_addr;
 logic [AxiAddrWidth-1:0] r_inp_aligned_addr;
 logic [AxiAddrWidth-1:0] r_exists_aligned_addr;
 
-assign b_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.aw.addr,ccu_req_i.aw.size);
+assign b_inp_aligned_addr    = axi_pkg::aligned_addr(b_queue_aw.addr,b_queue_aw.size);
 assign b_exists_aligned_addr = dec_lookup_addr;
 
-assign r_inp_aligned_addr    = axi_pkg::aligned_addr(ccu_req_i.ar.addr,ccu_req_i.ar.size);
+assign r_inp_aligned_addr    = axi_pkg::aligned_addr(r_queue_ar.addr,r_queue_ar.size);
 assign r_exists_aligned_addr = dec_lookup_addr;
 
 // Exists
@@ -365,13 +371,13 @@ assign r_oup_req = ccu_resp_o.r_valid && ccu_req_i.r_ready && ccu_resp_o.r.last;
 // _gnt is not used as it is combinationally set when req = 1
 
 // Inp
-assign b_inp_id   = ccu_req_i.aw.id;
+assign b_inp_id   = b_queue_aw.id;
 assign b_inp_data = b_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
-assign b_inp_req  = ccu_req_i.aw_valid && ccu_resp_o.aw_ready;
+assign b_inp_req  = b_queue_push;
 
-assign r_inp_id   = ccu_req_i.ar.id;
+assign r_inp_id   = r_queue_ar.id;
 assign r_inp_data = r_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
-assign r_inp_req  = ccu_req_i.ar_valid && ccu_resp_o.ar_ready;
+assign r_inp_req  = r_queue_push;
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),

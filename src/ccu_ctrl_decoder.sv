@@ -48,7 +48,11 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     output logic                         lookup_req_o,
     output logic      [AxiAddrWidth-1:0] lookup_addr_o,
+    output logic                         b_queue_push_o,
+    output slv_aw_chan_t                 b_queue_aw_o,
     input  logic                         b_queue_full_i,
+    output logic                         r_queue_push_o,
+    output slv_ar_chan_t                 r_queue_ar_o,
     input  logic                         r_queue_full_i,
     input  logic                         b_collision_i,
     input  logic                         r_collision_i,
@@ -56,14 +60,16 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     input  logic                         cd_fifo_stall_i
 );
 
-    typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
-
     logic [NoMstPorts-1:0] ac_initiator;
     logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake;
 
     logic [NoMstPorts-1:0] cr_aw_initiator, cr_ar_initiator;
     logic [NoMstPorts-1:0] cr_aw_mask, cr_ar_mask;
     logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake;
+
+    typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
+
+    logic stall;
 
     // AW FIFO
     logic aw_fifo_empty, aw_fifo_full;
@@ -80,36 +86,126 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic cr_cmd_fifo_pop, cr_cmd_fifo_push;
     cr_cmd_fifo_t cr_cmd_fifo_in, cr_cmd_fifo_out;
 
-    logic collision;
-
-    assign collision = b_collision_i || r_collision_i;
-
     enum {
-      IDLE,
-      DECODE_R,
-      DECODE_W,
-      SEND_READ,
-      SEND_INVALID_R,
-      SEND_INVALID_W
-    } state_d, state_q;
-
-    typedef struct packed {
-      logic waiting_w;
-      logic waiting_r;
-    } prio_t;
-
-    prio_t prio_d, prio_q;
-
-    logic prio_r, prio_w;
-
-    assign prio_r = !ccu_req_i.aw_valid || prio_q.waiting_r || !prio_q.waiting_w;
-    assign prio_w = !ccu_req_i.ar_valid || prio_q.waiting_w;
+      AC_IDLE,
+      AC_BUSY
+    } ac_state_d, ac_state_q;
 
     logic decode_r, decode_w;
 
-    logic send_invalid_r;
+    // Hold incoming ACE request
 
-    assign send_invalid_r = ccu_req_holder_q.ar.snoop == snoop_pkg::CLEAN_UNIQUE || ccu_req_holder_q.ar.lock;
+    slv_aw_chan_t                    aw_holder;
+    logic                            aw_holder_valid, aw_holder_ready;
+    slv_ar_chan_t                    ar_holder;
+    logic                            ar_holder_valid, ar_holder_ready;
+    snoop_ac_t                       aw_ac, ar_ac;
+    logic           [NoMstPorts-1:0] aw_initiator, ar_initiator;
+
+    assign b_queue_push_o = aw_holder_ready && aw_holder_valid;
+    assign r_queue_push_o = ar_holder_ready && ar_holder_valid;
+
+    assign b_queue_aw_o   = aw_holder;
+    assign r_queue_ar_o   = ar_holder;
+
+    assign aw_initiator = 1 << aw_holder.id[SlvAxiIDWidth+:MstIdxBits];
+    assign ar_initiator = 1 << ar_holder.id[SlvAxiIDWidth+:MstIdxBits];
+
+
+    logic send_invalid_r;
+    logic collision;
+
+    assign send_invalid_r = ar_holder.snoop == snoop_pkg::CLEAN_UNIQUE || ar_holder.lock;
+    assign collision      = b_collision_i || r_collision_i;
+
+    always_comb begin
+        aw_ac       = '0;
+        aw_ac.addr  = aw_holder.addr;
+        aw_ac.prot  = aw_holder.prot;
+        aw_ac.snoop = snoop_pkg::CLEAN_INVALID;
+
+        ar_ac       = '0;
+        ar_ac.addr  = ar_holder.addr;
+        ar_ac.prot  = ar_holder.prot;
+        ar_ac.snoop = send_invalid_r ? snoop_pkg::CLEAN_INVALID : ar_holder.snoop;
+    end
+
+    spill_register #(
+        .T       (slv_aw_chan_t),
+        .Bypass  (1'b0)
+    ) aw_spill_register (
+        .clk_i,
+        .rst_ni,
+        .valid_i (ccu_req_i.aw_valid),
+        .ready_o (slv_aw_ready_o),
+        .data_i  (ccu_req_i.aw),
+        .valid_o (aw_holder_valid),
+        .ready_i (aw_holder_ready),
+        .data_o  (aw_holder)
+    );
+
+    spill_register #(
+        .T       (slv_ar_chan_t),
+        .Bypass  (1'b0)
+    ) ar_spill_register (
+        .clk_i,
+        .rst_ni,
+        .valid_i (ccu_req_i.ar_valid),
+        .ready_o (slv_ar_ready_o),
+        .data_i  (ccu_req_i.ar),
+        .valid_o (ar_holder_valid),
+        .ready_i (ar_holder_ready),
+        .data_o  (ar_holder)
+    );
+
+    logic           [1:0] arb_req_in, arb_gnt_in;
+    logic                 arb_req_out, arb_gnt_out;
+    snoop_ac_t            arb_ac_out;
+    logic                 arb_idx_out;
+
+    assign arb_req_in = {aw_holder_valid, ar_holder_valid};
+    assign {aw_holder_ready, ar_holder_ready} = arb_gnt_in;
+
+    rr_arb_tree #(
+        .NumIn    ( 2          ),
+        .DataType ( snoop_ac_t ),
+        .AxiVldRdy( 1'b1       ),
+        .LockIn   ( 1'b1       ),
+        .ExtPrio  ( 1'b0       )
+    ) arbiter_i (
+        .clk_i  ( clk_i          ),
+        .rst_ni ( rst_ni         ),
+        .flush_i( 1'b0           ),
+        .rr_i   ( rr             ),
+        .req_i  ( arb_req_in     ),
+        .gnt_o  ( arb_gnt_in     ),
+        .data_i ( {aw_ac, ar_ac} ),
+        .req_o  ( arb_req_out    ),
+        .gnt_i  ( arb_gnt_out    ),
+        .data_o ( arb_ac_out     ),
+        .idx_o  ( arb_idx_out    )
+    );
+
+    assign stall = |{
+        // Collission on address
+        collision,
+        // CR CMD FIFO full
+        cr_cmd_fifo_full,
+        // CD CMD FIFO full
+        cd_fifo_stall_i,
+        // AR requests, ID queue or FIFO full
+        arb_idx_out == 0 && (r_queue_full_i || ar_fifo_full),
+        // AW requests, ID queue or FIFO full
+        arb_idx_out == 1 && (b_queue_full_i || aw_fifo_full),
+        // AC is busy
+        ac_state_q == AC_BUSY
+    };
+    assign arb_gnt_out   = !stall;
+    assign lookup_req_o  = arb_req_out;
+    assign lookup_addr_o = arb_idx_out == 1 ?
+                           axi_pkg::aligned_addr(aw_holder.addr,aw_holder.size):
+                           axi_pkg::aligned_addr(ar_holder.addr,ar_holder.size);
+
 
     for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
         assign ac_handshake[i] = m2s_resp_i[i].ac_ready & s2m_req_o[i].ac_valid;
@@ -118,34 +214,18 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     logic cr_done;
 
-    snoop_ac_t [NoMstPorts-1:0] ac;
-    logic      [NoMstPorts-1:0] ac_valid;
-    logic      [NoMstPorts-1:0] cr_ready;
-
-    // Hold incoming ACE request
-    slv_req_t ccu_req_holder_q;
-
-    always_ff @(posedge clk_i , negedge rst_ni) begin
-        if(!rst_ni) begin
-            ccu_req_holder_q <= '0;
-        end else if(decode_r) begin
-            ccu_req_holder_q.ar       <=  ccu_req_i.ar;
-            ccu_req_holder_q.ar_valid <=  ccu_req_i.ar_valid;
-            ccu_req_holder_q.r_ready  <=  ccu_req_i.r_ready;
-        end  else if(decode_w) begin
-            ccu_req_holder_q.aw       <=  ccu_req_i.aw;
-            ccu_req_holder_q.aw_valid <=  ccu_req_i.aw_valid;
-        end
-    end
+    snoop_ac_t [NoMstPorts-1:0] ac_out;
+    logic      [NoMstPorts-1:0] ac_out_valid;
+    logic      [NoMstPorts-1:0] cr_out_ready;
 
     // Hold snoop AC handshakes
     for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
         always_ff @ (posedge clk_i, negedge rst_ni) begin
             if(!rst_ni) begin
                 ac_handshake_q[i] <= '0;
-            end else if(state_q inside {DECODE_R, DECODE_W}) begin
+            end else if(decode_r || decode_w) begin
                 ac_handshake_q[i] <= ac_initiator[i];
-            end else if(state_q inside {SEND_READ, SEND_INVALID_R, SEND_INVALID_W}) begin
+            end else if(ac_state_q == AC_BUSY) begin
                 if (ac_handshake[i])
                     ac_handshake_q[i] <= 1'b1;
             end else begin
@@ -209,16 +289,18 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign first_responder_o = first_responder_q;
 
+    snoop_ac_t ac_q, ac_d;
+
     // ----------------------
     // Current State Block
     // ----------------------
-    always_ff @(posedge clk_i, negedge rst_ni) begin : ccu_present_state
+    always_ff @(posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
-            state_q <= IDLE;
-            prio_q <= '0;
+            ac_state_q <= AC_IDLE;
+            ac_q    <= '0;
         end else begin
-            state_q <= state_d;
-            prio_q <= prio_d;
+            ac_state_q <= ac_state_d;
+            ac_q    <= ac_d;
         end
     end
 
@@ -228,22 +310,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     always_comb begin
 
-        ac = '0;
-        ac_valid = '0;
+        ac_d = ac_q;
+        ac_out_valid = '0;
 
         // Next state
-        state_d = state_q;
-        prio_d = prio_q;
-
-        slv_ar_ready_o = '0;
-        slv_aw_ready_o = '0;
+        ac_state_d = ac_state_q;
 
         // Ctrl flags
         decode_r = 1'b0;
         decode_w = 1'b0;
-
-        lookup_req_o  = 1'b0;
-        lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.ar.addr,ccu_req_holder_q.ar.size);
 
         cr_cmd_fifo_in = RESP_R;
         aw_fifo_push = 1'b0;
@@ -251,99 +326,35 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
         ac_initiator = '0;
 
-        case (state_q)
-            IDLE: begin
-
-                prio_d = '0;
-                //  wait for incoming valid request from master
-                if(ccu_req_i.ar_valid & prio_r) begin
-                    decode_r = 1'b1;
-                    state_d = DECODE_R;
-                    prio_d.waiting_w = ccu_req_i.aw_valid;
-                end else if(ccu_req_i.aw_valid & prio_w) begin
-                    decode_w = 1'b1;
-                    state_d = DECODE_W;
-                    prio_d.waiting_r = ccu_req_i.ar_valid;
+        case (ac_state_q)
+            AC_IDLE: begin
+                if (arb_req_out && !stall) begin
+                    ac_d = arb_ac_out;
+                    ac_state_d = AC_BUSY;
+                    if (arb_idx_out == 1) begin
+                        decode_w       = 1'b1;
+                        aw_fifo_push   = 1'b1;
+                        cr_cmd_fifo_in = INVALID_W;
+                        ac_initiator   = aw_initiator;
+                    end else if (arb_idx_out == 0) begin
+                        decode_r       = 1'b1;
+                        ar_fifo_push   = 1'b1;
+                        cr_cmd_fifo_in = send_invalid_r ? INVALID_R : RESP_R;
+                        ac_initiator   = ar_initiator;
+                    end
                 end
             end
 
-            DECODE_W: begin
-                // AC initiator
-                ac_initiator = '0;
-                ac_initiator[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
-                // Collision lookup
-                lookup_req_o = 1'b1;
-                lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.aw.addr,ccu_req_holder_q.aw.size);
-                // Stall or accept request
-                if (!collision && !b_queue_full_i && !cd_fifo_stall_i) begin
-                    state_d = SEND_INVALID_W;
-                    slv_aw_ready_o = 1'b1;
+            AC_BUSY: begin
+                if ((ac_handshake_q | ac_handshake) == '1) begin
+                    ac_state_d = AC_IDLE;
                 end
-            end
-
-            DECODE_R: begin
-                // AC initiator
-                ac_initiator = '0;
-                ac_initiator[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
-                // Collision lookup
-                lookup_req_o = 1'b1;
-                lookup_addr_o = axi_pkg::aligned_addr(ccu_req_holder_q.ar.addr,ccu_req_holder_q.ar.size);
-                // Stall or accept request
-                if (!collision && !r_queue_full_i && !cd_fifo_stall_i) begin
-                    state_d = send_invalid_r ? SEND_INVALID_R : SEND_READ;
-                    slv_ar_ready_o = 1'b1;
-                end
-            end
-
-            SEND_READ: begin
-                cr_cmd_fifo_in = RESP_R;
-                // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !ar_fifo_full) begin
-                    state_d = IDLE;
-                    ar_fifo_push = 1'b1;
-                end
-                // send request to snooping masters
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                    ac[n].addr   =   ccu_req_holder_q.ar.addr;
-                    ac[n].prot   =   ccu_req_holder_q.ar.prot;
-                    ac[n].snoop  =   ccu_req_holder_q.ar.snoop;
-                    ac_valid[n]  =   !ac_handshake_q[n];
-                end
-            end
-
-            SEND_INVALID_R: begin
-                cr_cmd_fifo_in = INVALID_R;
-                // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !ar_fifo_full) begin
-                    state_d = IDLE;
-                    ar_fifo_push = 1'b1;
-                end
-                // send request to snooping masters
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                ac[n].addr   =   ccu_req_holder_q.ar.addr;
-                ac[n].prot   =   ccu_req_holder_q.ar.prot;
-                ac[n].snoop  =   snoop_pkg::CLEAN_INVALID;
-                ac_valid[n]  =   !ac_handshake_q[n];
-            end
-            end
-
-            SEND_INVALID_W: begin
-                cr_cmd_fifo_in = INVALID_W;
-                 // wait for all snoop masters to perform an handshake
-                if (ac_handshake_q == '1 && !cr_cmd_fifo_full && !aw_fifo_full) begin
-                    state_d = IDLE;
-                    aw_fifo_push = 1'b1;
-                end
-                // send request to snooping masters
-                for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-                    ac[n].addr  = ccu_req_holder_q.aw.addr;
-                    ac[n].prot  = ccu_req_holder_q.aw.prot;
-                    ac[n].snoop = snoop_pkg::CLEAN_INVALID;
-                    ac_valid[n] = !ac_handshake_q[n];
-                end
+                ac_out_valid = ~ac_handshake_q;
             end
         endcase
     end
+
+    assign ac_out = {NoMstPorts{ac_q}};
 
     assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
     assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
@@ -362,7 +373,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         aw_fifo_pop = '0;
         ar_fifo_pop = '0;
 
-        cr_ready = '0;
+        cr_out_ready = '0;
 
         if (!cr_cmd_fifo_empty) begin
             case (cr_cmd_fifo_out)
@@ -387,10 +398,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     end
 
                     for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_ready[n]  = !cr_ar_mask[n];
+                        cr_out_ready[n]  = !cr_ar_mask[n];
                 end
 
                 INVALID_R: begin
+                    // TODO: sending the ack R transaction could be moved from
+                    // the snoop unit directly here
                     // wait for all CR handshakes
                     if (cr_ar_mask == '1) begin
 
@@ -401,17 +414,17 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
                         if(|(data_available_q & ~response_error_q)) begin
                             mu_op_o = SEND_AXI_REQ_WRITE_BACK_R;
-                            mu_valid_o = 1'b1;
+                            mu_valid_o = (ar_fifo_out.lock || su_ready_i);
                         end else if (ar_fifo_out.lock) begin
                             mu_op_o = SEND_AXI_REQ_R;
-                            mu_valid_o = 1'b1;
+                            mu_valid_o = (ar_fifo_out.lock || su_ready_i);
                         end
                     end
 
                     su_op_o = SEND_INVALID_ACK_R;
 
                     for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_ready[n]  =  !cr_ar_mask[n];
+                        cr_out_ready[n]  =  !cr_ar_mask[n];
                 end
 
                 INVALID_W: begin
@@ -432,7 +445,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     end
 
                     for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_ready[n]  = !cr_aw_mask[n];
+                        cr_out_ready[n]  = !cr_aw_mask[n];
                 end
             endcase
         end
@@ -441,9 +454,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     always_comb begin
         s2m_req_o = '0;
         for (int unsigned n = 0; n < NoMstPorts; n = n + 1) begin
-            s2m_req_o[n].ac = ac[n];
-            s2m_req_o[n].ac_valid = ac_valid[n];
-            s2m_req_o[n].cr_ready = cr_ready[n];
+            s2m_req_o[n].ac       = ac_out[n];
+            s2m_req_o[n].ac_valid = ac_out_valid[n];
+            s2m_req_o[n].cr_ready = cr_out_ready[n];
         end
     end
 
@@ -451,8 +464,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     assign cr_cmd_fifo_pop  = aw_fifo_pop  || ar_fifo_pop;
 
     fifo_v3 #(
-        .FALL_THROUGH(1),
-        .DEPTH(NoMstPorts),
+        .FALL_THROUGH(0),
+        .DEPTH(4),
         .dtype (cr_cmd_fifo_t)
     ) cr_cmd_fifo_i (
         .clk_i      (clk_i),
@@ -468,12 +481,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .pop_i      (cr_cmd_fifo_pop)
     );
 
-    assign ar_fifo_in = ccu_req_holder_q.ar;
+    assign ar_fifo_in = ar_holder;
     assign ccu_req_holder_o.ar = ar_fifo_out;
 
     fifo_v3 #(
-        .FALL_THROUGH(1),
-        .DEPTH(NoMstPorts),
+        .FALL_THROUGH(0),
+        .DEPTH(4),
         .dtype (slv_ar_chan_t)
     ) ar_fifo_i (
         .clk_i      (clk_i),
@@ -489,12 +502,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .pop_i      (ar_fifo_pop)
     );
 
-    assign aw_fifo_in = ccu_req_holder_q.aw;
+    assign aw_fifo_in = aw_holder;
     assign ccu_req_holder_o.aw = aw_fifo_out;
 
     fifo_v3 #(
-        .FALL_THROUGH(1),
-        .DEPTH(NoMstPorts),
+        .FALL_THROUGH(0),
+        .DEPTH(4),
         .dtype (slv_aw_chan_t)
     ) aw_fifo_i (
         .clk_i      (clk_i),

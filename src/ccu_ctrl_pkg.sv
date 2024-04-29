@@ -15,4 +15,6 @@ package ccu_ctrl_pkg;
         SEND_INVALID_ACK_R
     } su_op_e;
 
+    typedef enum logic { MEMORY_UNIT, SNOOP_UNIT } cd_user_t;
+
 endpackage
