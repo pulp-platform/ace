@@ -10,6 +10,7 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     parameter int unsigned DcacheLineWidth = 0,
     parameter int unsigned DCacheIndexWidth = 0,
     parameter int unsigned AxiDataWidth = 0,
+    parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
     parameter bit          CollisionOnSetOnly = 0,
@@ -46,7 +47,6 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
 );
 
-localparam int unsigned AxiAddrWidth     = 64;
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);

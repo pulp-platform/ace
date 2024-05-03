@@ -228,6 +228,7 @@ ccu_ctrl #(
     .DcacheLineWidth ( Cfg.DcacheLineWidth    ),
     .DCacheIndexWidth( Cfg.DCacheIndexWidth   ),
     .AxiDataWidth    ( Cfg.AxiDataWidth       ),
+    .AxiAddrWidth    ( Cfg.AxiAddrWidth       ),
     .NoMstPorts      ( Cfg.NoSlvPorts         ),
     .SlvAxiIDWidth   ( Cfg.AxiIdWidthSlvPorts ), // ID width of the slave ports
     .mst_aw_chan_t   ( mst_stg_aw_chan_t      ), // AW Channel Type, master port
