@@ -83,4 +83,17 @@ package ace_pkg;
     WRITE_UNIQUE
   } ace_trs_t;
 
+   function automatic logic check_collision (logic [63:0] req_start_addr, logic[63:0] req_end_addr, logic [63:0] inflight_start_addr, logic[63:0] inflight_end_addr);
+     logic     collision;
+     collision = 1'b0;
+     if( (req_start_addr >= inflight_start_addr) && (req_end_addr <= inflight_end_addr) ) begin
+        collision = 1'b1;
+     end else if( (req_start_addr <= inflight_end_addr) && (req_end_addr >= inflight_end_addr)) begin
+        collision = 1'b1;
+     end else if( (req_end_addr >= inflight_start_addr) && (req_start_addr <= inflight_start_addr)) begin
+        collision = 1'b1;
+     end
+     return collision;
+  endfunction
+
 endpackage

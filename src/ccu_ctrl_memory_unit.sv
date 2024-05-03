@@ -45,7 +45,6 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     output logic                         mu_gnt_o,
     input  logic                         mu_req_i,
     input  mu_op_e                       mu_op_i,
-    input  logic        [MstIdxBits-1:0] first_responder_i,
 
     output logic                   [7:0] perf_evt_o
 );
@@ -58,7 +57,6 @@ mst_req_t  ccu_req_out;
 mst_resp_t ccu_resp_in;
 
 slv_req_t ccu_req_holder_q, ccu_req_holder_d;
-logic [MstIdxBits-1:0] first_responder_q, first_responder_d;
 
 logic cd_fifo_pop, cd_fifo_empty;
 logic [AxiDataWidth-1:0] cd_fifo_data_out;
@@ -66,10 +64,8 @@ logic [AxiDataWidth-1:0] cd_fifo_data_out;
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
-        first_responder_q <= '0;
     end else if (mu_gnt_o && mu_req_i) begin
         ccu_req_holder_q <= ccu_req_holder_d;
-        first_responder_q <= first_responder_d;
     end
 end
 
@@ -99,7 +95,6 @@ logic w_fifo_full, w_fifo_empty;
 logic w_fifo_push, w_fifo_pop;
 w_state_t w_fifo_data_in, w_fifo_data_out;
 
-assign first_responder_d = !ax_busy_q ? first_responder_i : first_responder_q;
 assign ccu_req_holder_d  = !ax_busy_q ? ccu_req_holder_i  : ccu_req_holder_q;
 assign mu_gnt_o          = !ax_busy_q ? mu_req_i          : 1'b0;
 
@@ -133,7 +128,7 @@ always_comb begin
                 aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                 aw_out.size      = 2'b11;
                 aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                aw_out.id        = {1'b1, first_responder_d, ccu_req_holder_d.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                aw_out.id        =  {1'b1, ccu_req_holder_d.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                 aw_out.len       = DcacheLineWords-1;
                 // WRITEBACK
                 aw_out.domain    = 2'b00;
@@ -171,7 +166,7 @@ always_comb begin
                 aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                 aw_out.size      = 2'b11;
                 aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                aw_out.id        = {1'b1, first_responder_d, ccu_req_holder_d.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                aw_out.id        = {1'b1, ccu_req_holder_d.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                 aw_out.len       = DcacheLineWords-1;
                 // WRITEBACK
                 aw_out.domain    = 2'b00;
@@ -190,12 +185,12 @@ always_comb begin
             end
             AMO_WAIT_WB_R: begin
                 if(ccu_resp_in.b_valid && ccu_req_out.b_ready
-                && ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
+                && ccu_resp_in.b.id == {1'b1, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
                     ax_op_d = SEND_AXI_REQ_R;
             end
             AMO_WAIT_WB_W: begin
                 if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
-                ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
+                ccu_resp_in.b.id == {1'b1, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
                     ax_op_d = SEND_AXI_REQ_W;
             end
         endcase
@@ -307,7 +302,7 @@ assign ccu_resp_o.b = ccu_resp_in.b;
 // An additional bit in the ID is used to verify whether the CCU
 // issued the request or simply forwarded one from the core
 logic is_wb_resp;
-assign is_wb_resp = (ccu_resp_in.b.id[SlvAxiIDWidth+$clog2(NoMstPorts)] == 1'b1);
+assign is_wb_resp = (ccu_resp_in.b.id[SlvAxiIDWidth] == 1'b1);
 
 always_comb begin
     ccu_req_out.b_ready = 1'b0;

@@ -6,6 +6,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
     parameter bit          PerfCounters  = 1,
+    parameter int unsigned IDCCU = 0,
     parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type slv_b_chan_t  = logic,
@@ -55,8 +56,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                         r_queue_push_o,
     output slv_ar_chan_t                 r_queue_ar_o,
     input  logic                         r_queue_full_i,
-    input  logic                         b_collision_i,
-    input  logic                         r_collision_i,
+
+    input  logic                         collision_i,
 
     input  logic                         cd_fifo_stall_i,
 
@@ -106,15 +107,13 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     assign b_queue_aw_o   = aw_holder;
     assign r_queue_ar_o   = ar_holder;
 
-    assign aw_initiator = 1 << aw_holder.id[SlvAxiIDWidth+:MstIdxBits];
-    assign ar_initiator = 1 << ar_holder.id[SlvAxiIDWidth+:MstIdxBits];
+    assign aw_initiator = 1 << IDCCU;
+    assign ar_initiator = 1 << IDCCU;
 
 
     logic send_invalid_r;
-    logic collision;
 
     assign send_invalid_r = ar_holder.snoop == snoop_pkg::CLEAN_UNIQUE || ar_holder.lock;
-    assign collision      = b_collision_i || r_collision_i;
 
     always_comb begin
         aw_ac       = '0;
@@ -186,7 +185,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign stall = |{
         // Collission on address
-        collision,
+        collision_i,
         // CR CMD FIFO full
         cr_cmd_fifo_full,
         // CD CMD FIFO full
@@ -358,8 +357,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign ac_out = {NoMstPorts{ac_q}};
 
-    assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
-    assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
+    assign cr_aw_initiator = 1 << IDCCU;
+    assign cr_ar_initiator = 1 << IDCCU;
 
     always_comb begin
 
@@ -568,7 +567,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         assign perf_snoop_hit        = su_req_o && su_gnt_i && cr_cmd_fifo_out == RESP_R && su_op_o == READ_SNP_DATA;
         assign perf_snoop_miss       = mu_req_o && mu_gnt_i && cr_cmd_fifo_out == RESP_R && mu_op_o == SEND_AXI_REQ_R;
         assign perf_writeback        = mu_req_o && mu_gnt_i && mu_op_o inside {SEND_AXI_REQ_WRITE_BACK_W, SEND_AXI_REQ_WRITE_BACK_R};
-        assign perf_collision_cycles = !ac_busy_q && arb_req_out && !generic_stall && collision;
+        assign perf_collision_cycles = !ac_busy_q && arb_req_out && !generic_stall && collision_i;
         assign perf_collision_req    = perf_collision_cycles && !collision_req_observed_q;
         assign perf_generic_stall    = !ac_busy_q && arb_req_out && generic_stall;
         assign perf_ac_busy_stall    = ac_busy_q && arb_req_out && !ac_done;
