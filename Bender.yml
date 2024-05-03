@@ -27,6 +27,7 @@ sources:
   - src/ccu_ctrl_snoop_unit.sv
   # Level 3
   - src/ccu_ctrl.sv
+  - src/snoop_mux.sv
   # Leval 4
   - src/ace_ccu_top.sv
 

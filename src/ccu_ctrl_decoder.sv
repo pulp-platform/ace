@@ -5,6 +5,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
+    parameter int unsigned IDCCU = 0,
     parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type slv_b_chan_t  = logic,
@@ -54,8 +55,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                         r_queue_push_o,
     output slv_ar_chan_t                 r_queue_ar_o,
     input  logic                         r_queue_full_i,
-    input  logic                         b_collision_i,
-    input  logic                         r_collision_i,
+
+    input  logic                         collision_i,
 
     input  logic                         cd_fifo_stall_i
 );
@@ -108,15 +109,13 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     assign b_queue_aw_o   = aw_holder;
     assign r_queue_ar_o   = ar_holder;
 
-    assign aw_initiator = 1 << aw_holder.id[SlvAxiIDWidth+:MstIdxBits];
-    assign ar_initiator = 1 << ar_holder.id[SlvAxiIDWidth+:MstIdxBits];
+    assign aw_initiator = 1 << IDCCU;
+    assign ar_initiator = 1 << IDCCU;
 
 
     logic send_invalid_r;
-    logic collision;
 
     assign send_invalid_r = ar_holder.snoop == snoop_pkg::CLEAN_UNIQUE || ar_holder.lock;
-    assign collision      = b_collision_i || r_collision_i;
 
     always_comb begin
         aw_ac       = '0;
@@ -188,7 +187,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign stall = |{
         // Collission on address
-        collision,
+        collision_i,
         // CR CMD FIFO full
         cr_cmd_fifo_full,
         // CD CMD FIFO full
@@ -356,8 +355,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign ac_out = {NoMstPorts{ac_q}};
 
-    assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
-    assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
+    assign cr_aw_initiator = 1 << IDCCU;
+    assign cr_ar_initiator = 1 << IDCCU;
     assign cr_aw_mask      = cr_aw_initiator | cr_handshake_q;
     assign cr_ar_mask      = cr_ar_initiator | cr_handshake_q;
 

@@ -13,7 +13,8 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
-    parameter bit          CollisionOnSetOnly = 0,
+    parameter int unsigned IdQueueDataWidth = 0,
+    parameter int unsigned IDCCU = 0,
     parameter type mst_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type mst_b_chan_t  = logic,
@@ -44,16 +45,21 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     input  mst_resp_t                   ccu_resp_i,
     // Snoop channel resuest and response
     output snoop_req_t  [NoMstPorts-1:0] s2m_req_o,
-    input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
+    input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i,
+
+    output logic                        lookup_req_o,
+    input  logic                        lookup_resp_i,
+    output logic [IdQueueDataWidth-1:0] lookup_addr_o,
+
+    input  logic [NoMstPorts-1:0]                       lookup_req_i,
+    output logic [NoMstPorts-1:0]                       lookup_resp_o,
+    input  logic [NoMstPorts-1:0][IdQueueDataWidth-1:0] lookup_addr_i
 );
 
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
-
-localparam int unsigned IdQueueDataWidth = CollisionOnSetOnly ?
-                                           DCacheIndexWidth   :
-                                           AxiAddrWidth - DCacheByteOffset;
+localparam int unsigned NumCmpPorts      = NoMstPorts;
 
 typedef logic [IdQueueDataWidth-1:0] id_queue_data_t;
 
@@ -62,11 +68,11 @@ id_queue_data_t                   b_inp_data;
 logic                             b_inp_req;
 logic                             b_inp_gnt;
 
-id_queue_data_t                   b_exists_data;
-id_queue_data_t                   b_exists_mask;
-logic                             b_exists_req;
-logic                             b_exists;
-logic                             b_exists_gnt;
+id_queue_data_t [NumCmpPorts-1:0] b_exists_data;
+id_queue_data_t [NumCmpPorts-1:0] b_exists_mask;
+logic           [NumCmpPorts-1:0] b_exists_req;
+logic           [NumCmpPorts-1:0] b_exists;
+logic           [NumCmpPorts-1:0] b_exists_gnt;
 
 logic           [SlvAxiIDWidth:0] b_oup_id;
 logic                             b_oup_pop;
@@ -80,11 +86,11 @@ id_queue_data_t                   r_inp_data;
 logic                             r_inp_req;
 logic                             r_inp_gnt;
 
-id_queue_data_t                   r_exists_data;
-id_queue_data_t                   r_exists_mask;
-logic                             r_exists_req;
-logic                             r_exists;
-logic                             r_exists_gnt;
+id_queue_data_t [NumCmpPorts-1:0] r_exists_data;
+id_queue_data_t [NumCmpPorts-1:0] r_exists_mask;
+logic           [NumCmpPorts-1:0] r_exists_req;
+logic           [NumCmpPorts-1:0] r_exists;
+logic           [NumCmpPorts-1:0] r_exists_gnt;
 
 logic           [SlvAxiIDWidth:0] r_oup_id;
 logic                             r_oup_pop;
@@ -142,6 +148,7 @@ ccu_ctrl_decoder  #(
     .AxiAddrWidth    (AxiAddrWidth),
     .NoMstPorts      (NoMstPorts),
     .SlvAxiIDWidth   (SlvAxiIDWidth),
+    .IDCCU           (IDCCU),
     .slv_aw_chan_t   (slv_aw_chan_t),
     .w_chan_t        (w_chan_t),
     .slv_b_chan_t    (slv_b_chan_t),
@@ -182,10 +189,10 @@ ccu_ctrl_decoder  #(
     .lookup_addr_o        (dec_lookup_addr),
     .cd_fifo_stall_i      (dec_cd_fifo_stall),
 
+    .collision_i          (lookup_resp_i),
+
     .b_queue_full_i       (~b_inp_gnt),
     .r_queue_full_i       (~r_inp_gnt),
-    .b_collision_i        (b_exists),
-    .r_collision_i        (r_exists),
     .b_queue_push_o       (b_queue_push),
     .r_queue_push_o       (r_queue_push),
     .b_queue_aw_o         (b_queue_aw),
@@ -335,28 +342,27 @@ end
 // Collision Check //
 /////////////////////
 
-logic [AxiAddrWidth-1:0] b_inp_aligned_addr;
-logic [AxiAddrWidth-1:0] b_exists_aligned_addr;
-logic [AxiAddrWidth-1:0] r_inp_aligned_addr;
-logic [AxiAddrWidth-1:0] r_exists_aligned_addr;
+logic [AxiAddrWidth-1:0]                  b_inp_aligned_addr;
+logic [AxiAddrWidth-1:0]                  r_inp_aligned_addr;
 
 assign b_inp_aligned_addr    = axi_pkg::aligned_addr(b_queue_aw.addr,b_queue_aw.size);
-assign b_exists_aligned_addr = dec_lookup_addr;
-
 assign r_inp_aligned_addr    = axi_pkg::aligned_addr(r_queue_ar.addr,r_queue_ar.size);
-assign r_exists_aligned_addr = dec_lookup_addr;
+
+assign lookup_addr_o         = dec_lookup_addr[DCacheByteOffset+:IdQueueDataWidth];
+assign lookup_req_o          = dec_lookup_req;
+assign lookup_resp_o         = b_exists | r_exists;
 
 // Exists
 
 // _gnt is not used as it is combinationally set when req = 1
 
-assign b_exists_data = b_exists_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
+assign b_exists_data = lookup_addr_i;
 assign b_exists_mask = '1;
-assign b_exists_req  = dec_lookup_req;
+assign b_exists_req  = lookup_req_i;
 
-assign r_exists_data = r_exists_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
+assign r_exists_data = lookup_addr_i;
 assign r_exists_mask = '1;
-assign r_exists_req  = dec_lookup_req;
+assign r_exists_req  = lookup_req_i;
 
 // Oup
 assign b_oup_id  = ccu_resp_o.b.id;
@@ -380,10 +386,11 @@ assign r_inp_data = r_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
 assign r_inp_req  = r_queue_push;
 
 id_queue #(
-    .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (4),
-    .FULL_BW  (1),
-    .data_t   (id_queue_data_t)
+    .ID_WIDTH      (SlvAxiIDWidth+1),
+    .CAPACITY      (4),
+    .FULL_BW       (1),
+    .NUM_CMP_PORTS (NumCmpPorts),
+    .data_t        (id_queue_data_t)
 ) b_id_queue (
     .clk_i,
     .rst_ni,
@@ -408,10 +415,11 @@ id_queue #(
 );
 
 id_queue #(
-    .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (4),
-    .FULL_BW  (1),
-    .data_t   (id_queue_data_t)
+    .ID_WIDTH      (SlvAxiIDWidth+1),
+    .CAPACITY      (4),
+    .FULL_BW       (1),
+    .NUM_CMP_PORTS (NumCmpPorts),
+    .data_t        (id_queue_data_t)
 ) r_id_queue (
     .clk_i,
     .rst_ni,

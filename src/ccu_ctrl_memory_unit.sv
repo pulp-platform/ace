@@ -55,7 +55,6 @@ mst_req_t  ccu_req_out;
 mst_resp_t ccu_resp_in;
 
 slv_req_t ccu_req_holder_q;
-logic [MstIdxBits-1:0] first_responder_q;
 
 logic cd_fifo_pop, cd_fifo_empty;
 logic [AxiDataWidth-1:0] cd_fifo_data_out;
@@ -63,10 +62,8 @@ logic [AxiDataWidth-1:0] cd_fifo_data_out;
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
-        first_responder_q <= '0;
     end else if (mu_ready_o && mu_valid_i) begin
         ccu_req_holder_q <= ccu_req_holder_i;
-        first_responder_q <= first_responder_i;
     end
 end
 
@@ -134,7 +131,7 @@ always_comb begin
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                     aw_out.size      = 2'b11;
                     aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                    aw_out.id        = {1'b1, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                     aw_out.len       = DcacheLineWords-1;
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
@@ -176,7 +173,7 @@ always_comb begin
                     aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
                     aw_out.size      = 2'b11;
                     aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                    aw_out.id        = {1'b1, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
                     aw_out.len       = DcacheLineWords-1;
                     // WRITEBACK
                     aw_out.domain    = 2'b00;
@@ -199,12 +196,12 @@ always_comb begin
                 end
                 AMO_WAIT_WB_R: begin
                     if(ccu_resp_in.b_valid && ccu_req_out.b_ready
-                    && ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
+                    && ccu_resp_in.b.id == {1'b1, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
                         ax_op_d = SEND_AXI_REQ_R;
                 end
                 AMO_WAIT_WB_W: begin
                     if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
-                    ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
+                    ccu_resp_in.b.id == {1'b1, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
                         ax_op_d = SEND_AXI_REQ_W;
                 end
             endcase
@@ -316,7 +313,7 @@ assign ccu_resp_o.b = ccu_resp_in.b;
 // An additional bit in the ID is used to verify whether the CCU
 // issued the request or simply forwarded one from the core
 logic is_wb_resp;
-assign is_wb_resp = (ccu_resp_in.b.id[SlvAxiIDWidth+$clog2(NoMstPorts)] == 1'b1);
+assign is_wb_resp = (ccu_resp_in.b.id[SlvAxiIDWidth] == 1'b1);
 
 always_comb begin
     ccu_req_out.b_ready = 1'b0;
