@@ -296,7 +296,7 @@ always_comb begin
             end
             W_FROM_FIFO: begin
                 // Connect the FIFO as long as the transmission is ongoing
-                w_last_d            = ccu_resp_in.w_ready && !cd_fifo_empty;
+                w_last_d            = (ccu_resp_in.w_ready && !cd_fifo_empty) || w_last_q;
                 ccu_req_out.w_valid =  !cd_fifo_empty;
                 ccu_req_out.w.strb  =  '1;
                 ccu_req_out.w.data  =  cd_fifo_data_out;
