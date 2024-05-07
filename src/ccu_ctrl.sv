@@ -100,9 +100,9 @@ slv_req_t  mu_ccu_req;
 su_op_e su_op;
 mu_op_e mu_op;
 
-logic su_valid, mu_valid;
+logic su_req, mu_req;
 
-logic su_ready, mu_ready;
+logic su_gnt, mu_gnt;
 
 slv_req_t dec_ccu_req_holder;
 
@@ -167,10 +167,10 @@ ccu_ctrl_decoder  #(
     .slv_ar_ready_o       (ccu_ar_ready),
 
     .ccu_req_holder_o     (dec_ccu_req_holder),
-    .su_ready_i           (su_ready),
-    .mu_ready_i           (mu_ready),
-    .su_valid_o           (su_valid),
-    .mu_valid_o           (mu_valid),
+    .su_gnt_i             (su_gnt),
+    .mu_gnt_i             (mu_gnt),
+    .su_req_o             (su_req),
+    .mu_req_o             (mu_req),
     .su_op_o              (su_op),
     .mu_op_o              (mu_op),
     .shared_o             (dec_shared),
@@ -223,8 +223,8 @@ ccu_ctrl_snoop_unit #(
 
     .ccu_req_holder_i      (dec_ccu_req_holder),
 
-    .su_ready_o            (su_ready),
-    .su_valid_i            (su_valid),
+    .su_gnt_o              (su_gnt),
+    .su_req_i              (su_req),
     .su_op_i               (su_op),
 
     .shared_i              (dec_shared),
@@ -269,8 +269,8 @@ ccu_ctrl_memory_unit #(
     .cd_fifo_full_o    (mu_cd_fifo_full),
 
     .ccu_req_holder_i  (dec_ccu_req_holder),
-    .mu_ready_o        (mu_ready),
-    .mu_valid_i        (mu_valid),
+    .mu_gnt_o          (mu_gnt),
+    .mu_req_i          (mu_req),
     .mu_op_i           (mu_op),
     .first_responder_i (dec_first_responder)
 );
@@ -454,14 +454,27 @@ assign su_wb_op = su_op == READ_SNP_DATA;
 
 assign dec_cd_fifo_stall = cd_user_full;
 
+logic cd_user_pushed_d, cd_user_pushed_q;
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+        cd_user_pushed_q <= '0;
+    end else begin
+        cd_user_pushed_q <= cd_user_pushed_d;
+    end
+end
+
 always_comb begin
+    cd_user_pushed_d = cd_user_pushed_q;
     cd_user_push = 1'b0;
     cd_user_in    = MEMORY_UNIT;
-    if (mu_ready && mu_valid && mu_wb_op) begin
-        cd_user_push = 1'b1;
+    if (mu_req && mu_wb_op) begin
+        cd_user_pushed_d = !mu_gnt;
+        cd_user_push = !cd_user_pushed_q;
         cd_user_in   = MEMORY_UNIT;
-    end else if (su_ready && su_valid && su_wb_op) begin
-        cd_user_push = 1'b1;
+    end else if (su_req && su_wb_op) begin
+        cd_user_pushed_d = !su_gnt;
+        cd_user_push = !cd_user_pushed_q;
         cd_user_in   = SNOOP_UNIT;
     end
 end
