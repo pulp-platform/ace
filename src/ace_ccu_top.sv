@@ -201,20 +201,22 @@ logic [Cfg.NoSlvPorts-1:0][IdQueueDataWidth-1:0] lookup_addr_out;
 // To CCUs
 logic [Cfg.NoSlvPorts-1:0]                       lookup_req_in;
 logic [Cfg.NoSlvPorts-1:0][Cfg.NoSlvPorts-1:0]   lookup_resp_out;
+logic [Cfg.NoSlvPorts-1:0][Cfg.NoSlvPorts-1:0]   lookup_resp_out_transposed;
 logic [Cfg.NoSlvPorts-1:0][IdQueueDataWidth-1:0] lookup_addr_in;
 
-logic [Cfg.NoSlvPorts-1:0] overlapping, lookup_resp_compacted;
+logic [Cfg.NoSlvPorts-1:0][Cfg.NoSlvPorts-1:0]   overlapping;
 
 // Overlapping happens when multiple cores try to initiate
 // a transaction on the same cacheline
 // The priority is statically given to the CCU with the lowest
 // index between those competing for the same cacheline
-always_comb begin
-  overlapping = '0;
-  for (int i = 0; i < Cfg.NoSlvPorts; i++) begin
-    for (int j = 0; j < i; j++) begin
-      overlapping [i] |= lookup_req_out[i] && lookup_req_out[j] &&
-                         lookup_addr_out[i] == lookup_addr_out[j];
+for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin
+  for (genvar j = 0; j < Cfg.NoSlvPorts; j++) begin
+    if (j < i) begin
+      assign overlapping[i][j] = lookup_req_out[i] && lookup_req_out[j] &&
+                                 lookup_addr_out[i] == lookup_addr_out[j];
+    end else begin
+      assign overlapping[i][j] = 1'b0;
     end
   end
 end
@@ -227,13 +229,13 @@ assign lookup_addr_in = lookup_addr_out;
 // 1) A CCU reports a collision with an inflight transaction
 // 2) Multiple requests overlap on the same cacheline
 for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin
-  always_comb begin
-    lookup_resp_compacted[i] = '0;
-    for (int j = 0; j < Cfg.NoSlvPorts; j++) begin
-      lookup_resp_compacted[i] |= lookup_resp_out[j][i];
-    end
+  for (genvar j = 0; j < Cfg.NoSlvPorts; j++) begin
+    assign lookup_resp_out_transposed[i][j] = lookup_resp_out[j][i];
   end
-  assign lookup_resp_in[i] = lookup_resp_compacted[i] || overlapping[i];
+end
+
+for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin
+  assign lookup_resp_in[i] = |{lookup_resp_out_transposed[i], overlapping[i]};
 end
 
 snoop_req_t  [Cfg.NoSlvPorts*2-1:0] slv_snp_req ;
