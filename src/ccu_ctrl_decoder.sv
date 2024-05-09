@@ -34,10 +34,10 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     output slv_req_t                     ccu_req_holder_o,
 
-    output logic                         su_valid_o,
-    input  logic                         su_ready_i,
-    output logic                         mu_valid_o,
-    input  logic                         mu_ready_i,
+    output logic                         su_req_o,
+    input  logic                         su_gnt_i,
+    output logic                         mu_req_o,
+    input  logic                         mu_gnt_i,
 
     output mu_op_e                       mu_op_o,
     output su_op_e                       su_op_o,
@@ -64,8 +64,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake;
 
     logic [NoMstPorts-1:0] cr_aw_initiator, cr_ar_initiator;
-    logic [NoMstPorts-1:0] cr_aw_mask, cr_ar_mask;
-    logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake;
+    logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake_d, cr_handshake;
 
     typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
 
@@ -132,7 +131,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     spill_register #(
         .T       (slv_aw_chan_t),
-        .Bypass  (1'b0)
+        .Bypass  (1'b1)
     ) aw_spill_register (
         .clk_i,
         .rst_ni,
@@ -146,7 +145,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     spill_register #(
         .T       (slv_ar_chan_t),
-        .Bypass  (1'b0)
+        .Bypass  (1'b1)
     ) ar_spill_register (
         .clk_i,
         .rst_ni,
@@ -176,7 +175,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .clk_i  ( clk_i          ),
         .rst_ni ( rst_ni         ),
         .flush_i( 1'b0           ),
-        .rr_i   ( rr             ),
+        .rr_i   ( '0             ),
         .req_i  ( arb_req_in     ),
         .gnt_o  ( arb_gnt_in     ),
         .data_i ( {aw_ac, ar_ac} ),
@@ -236,6 +235,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     // Hold snoop CR handshakes
     logic [NoMstPorts-1:0] data_available_q, response_error_q, shared_q, dirty_q;
+    logic [NoMstPorts-1:0] data_available_d, response_error_d, shared_d, dirty_d;
     always_ff @ (posedge clk_i, negedge rst_ni) begin
       if(!rst_ni) begin
         cr_handshake_q   <= '0;
@@ -250,24 +250,28 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         dirty_q          <= '0;
         response_error_q <= '0;
       end else begin
-        for (int i = 0; i < NoMstPorts; i = i + 1) begin
-            if(cr_handshake[i]) begin
-                cr_handshake_q[i]   <=   1'b1;
-                data_available_q[i] <=   m2s_resp_i[i].cr_resp.dataTransfer;
-                shared_q[i]         <=   m2s_resp_i[i].cr_resp.isShared;
-                dirty_q[i]          <=   m2s_resp_i[i].cr_resp.passDirty;
-                response_error_q[i] <=   m2s_resp_i[i].cr_resp.error;
-            end
-        end
+        cr_handshake_q   <= cr_handshake_d;
+        data_available_q <= data_available_d;
+        shared_q         <= shared_d;
+        dirty_q          <= dirty_d;
+        response_error_q <= response_error_d;
       end
     end
 
-    assign dirty_o  = |dirty_q;
-    assign shared_o = |shared_q;
-    assign data_available_o = data_available_q;
+    for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
+        assign cr_handshake_d[i]   =  cr_handshake[i] ? 1'b1                               : cr_handshake_q[i];
+        assign data_available_d[i] =  cr_handshake[i] ? m2s_resp_i[i].cr_resp.dataTransfer : data_available_q[i];
+        assign shared_d[i]         =  cr_handshake[i] ? m2s_resp_i[i].cr_resp.isShared     : shared_q[i];
+        assign dirty_d[i]          =  cr_handshake[i] ? m2s_resp_i[i].cr_resp.passDirty    : dirty_q[i];
+        assign response_error_d[i] =  cr_handshake[i] ? m2s_resp_i[i].cr_resp.error        : response_error_q[i];
+    end
 
-    logic [MstIdxBits-1:0] first_responder_q;
-    logic snoop_resp_found_q;
+    assign dirty_o  = |dirty_d;
+    assign shared_o = |shared_d;
+    assign data_available_o = data_available_d;
+
+    logic [MstIdxBits-1:0] first_responder_q, first_responder_d;
+    logic snoop_resp_found_q, snoop_resp_found_d;
 
     always_ff @ (posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
@@ -277,19 +281,29 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
             first_responder_q  <= '0;
             snoop_resp_found_q <= 1'b0;
         end else if (!snoop_resp_found_q) begin
-          for (int i = 0; i < NoMstPorts; i = i + 1) begin
-            if(cr_handshake[i] & m2s_resp_i[i].cr_resp.dataTransfer & !m2s_resp_i[i].cr_resp.error) begin
-              first_responder_q <= i[MstIdxBits-1:0];
-              snoop_resp_found_q <= 1'b1;
-              break;
-            end
-          end
+            first_responder_q <= first_responder_d;
+            snoop_resp_found_q <= snoop_resp_found_d;
         end
     end
 
-    assign first_responder_o = first_responder_q;
+    always_comb begin
+        first_responder_d  = first_responder_q;
+        snoop_resp_found_d = snoop_resp_found_q;
+        for (int i = 0; i < NoMstPorts; i = i + 1) begin
+            if(cr_handshake[i] & m2s_resp_i[i].cr_resp.dataTransfer & !m2s_resp_i[i].cr_resp.error) begin
+                first_responder_d  = i[MstIdxBits-1:0];
+                snoop_resp_found_d = 1'b1;
+                break;
+            end
+        end
+    end
+
+    assign first_responder_o = first_responder_d;
 
     snoop_ac_t ac_q, ac_d;
+
+    logic mu_done_d, mu_done_q;
+    logic su_done_d, su_done_q;
 
     // ----------------------
     // Current State Block
@@ -297,10 +311,14 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     always_ff @(posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
             ac_state_q <= AC_IDLE;
-            ac_q    <= '0;
+            ac_q       <= '0;
+            mu_done_q  <= '0;
+            su_done_q  <= '0;
         end else begin
             ac_state_q <= ac_state_d;
-            ac_q    <= ac_d;
+            ac_q       <= ac_d;
+            mu_done_q  <= mu_done_d;
+            su_done_q  <= su_done_d;
         end
     end
 
@@ -358,15 +376,14 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
     assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
-    assign cr_aw_mask      = cr_aw_initiator | cr_handshake_q;
-    assign cr_ar_mask      = cr_ar_initiator | cr_handshake_q;
-
-    assign cr_done         = (mu_valid_o && mu_ready_i) || (su_valid_o && su_ready_i);
 
     always_comb begin
 
-        su_valid_o  = 1'b0;
-        mu_valid_o  = 1'b0;
+        mu_done_d = mu_done_q;
+        su_done_d = su_done_q;
+
+        su_req_o  = 1'b0;
+        mu_req_o  = 1'b0;
         su_op_o = READ_SNP_DATA;
         mu_op_o = SEND_AXI_REQ_R;
 
@@ -375,77 +392,89 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
         cr_out_ready = '0;
 
+        cr_done      = 1'b0;
+
         if (!cr_cmd_fifo_empty) begin
             case (cr_cmd_fifo_out)
-
                 RESP_R: begin
                     // wait for all CR handshakes
-                    if (cr_ar_mask == '1) begin
+                    if (cr_handshake_d == ~cr_ar_initiator) begin
 
-                        if(|(data_available_q & ~response_error_q)) begin
+                        if(|(data_available_d & ~response_error_d)) begin
                             su_op_o = READ_SNP_DATA;
-                            su_valid_o = 1'b1;
-                            if (su_ready_i) begin
+                            su_req_o = 1'b1;
+                            if (su_gnt_i) begin
                                 ar_fifo_pop = 1'b1;
+                                cr_done     = 1'b1;
                             end
                         end else begin
                             mu_op_o = SEND_AXI_REQ_R;
-                            mu_valid_o = 1'b1;
-                            if (mu_ready_i) begin
+                            mu_req_o = 1'b1;
+                            if (mu_gnt_i) begin
                                 ar_fifo_pop = 1'b1;
+                                cr_done     = 1'b1;
                             end
                         end
                     end
 
-                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_out_ready[n]  = !cr_ar_mask[n];
+                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator);
                 end
 
                 INVALID_R: begin
                     // TODO: sending the ack R transaction could be moved from
                     // the snoop unit directly here
                     // wait for all CR handshakes
-                    if (cr_ar_mask == '1) begin
+                    if (cr_handshake_d == ~cr_ar_initiator) begin
 
-                        if (mu_ready_i && (ar_fifo_out.lock || su_ready_i)) begin
-                            ar_fifo_pop = 1'b1;
-                            su_valid_o = !ar_fifo_out.lock;
-                        end
+                        su_req_o = !ar_fifo_out.lock && !su_done_q;
+                        su_done_d  = su_gnt_i || su_done_q;
 
-                        if(|(data_available_q & ~response_error_q)) begin
+                        if(|(data_available_d & ~response_error_d)) begin
                             mu_op_o = SEND_AXI_REQ_WRITE_BACK_R;
-                            mu_valid_o = (ar_fifo_out.lock || su_ready_i);
+                            mu_req_o = !mu_done_q;
+                            cr_done = ar_fifo_out.lock ? mu_gnt_i :
+                            &({mu_gnt_i, su_gnt_i} | {mu_done_q, su_done_q});
                         end else if (ar_fifo_out.lock) begin
                             mu_op_o = SEND_AXI_REQ_R;
-                            mu_valid_o = (ar_fifo_out.lock || su_ready_i);
+                            mu_req_o = !mu_done_q;
+                            cr_done  = mu_gnt_i;
+                        end else begin
+                            cr_done  = su_gnt_i;
+                        end
+
+                        mu_done_d = mu_gnt_i || mu_done_q;
+
+                        if (cr_done) begin
+                            ar_fifo_pop = 1'b1;
+                            mu_done_d   = 1'b0;
+                            su_done_d   = 1'b0;
                         end
                     end
 
                     su_op_o = SEND_INVALID_ACK_R;
 
-                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_out_ready[n]  =  !cr_ar_mask[n];
+                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator);
                 end
 
                 INVALID_W: begin
                     // wait for all CR handshakes
-                    if (cr_aw_mask == '1) begin
+                    if (cr_handshake_d == ~cr_aw_initiator) begin
 
-                        mu_valid_o = 1'b1;
+                        mu_req_o = 1'b1;
 
-                        if (mu_ready_i) begin
+                        if (mu_gnt_i) begin
                             aw_fifo_pop = 1'b1;
+                            cr_done     = 1'b1;
                         end
 
-                        if(|(data_available_q & ~response_error_q)) begin
+                        if(|(data_available_d & ~response_error_d)) begin
                             mu_op_o = SEND_AXI_REQ_WRITE_BACK_W;
                         end else begin
                             mu_op_o = SEND_AXI_REQ_W;
                         end
                     end
 
-                    for (int unsigned n = 0; n < NoMstPorts; n = n + 1)
-                        cr_out_ready[n]  = !cr_aw_mask[n];
+                    cr_out_ready = ~(cr_handshake_q | cr_aw_initiator);
                 end
             endcase
         end

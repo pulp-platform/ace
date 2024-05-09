@@ -32,8 +32,8 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
     output logic                         cd_fifo_full_o,
 
     input  slv_req_t                     ccu_req_holder_i,
-    output logic                         su_ready_o,
-    input  logic                         su_valid_i,
+    output logic                         su_gnt_o,
+    input  logic                         su_req_i,
     input  su_op_e                       su_op_i,
     input  logic                         shared_i,
     input  logic                         dirty_i
@@ -41,157 +41,131 @@ module ccu_ctrl_snoop_unit import ccu_ctrl_pkg::*;
 
 localparam FIFO_DEPTH = 2;
 
-enum {
-      IDLE,
-      SEND_LOWER_HALF,
-      SEND_UPPER_HALF,
-      WAIT_R_READY,
-      WAIT_CD_LAST
-} state_d, state_q;
-
 logic [AxiDataWidth-1:0] fifo_data_in, fifo_data_out;
 logic [$clog2(DcacheLineWords)-1:0] fifo_usage;
 
-logic sample_dec_data;
+logic su_busy_d, su_busy_q;
+logic r_last_d, r_last_q;
+su_op_e su_op_d, su_op_q;
 
-slv_req_t ccu_req_holder_q;
-logic shared_q;
-logic dirty_q;
+slv_req_t ccu_req_holder_q, ccu_req_holder_d;
+logic shared_q, shared_d;
+logic dirty_q, dirty_d;
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
         shared_q <= '0;
         dirty_q <= '0;
-    end else if(sample_dec_data) begin
-        ccu_req_holder_q <= ccu_req_holder_i;
-        shared_q <= shared_i;
-        dirty_q <= dirty_i;
+    end else begin
+        ccu_req_holder_q <= ccu_req_holder_d;
+        shared_q <= shared_d;
+        dirty_q <= dirty_d;
     end
 end
 
 always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
-        state_q <= IDLE;
+        su_busy_q <= '0;
+        su_op_q   <= READ_SNP_DATA;
+        r_last_q  <= '0;
     end else begin
-        state_q <= state_d;
+        su_busy_q <= su_busy_d;
+        su_op_q   <= su_op_d;
+        r_last_q  <= r_last_d;
     end
 end
 
 logic ar_addr_offset;
 
-assign ar_addr_offset = ccu_req_holder_q.ar.addr[3];
+assign ar_addr_offset = ccu_req_holder_i.ar.addr[3];
 
 logic fifo_full, fifo_empty, fifo_push, fifo_pop;
 
 assign cd_fifo_full_o = fifo_full;
 
+assign ccu_req_holder_d = su_busy_q ? ccu_req_holder_q : ccu_req_holder_i;
+assign shared_d         = su_busy_q ? shared_q         : shared_i;
+assign dirty_d          = su_busy_q ? dirty_q          : dirty_i;
+assign su_op_d          = su_busy_q ? su_op_q          : su_op_i;
+
 always_comb begin
-
-    state_d = state_q;
-
-    su_ready_o = 1'b0;
+    su_gnt_o = 1'b0;
 
     r_o = '0;
     r_valid_o = 1'b0;
 
     fifo_pop  = 1'b0;
 
-    sample_dec_data = 1'b0;
+    su_busy_d = su_busy_q;
+    r_last_d  = r_last_q;
 
-    case (state_q)
-        IDLE: begin
-            su_ready_o = 1'b1;
-            if (su_valid_i) begin
-                if (su_op_i == SEND_INVALID_ACK_R) begin
-                    r_o       =   '0;
-                    r_o.id    =   ccu_req_holder_i.ar.id;
-                    r_o.last  =   'b1;
-                    r_valid_o =   'b1;
-                    if (!r_ready_i) begin
-                        state_d = WAIT_R_READY;
-                        sample_dec_data = 1'b1;
+    if (su_req_i || su_busy_q) begin
+        su_gnt_o  = !su_busy_q;
+        su_busy_d = 1'b1;
+        case (su_op_d)
+            READ_SNP_DATA: begin
+                // Prepare request
+                r_o.data    = fifo_data_out;
+                r_o.id      = ccu_req_holder_d.ar.id;
+                r_o.resp[3] = shared_d; // update if shared
+                r_o.resp[2] = dirty_d;  // update if any line dirty
+                r_o.last    = r_last_q; // No further transactions
+
+                if (r_last_q) begin
+                    r_valid_o = !fifo_empty;
+                    if (r_ready_i && !fifo_empty) begin
+                        fifo_pop  = 1'b1;
+                        su_busy_d = 1'b0;
+                        r_last_d  = 1'b0;
                     end
-                end else if (su_op_i == READ_SNP_DATA) begin
-                    sample_dec_data = 1'b1;
-                    state_d = SEND_LOWER_HALF;
-                end
-            end
-        end
-
-        SEND_LOWER_HALF: begin
-            // Prepare request
-            r_o.data    = fifo_data_out;
-            r_o.id      = ccu_req_holder_q.ar.id;
-            r_o.resp[3] = shared_q; // update if shared
-            r_o.resp[2] = dirty_q;  // update if any line dirty
-
-            if (!fifo_empty) begin
-                // Single data request
-                if (ccu_req_holder_q.ar.len == 0) begin
-                    // The lower 64 bits are required
-                    if (!ar_addr_offset) begin
-                        r_o.last    = 1'b1;
-                        r_valid_o   = 1'b1; // There is something to send
-                        if (r_ready_i) begin
-                            state_d = WAIT_CD_LAST;
+                end else begin
+                    // Single data request
+                    if (ccu_req_holder_d.ar.len == 0) begin
+                        // The lower 64 bits are required
+                        if (!ar_addr_offset) begin
+                            r_o.last    = 1'b1;
+                            r_valid_o   = !fifo_empty; // There is something to send
+                            if (r_ready_i && !fifo_empty) begin
+                                fifo_pop  = 1'b1;
+                                su_busy_d = 1'b0;
+                            end
+                        end else begin
+                            // The lower 64 bits are not needed
+                            // Consume them and move the upper 64 bits
+                            r_last_d = 1'b1;
                             fifo_pop = 1'b1;
                         end
                     end else begin
-                        // The lower 64 bits are not needed
-                        // Consume them and move the upper 64 bits
-                        state_d = SEND_UPPER_HALF;
-                        fifo_pop = 1'b1;
-                    end
-                end else begin
-                    // Full cacheline request
-                    r_o.last    = 1'b0;
-                    r_valid_o   = 1'b1; // There is something to send
-                    if (r_ready_i) begin
-                        state_d = SEND_UPPER_HALF;
-                        fifo_pop = 1'b1;
+                        // Full cacheline request
+                        r_valid_o   = !fifo_empty; // There is something to send
+                        if (r_ready_i && !fifo_empty) begin
+                            fifo_pop = 1'b1;
+                            r_last_d = 1'b1;
+                        end
                     end
                 end
             end
-        end
-
-        SEND_UPPER_HALF: begin
-            // Prepare request
-            r_o.data    = fifo_data_out;
-            r_o.id      = ccu_req_holder_q.ar.id;
-            r_o.resp[3] = shared_q; // Update if shared
-            r_o.resp[2] = dirty_q;  // Update if any line dirty
-            r_o.last    = 1'b1;     // No further transactions
-
-            if (!fifo_empty) begin
-                r_valid_o = 1'b1;
-
+            SEND_INVALID_ACK_R: begin
+                r_o       =   '0;
+                r_o.id    =   ccu_req_holder_d.ar.id;
+                r_o.last  =   'b1;
+                r_valid_o =   'b1;
                 if (r_ready_i) begin
-                    fifo_pop = 1'b1;
-                    state_d = IDLE;
+                    su_busy_d = 1'b0;
                 end
             end
-        end
-
-        WAIT_R_READY: begin
-            r_o        =   '0;
-            r_o.id     =   ccu_req_holder_q.ar.id;
-            r_o.last   =   'b1;
-            r_valid_o  =   'b1;
-
-            if (r_ready_i)
-                state_d = IDLE;
-        end
-    endcase
+        endcase
+    end
 end
 
 assign fifo_push    = cd_handshake_i;
-assign fifo_flush   = 1'b0;
+assign fifo_flush   = !(su_req_i || su_busy_q);
 assign fifo_data_in = cd_i.data;
 
 
   fifo_v3 #(
-    .FALL_THROUGH(0),
+    .FALL_THROUGH(1),
     .DATA_WIDTH(AxiDataWidth),
     .DEPTH(FIFO_DEPTH)
   ) cd_snoop_fifo_i (

@@ -41,8 +41,8 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
 
 
     input  slv_req_t                     ccu_req_holder_i,
-    output logic                         mu_ready_o,
-    input  logic                         mu_valid_i,
+    output logic                         mu_gnt_o,
+    input  logic                         mu_req_i,
     input  mu_op_e                       mu_op_i,
     input  logic        [MstIdxBits-1:0] first_responder_i
 );
@@ -54,8 +54,8 @@ localparam W_FIFO_DEPTH   = 2;
 mst_req_t  ccu_req_out;
 mst_resp_t ccu_resp_in;
 
-slv_req_t ccu_req_holder_q;
-logic [MstIdxBits-1:0] first_responder_q;
+slv_req_t ccu_req_holder_q, ccu_req_holder_d;
+logic [MstIdxBits-1:0] first_responder_q, first_responder_d;
 
 logic cd_fifo_pop, cd_fifo_empty;
 logic [AxiDataWidth-1:0] cd_fifo_data_out;
@@ -64,9 +64,9 @@ always_ff @(posedge clk_i , negedge rst_ni) begin
     if(!rst_ni) begin
         ccu_req_holder_q <= '0;
         first_responder_q <= '0;
-    end else if (mu_ready_o && mu_valid_i) begin
-        ccu_req_holder_q <= ccu_req_holder_i;
-        first_responder_q <= first_responder_i;
+    end else if (mu_gnt_o && mu_req_i) begin
+        ccu_req_holder_q <= ccu_req_holder_d;
+        first_responder_q <= first_responder_d;
     end
 end
 
@@ -96,10 +96,13 @@ logic w_fifo_full, w_fifo_empty;
 logic w_fifo_push, w_fifo_pop;
 w_state_t w_fifo_data_in, w_fifo_data_out;
 
+assign first_responder_d = !ax_busy_q ? first_responder_i : first_responder_q;
+assign ccu_req_holder_d  = !ax_busy_q ? ccu_req_holder_i  : ccu_req_holder_q;
+assign mu_gnt_o          = !ax_busy_q ? mu_req_i          : 1'b0;
+
 always_comb begin
-    mu_ready_o = 1'b0;
     ax_busy_d = ax_busy_q;
-    ax_op_d = ax_op_q;
+    ax_op_d   = ax_busy_q ? ax_op_q : mu_op_i;
 
     ar_out = '0;
     aw_out = '0;
@@ -109,114 +112,110 @@ always_comb begin
     w_fifo_push    = 1'b0;
     w_fifo_data_in = W_PASSTHROUGH;
 
-    case (ax_busy_q)
-        1'b0: begin
-            mu_ready_o = 1'b1;
-            if (mu_valid_i) begin
-                ax_op_d = mu_op_i;
-                ax_busy_d = 1'b1;
+    if (mu_req_i || ax_busy_q) begin
+        ax_busy_d = 1'b1;
+        case (ax_op_d)
+            SEND_AXI_REQ_R: begin
+                ar_valid_out  = 'b1;
+                ar_out        = ccu_req_holder_d.ar;
+                if (ccu_resp_in.ar_ready) begin
+                    ax_busy_d = 1'b0;
+                end
             end
-        end
-        1'b1: begin
-            case (ax_op_q)
-                SEND_AXI_REQ_R: begin
-                    ar_valid_out  = 'b1;
-                    ar_out        = ccu_req_holder_q.ar;
-                    if (ccu_resp_in.ar_ready) begin
+            SEND_AXI_REQ_WRITE_BACK_R: begin
+                // send writeback request
+                aw_valid_out     = !w_fifo_full;
+                aw_out           = '0; //default
+                aw_out.addr      = ccu_req_holder_d.ar.addr;
+                aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
+                aw_out.size      = 2'b11;
+                aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
+                aw_out.id        = {1'b1, first_responder_d, ccu_req_holder_d.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                aw_out.len       = DcacheLineWords-1;
+                // WRITEBACK
+                aw_out.domain    = 2'b00;
+                aw_out.snoop     = 3'b011;
+
+                w_fifo_data_in   = W_FROM_FIFO;
+
+                if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                    w_fifo_push = 1'b1;
+                    if (ccu_req_holder_d.ar.lock) begin
+                        // Blocking behavior for AMO operations
+                        // TODO: check if truly needed
+                        ax_op_d = AMO_WAIT_WB_R;
+                    end else begin
                         ax_busy_d = 1'b0;
                     end
                 end
-                SEND_AXI_REQ_WRITE_BACK_R: begin
-                    // send writeback request
-                    aw_valid_out     = !w_fifo_full;
-                    aw_out           = '0; //default
-                    aw_out.addr      = ccu_req_holder_q.ar.addr;
-                    aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
-                    aw_out.size      = 2'b11;
-                    aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
-                    aw_out.len       = DcacheLineWords-1;
-                    // WRITEBACK
-                    aw_out.domain    = 2'b00;
-                    aw_out.snoop     = 3'b011;
+            end
+            SEND_AXI_REQ_W: begin
+                aw_valid_out  = !w_fifo_full;
+                aw_out        = ccu_req_holder_d.aw;
 
-                    w_fifo_data_in   = W_FROM_FIFO;
+                w_fifo_data_in = W_PASSTHROUGH;
 
-                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
-                        w_fifo_push    = 1'b1;
-                        if (ccu_req_holder_q.ar.lock)
-                            // Blocking behavior for AMO operations
-                            // TODO: check if truly needed
-                            ax_op_d = AMO_WAIT_WB_R;
-                        else
-                            ax_busy_d = 1'b0;
-                    end
-                end
-                SEND_AXI_REQ_W: begin
-                    aw_valid_out  = !w_fifo_full;
-                    aw_out        = ccu_req_holder_q.aw;
-
-                    w_fifo_data_in = W_PASSTHROUGH;
-
-                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
-                        w_fifo_push = 1'b1;
-                        if (ccu_req_holder_q.aw.atop[5])
-                            // Blocking behavior for AMO operations
-                            // TODO: check if truly needed
-                            ax_op_d = AMO_WAIT_READ;
-                        else
-                            ax_busy_d = 1'b0;
-                    end
-                end
-                SEND_AXI_REQ_WRITE_BACK_W: begin
-                    // send writeback request
-                    aw_valid_out     = !w_fifo_full;
-                    aw_out           = '0; //default
-                    aw_out.addr      = ccu_req_holder_q.aw.addr;
-                    aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
-                    aw_out.size      = 2'b11;
-                    aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
-                    aw_out.id        = {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
-                    aw_out.len       = DcacheLineWords-1;
-                    // WRITEBACK
-                    aw_out.domain    = 2'b00;
-                    aw_out.snoop     = 3'b011;
-
-                    w_fifo_data_in   = W_FROM_FIFO;
-
-                    if (ccu_resp_in.aw_ready && !w_fifo_full) begin
-                        w_fifo_push = 1'b1;
-                        if (ccu_req_holder_q.aw.atop[5])
-                            ax_op_d = AMO_WAIT_WB_W;
-                        else
-                            ax_op_d = SEND_AXI_REQ_W;
-                    end
-                end
-                AMO_WAIT_READ: begin
-                    if(ccu_resp_in.r_valid && ccu_req_i.r_ready && ccu_resp_in.r.last
-                    && ccu_resp_in.r.id == ccu_req_holder_q.aw.id)
+                if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                    w_fifo_push = 1'b1;
+                    if (ccu_req_holder_d.aw.atop[5]) begin
+                        // Blocking behavior for AMO operations
+                        // TODO: check if truly needed
+                        ax_op_d = AMO_WAIT_READ;
+                    end else begin
                         ax_busy_d = 1'b0;
+                    end
                 end
-                AMO_WAIT_WB_R: begin
-                    if(ccu_resp_in.b_valid && ccu_req_out.b_ready
-                    && ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
-                        ax_op_d = SEND_AXI_REQ_R;
-                end
-                AMO_WAIT_WB_W: begin
-                    if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
-                    ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
+            end
+            SEND_AXI_REQ_WRITE_BACK_W: begin
+                // send writeback request
+                aw_valid_out     = !w_fifo_full;
+                aw_out           = '0; //default
+                aw_out.addr      = ccu_req_holder_d.aw.addr;
+                aw_out.addr[3:0] = 4'b0; // writeback is always full cache line
+                aw_out.size      = 2'b11;
+                aw_out.burst     = axi_pkg::BURST_INCR; // Use BURST_INCR for AXI regular transaction
+                aw_out.id        = {1'b1, first_responder_d, ccu_req_holder_d.aw.id[SlvAxiIDWidth-1:0]}; // It should be visible this data originates from the responder, important e.g. for AMO operations
+                aw_out.len       = DcacheLineWords-1;
+                // WRITEBACK
+                aw_out.domain    = 2'b00;
+                aw_out.snoop     = 3'b011;
+
+                w_fifo_data_in   = W_FROM_FIFO;
+
+                if (ccu_resp_in.aw_ready && !w_fifo_full) begin
+                    w_fifo_push = 1'b1;
+                    ax_busy_d   = 1'b1;
+                    if (ccu_req_holder_d.aw.atop[5])
+                        ax_op_d = AMO_WAIT_WB_W;
+                    else
                         ax_op_d = SEND_AXI_REQ_W;
                 end
-            endcase
-        end
-    endcase
+            end
+            AMO_WAIT_READ: begin
+                if(ccu_resp_in.r_valid && ccu_req_i.r_ready && ccu_resp_in.r.last
+                && ccu_resp_in.r.id == ccu_req_holder_q.aw.id)
+                    ax_busy_d = 1'b0;
+            end
+            AMO_WAIT_WB_R: begin
+                if(ccu_resp_in.b_valid && ccu_req_out.b_ready
+                && ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.ar.id[SlvAxiIDWidth-1:0]})
+                    ax_op_d = SEND_AXI_REQ_R;
+            end
+            AMO_WAIT_WB_W: begin
+                if(ccu_resp_in.b_valid && ccu_req_out.b_ready &&
+                ccu_resp_in.b.id == {1'b1, first_responder_q, ccu_req_holder_q.aw.id[SlvAxiIDWidth-1:0]})
+                    ax_op_d = SEND_AXI_REQ_W;
+            end
+        endcase
+    end
 end
+
 
 assign cd_fifo_pop = w_fifo_data_out == W_FROM_FIFO &&
                      ccu_resp_in.w_ready && ccu_req_out.w_valid;
 
 fifo_v3 #(
-    .FALL_THROUGH(0),
+    .FALL_THROUGH(1),
     .DATA_WIDTH(AxiDataWidth),
     .DEPTH(CD_FIFO_DEPTH)
   ) cd_memory_fifo_i (
@@ -257,7 +256,7 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
 end
 
 fifo_v3 #(
-    .FALL_THROUGH(0),
+    .FALL_THROUGH(1),
     .DEPTH(W_FIFO_DEPTH),
     .dtype(w_state_t)
   ) w_fifo_i (
