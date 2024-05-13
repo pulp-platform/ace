@@ -5,6 +5,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
+    parameter bit          PerfCounters  = 1,
     parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type slv_b_chan_t  = logic,
@@ -57,7 +58,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     input  logic                         b_collision_i,
     input  logic                         r_collision_i,
 
-    input  logic                         cd_fifo_stall_i
+    input  logic                         cd_fifo_stall_i,
+
+    output logic                   [7:0] perf_evt_o
 );
 
     logic [NoMstPorts-1:0] ac_initiator;
@@ -552,4 +555,57 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .pop_i      (aw_fifo_pop)
     );
 
+    if (PerfCounters) begin : gen_perf_events
+        logic perf_snoop_hit;
+        logic perf_snoop_miss;
+        logic perf_writeback;
+        logic perf_collision_cycles;
+        logic perf_collision_req;
+        logic perf_generic_stall;
+        logic perf_ac_busy_stall;
+        logic perf_mu_stall;
+        logic generic_stall;
+
+        logic collision_req_observed_q, collision_req_observed_d;
+
+        assign generic_stall =  |{
+            cr_cmd_fifo_full,
+            cd_fifo_stall_i,
+            arb_idx_out == 0 && (r_queue_full_i || ar_fifo_full),
+            arb_idx_out == 1 && (b_queue_full_i || aw_fifo_full)
+        };
+
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni) begin
+                collision_req_observed_q <= '0;
+            end else begin
+                collision_req_observed_q <= collision_req_observed_d;
+            end
+        end
+
+        // Perf counters
+        assign perf_snoop_hit        = su_req_o && su_gnt_i && cr_cmd_fifo_out == RESP_R && su_op_o == READ_SNP_DATA;
+        assign perf_snoop_miss       = mu_req_o && mu_gnt_i && cr_cmd_fifo_out == RESP_R && mu_op_o == SEND_AXI_REQ_R;
+        assign perf_writeback        = mu_req_o && mu_gnt_i && mu_op_o inside {SEND_AXI_REQ_WRITE_BACK_W, SEND_AXI_REQ_WRITE_BACK_R};
+        assign perf_collision_cycles = ac_state_q == AC_IDLE && arb_req_out && !generic_stall && collision;
+        assign perf_collision_req    = perf_collision_cycles && !collision_req_observed_q;
+        assign perf_generic_stall    = ac_state_q == AC_IDLE && arb_req_out && generic_stall;
+        assign perf_ac_busy_stall    = ac_state_q == AC_BUSY && arb_req_out;
+        assign perf_mu_stall         = mu_req_o && !mu_gnt_i;
+
+        assign perf_evt_o = {
+            perf_snoop_hit,
+            perf_snoop_miss,
+            perf_writeback,
+            perf_collision_cycles,
+            perf_collision_req,
+            perf_generic_stall,
+            perf_ac_busy_stall,
+            perf_mu_stall
+        };
+
+        assign collision_req_observed_d = perf_collision_cycles;
+    end else begin
+        assign perf_evt_o = '0;
+    end
 endmodule

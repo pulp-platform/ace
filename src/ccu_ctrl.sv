@@ -44,7 +44,9 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     input  mst_resp_t                   ccu_resp_i,
     // Snoop channel resuest and response
     output snoop_req_t  [NoMstPorts-1:0] s2m_req_o,
-    input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i
+    input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i,
+    // Perf counters
+    output logic                   [7:0] perf_evt_o
 );
 
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
@@ -189,7 +191,10 @@ ccu_ctrl_decoder  #(
     .b_queue_push_o       (b_queue_push),
     .r_queue_push_o       (r_queue_push),
     .b_queue_aw_o         (b_queue_aw),
-    .r_queue_ar_o         (r_queue_ar)
+    .r_queue_ar_o         (r_queue_ar),
+
+    .perf_evt_o           (perf_evt_o)
+
 );
 
 ccu_ctrl_snoop_unit #(
@@ -381,7 +386,7 @@ assign r_inp_req  = r_queue_push;
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (4),
+    .CAPACITY (6),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
 ) b_id_queue (
@@ -409,7 +414,7 @@ id_queue #(
 
 id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
-    .CAPACITY (4),
+    .CAPACITY (6),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
 ) r_id_queue (
