@@ -4,6 +4,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
+    parameter bit          PerfCounters  = 1,
     parameter type mst_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type mst_b_chan_t  = logic,
@@ -44,7 +45,9 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     output logic                         mu_gnt_o,
     input  logic                         mu_req_i,
     input  mu_op_e                       mu_op_i,
-    input  logic        [MstIdxBits-1:0] first_responder_i
+    input  logic        [MstIdxBits-1:0] first_responder_i,
+
+    output logic                   [7:0] perf_evt_o
 );
 
 localparam CD_FIFO_DEPTH  = 2;
@@ -352,6 +355,43 @@ axi_fifo #(
     .mst_req_o  (ccu_req_o),
     .mst_resp_i (ccu_resp_i)
 );
+
+if (PerfCounters) begin : gen_perf_events
+
+    logic perf_send_axi_req_r;
+    logic perf_send_axi_req_write_back_r;
+    logic perf_send_axi_req_w;
+    logic perf_send_axi_req_write_back_w;
+    logic perf_amo_wait_read;
+    logic perf_amo_wait_wb_r;
+    logic perf_amo_wait_wb_w;
+    logic perf_w_fifo_full;
+
+    logic ungranted_request;
+    assign ungranted_request = mu_req_i && !mu_gnt_o;
+
+    assign perf_send_axi_req_r            = ungranted_request && ax_op_q == SEND_AXI_REQ_R;
+    assign perf_send_axi_req_write_back_r = ungranted_request && ax_op_q == SEND_AXI_REQ_WRITE_BACK_R;
+    assign perf_send_axi_req_w            = ungranted_request && ax_op_q == SEND_AXI_REQ_W;
+    assign perf_send_axi_req_write_back_w = ungranted_request && ax_op_q == SEND_AXI_REQ_WRITE_BACK_W;
+    assign perf_amo_wait_read             = ungranted_request && ax_op_q == AMO_WAIT_READ;
+    assign perf_amo_wait_wb_r             = ungranted_request && ax_op_q == AMO_WAIT_WB_R;
+    assign perf_amo_wait_wb_w             = ungranted_request && ax_op_q == AMO_WAIT_WB_W;
+    assign perf_w_fifo_full               = ungranted_request && w_fifo_full;
+
+    assign perf_evt_o = {
+        perf_send_axi_req_r,
+        perf_send_axi_req_write_back_r,
+        perf_send_axi_req_w,
+        perf_send_axi_req_write_back_w,
+        perf_amo_wait_read,
+        perf_amo_wait_wb_r,
+        perf_amo_wait_wb_w,
+        perf_w_fifo_full
+    };
+end else begin
+    assign perf_evt_o = '0;
+end
 
 
 endmodule

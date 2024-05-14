@@ -193,7 +193,7 @@ ccu_ctrl_decoder  #(
     .b_queue_aw_o         (b_queue_aw),
     .r_queue_ar_o         (r_queue_ar),
 
-    .perf_evt_o           (perf_evt_o)
+    .perf_evt_o           ()
 
 );
 
@@ -277,7 +277,9 @@ ccu_ctrl_memory_unit #(
     .mu_gnt_o          (mu_gnt),
     .mu_req_i          (mu_req),
     .mu_op_i           (mu_op),
-    .first_responder_i (dec_first_responder)
+    .first_responder_i (dec_first_responder),
+
+    .perf_evt_o        (perf_evt_o)
 );
 
 ///////////////////
