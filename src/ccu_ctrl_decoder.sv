@@ -89,10 +89,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic cr_cmd_fifo_pop, cr_cmd_fifo_push;
     cr_cmd_fifo_t cr_cmd_fifo_in, cr_cmd_fifo_out;
 
-    enum {
-      AC_IDLE,
-      AC_BUSY
-    } ac_state_d, ac_state_q;
+    logic ac_busy_q, ac_busy_d;
 
     // Hold incoming ACE request
 
@@ -199,7 +196,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         // AW requests, ID queue or FIFO full
         arb_idx_out == 1 && (b_queue_full_i || aw_fifo_full),
         // AC is busy
-        ac_state_q == AC_BUSY && !ac_done
+        ac_busy_q && !ac_done
     };
     assign arb_gnt_out   = !stall;
     assign lookup_req_o  = arb_req_out;
@@ -305,15 +302,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     // ----------------------
     always_ff @(posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
-            ac_state_q <= AC_IDLE;
-            ac_q       <= '0;
-            mu_done_q  <= '0;
-            su_done_q  <= '0;
+            ac_busy_q <= '0;
+            ac_q      <= '0;
+            mu_done_q <= '0;
+            su_done_q <= '0;
         end else begin
-            ac_state_q <= ac_state_d;
-            ac_q       <= ac_d;
-            mu_done_q  <= mu_done_d;
-            su_done_q  <= su_done_d;
+            ac_busy_q <= ac_busy_d;
+            ac_q      <= ac_d;
+            mu_done_q <= mu_done_d;
+            su_done_q <= su_done_d;
         end
     end
 
@@ -327,22 +324,22 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         ac_out_valid = '0;
 
         // Next state
-        ac_state_d = ac_state_q;
+        ac_busy_d = ac_busy_q;
         ac_handshake_d = ac_handshake_q;
 
         cr_cmd_fifo_in = RESP_R;
         aw_fifo_push = 1'b0;
         ar_fifo_push = 1'b0;
 
-        if (ac_state_q == AC_BUSY) begin
+        if (ac_busy_q) begin
             ac_out_valid = ~ac_handshake_q;
             ac_handshake_d = ac_handshake | ac_handshake_q;
         end
 
-        if (ac_state_q == AC_IDLE || ac_done) begin
+        if (!ac_busy_q || ac_done) begin
             if (arb_req_out && !stall) begin
                 ac_d = arb_ac_out;
-                ac_state_d = AC_BUSY;
+                ac_busy_d = 1'b1;
                 if (arb_idx_out == 1) begin
                     aw_fifo_push   = 1'b1;
                     cr_cmd_fifo_in = INVALID_W;
@@ -353,7 +350,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     ac_handshake_d = ar_initiator;
                 end
             end else begin
-                ac_state_d     = AC_IDLE;
+                ac_busy_d      = 1'b0;
                 ac_handshake_d = '0;
             end
         end
@@ -571,10 +568,10 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         assign perf_snoop_hit        = su_req_o && su_gnt_i && cr_cmd_fifo_out == RESP_R && su_op_o == READ_SNP_DATA;
         assign perf_snoop_miss       = mu_req_o && mu_gnt_i && cr_cmd_fifo_out == RESP_R && mu_op_o == SEND_AXI_REQ_R;
         assign perf_writeback        = mu_req_o && mu_gnt_i && mu_op_o inside {SEND_AXI_REQ_WRITE_BACK_W, SEND_AXI_REQ_WRITE_BACK_R};
-        assign perf_collision_cycles = ac_state_q == AC_IDLE && arb_req_out && !generic_stall && collision;
+        assign perf_collision_cycles = !ac_busy_q && arb_req_out && !generic_stall && collision;
         assign perf_collision_req    = perf_collision_cycles && !collision_req_observed_q;
-        assign perf_generic_stall    = ac_state_q == AC_IDLE && arb_req_out && generic_stall;
-        assign perf_ac_busy_stall    = ac_state_q == AC_BUSY && arb_req_out && !ac_done;
+        assign perf_generic_stall    = !ac_busy_q && arb_req_out && generic_stall;
+        assign perf_ac_busy_stall    = ac_busy_q && arb_req_out && !ac_done;
         assign perf_mu_stall         = mu_req_o && !mu_gnt_i;
 
         assign perf_evt_o = {
