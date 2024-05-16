@@ -55,6 +55,7 @@ module ace_ccu_top
   input  logic                             clk_i,
   input  logic                             rst_ni,
   input  logic                             test_i,
+  output logic        [Cfg.NoSlvPorts-1:0][7:0] perf_evt_o,
   input  slv_req_t    [Cfg.NoSlvPorts-1:0] slv_ports_req_i,
   output slv_resp_t   [Cfg.NoSlvPorts-1:0] slv_ports_resp_o,
   output snoop_req_t  [Cfg.NoSlvPorts-1:0] slv_snp_req_o,
@@ -224,6 +225,10 @@ axi_mux #(
   .mst_resp_i  ( ccu_resps_mux_i  )
 );
 
+logic [7:0] perf_evt_temp;
+for (genvar i = 0; i < Cfg.NoSlvPorts; i++)
+  assign perf_evt_o[i] = perf_evt_temp;
+
 ccu_ctrl #(
     .DcacheLineWidth ( Cfg.DcacheLineWidth    ),
     .DCacheIndexWidth( Cfg.DCacheIndexWidth   ),
@@ -253,6 +258,7 @@ ccu_ctrl #(
 ) ccu_ctrl_i (
     .clk_i,
     .rst_ni,
+    .perf_evt_o      ( perf_evt_temp      ),
     .ccu_req_i       ( ccu_reqs_mux_o     ),
     .ccu_resp_o      ( ccu_resps_mux_i    ),
     .ccu_req_o       ( ccu_reqs_o         ),
@@ -274,6 +280,7 @@ module ace_ccu_top_intf
   input  logic     clk_i,
   input  logic     rst_ni,
   input  logic     test_i,
+  output logic [Cfg.NoSlvPorts-1:0][7:0] perf_evt_o,
   SNOOP_BUS.Slave  snoop_ports [Cfg.NoSlvPorts-1:0],
   ACE_BUS.Slave    slv_ports   [Cfg.NoSlvPorts-1:0],
   AXI_BUS.Master   mst_ports
@@ -383,6 +390,7 @@ module ace_ccu_top_intf
     .clk_i,
     .rst_ni,
     .test_i,
+    .perf_evt_o,
     .slv_ports_req_i    ( slv_ace_reqs          ),
     .slv_ports_resp_o   ( slv_ace_resps         ),
     .slv_snp_req_o      ( snoop_reqs            ),

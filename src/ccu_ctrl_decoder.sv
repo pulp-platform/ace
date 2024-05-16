@@ -5,6 +5,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
+    parameter bit          PerfCounters  = 1,
     parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type slv_b_chan_t  = logic,
@@ -57,11 +58,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     input  logic                         b_collision_i,
     input  logic                         r_collision_i,
 
-    input  logic                         cd_fifo_stall_i
+    input  logic                         cd_fifo_stall_i,
+
+    output logic                   [7:0] perf_evt_o
 );
 
-    logic [NoMstPorts-1:0] ac_initiator;
-    logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake;
+    logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake_d, ac_handshake;
 
     logic [NoMstPorts-1:0] cr_aw_initiator, cr_ar_initiator;
     logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake_d, cr_handshake;
@@ -69,6 +71,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
 
     logic stall;
+    logic ac_done;
+    logic cr_done;
 
     // AW FIFO
     logic aw_fifo_empty, aw_fifo_full;
@@ -85,12 +89,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic cr_cmd_fifo_pop, cr_cmd_fifo_push;
     cr_cmd_fifo_t cr_cmd_fifo_in, cr_cmd_fifo_out;
 
-    enum {
-      AC_IDLE,
-      AC_BUSY
-    } ac_state_d, ac_state_q;
-
-    logic decode_r, decode_w;
+    logic ac_busy_q, ac_busy_d;
 
     // Hold incoming ACE request
 
@@ -197,7 +196,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         // AW requests, ID queue or FIFO full
         arb_idx_out == 1 && (b_queue_full_i || aw_fifo_full),
         // AC is busy
-        ac_state_q == AC_BUSY
+        ac_busy_q && !ac_done
     };
     assign arb_gnt_out   = !stall;
     assign lookup_req_o  = arb_req_out;
@@ -211,27 +210,20 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         assign cr_handshake[i] = m2s_resp_i[i].cr_valid & s2m_req_o[i].cr_ready;
     end
 
-    logic cr_done;
-
     snoop_ac_t [NoMstPorts-1:0] ac_out;
     logic      [NoMstPorts-1:0] ac_out_valid;
     logic      [NoMstPorts-1:0] cr_out_ready;
 
     // Hold snoop AC handshakes
-    for (genvar i = 0; i < NoMstPorts; i = i + 1) begin
-        always_ff @ (posedge clk_i, negedge rst_ni) begin
-            if(!rst_ni) begin
-                ac_handshake_q[i] <= '0;
-            end else if(decode_r || decode_w) begin
-                ac_handshake_q[i] <= ac_initiator[i];
-            end else if(ac_state_q == AC_BUSY) begin
-                if (ac_handshake[i])
-                    ac_handshake_q[i] <= 1'b1;
-            end else begin
-                ac_handshake_q[i] <= '0;
-            end
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            ac_handshake_q <= '0;
+        end else begin
+            ac_handshake_q <= ac_handshake_d;
         end
     end
+
+    assign ac_done = (ac_handshake_q | ac_handshake) == '1;
 
     // Hold snoop CR handshakes
     logic [NoMstPorts-1:0] data_available_q, response_error_q, shared_q, dirty_q;
@@ -310,15 +302,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     // ----------------------
     always_ff @(posedge clk_i, negedge rst_ni) begin
         if(!rst_ni) begin
-            ac_state_q <= AC_IDLE;
-            ac_q       <= '0;
-            mu_done_q  <= '0;
-            su_done_q  <= '0;
+            ac_busy_q <= '0;
+            ac_q      <= '0;
+            mu_done_q <= '0;
+            su_done_q <= '0;
         end else begin
-            ac_state_q <= ac_state_d;
-            ac_q       <= ac_d;
-            mu_done_q  <= mu_done_d;
-            su_done_q  <= su_done_d;
+            ac_busy_q <= ac_busy_d;
+            ac_q      <= ac_d;
+            mu_done_q <= mu_done_d;
+            su_done_q <= su_done_d;
         end
     end
 
@@ -332,44 +324,36 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         ac_out_valid = '0;
 
         // Next state
-        ac_state_d = ac_state_q;
-
-        // Ctrl flags
-        decode_r = 1'b0;
-        decode_w = 1'b0;
+        ac_busy_d = ac_busy_q;
+        ac_handshake_d = ac_handshake_q;
 
         cr_cmd_fifo_in = RESP_R;
         aw_fifo_push = 1'b0;
         ar_fifo_push = 1'b0;
 
-        ac_initiator = '0;
+        if (ac_busy_q) begin
+            ac_out_valid = ~ac_handshake_q;
+            ac_handshake_d = ac_handshake | ac_handshake_q;
+        end
 
-        case (ac_state_q)
-            AC_IDLE: begin
-                if (arb_req_out && !stall) begin
-                    ac_d = arb_ac_out;
-                    ac_state_d = AC_BUSY;
-                    if (arb_idx_out == 1) begin
-                        decode_w       = 1'b1;
-                        aw_fifo_push   = 1'b1;
-                        cr_cmd_fifo_in = INVALID_W;
-                        ac_initiator   = aw_initiator;
-                    end else if (arb_idx_out == 0) begin
-                        decode_r       = 1'b1;
-                        ar_fifo_push   = 1'b1;
-                        cr_cmd_fifo_in = send_invalid_r ? INVALID_R : RESP_R;
-                        ac_initiator   = ar_initiator;
-                    end
+        if (!ac_busy_q || ac_done) begin
+            if (arb_req_out && !stall) begin
+                ac_d = arb_ac_out;
+                ac_busy_d = 1'b1;
+                if (arb_idx_out == 1) begin
+                    aw_fifo_push   = 1'b1;
+                    cr_cmd_fifo_in = INVALID_W;
+                    ac_handshake_d = aw_initiator;
+                end else if (arb_idx_out == 0) begin
+                    ar_fifo_push   = 1'b1;
+                    cr_cmd_fifo_in = send_invalid_r ? INVALID_R : RESP_R;
+                    ac_handshake_d = ar_initiator;
                 end
+            end else begin
+                ac_busy_d      = 1'b0;
+                ac_handshake_d = '0;
             end
-
-            AC_BUSY: begin
-                if ((ac_handshake_q | ac_handshake) == '1) begin
-                    ac_state_d = AC_IDLE;
-                end
-                ac_out_valid = ~ac_handshake_q;
-            end
-        endcase
+        end
     end
 
     assign ac_out = {NoMstPorts{ac_q}};
@@ -552,4 +536,57 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .pop_i      (aw_fifo_pop)
     );
 
+    if (PerfCounters) begin : gen_perf_events
+        logic perf_snoop_hit;
+        logic perf_snoop_miss;
+        logic perf_writeback;
+        logic perf_collision_cycles;
+        logic perf_collision_req;
+        logic perf_generic_stall;
+        logic perf_ac_busy_stall;
+        logic perf_mu_stall;
+        logic generic_stall;
+
+        logic collision_req_observed_q, collision_req_observed_d;
+
+        assign generic_stall =  |{
+            cr_cmd_fifo_full,
+            cd_fifo_stall_i,
+            arb_idx_out == 0 && (r_queue_full_i || ar_fifo_full),
+            arb_idx_out == 1 && (b_queue_full_i || aw_fifo_full)
+        };
+
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni) begin
+                collision_req_observed_q <= '0;
+            end else begin
+                collision_req_observed_q <= collision_req_observed_d;
+            end
+        end
+
+        // Perf counters
+        assign perf_snoop_hit        = su_req_o && su_gnt_i && cr_cmd_fifo_out == RESP_R && su_op_o == READ_SNP_DATA;
+        assign perf_snoop_miss       = mu_req_o && mu_gnt_i && cr_cmd_fifo_out == RESP_R && mu_op_o == SEND_AXI_REQ_R;
+        assign perf_writeback        = mu_req_o && mu_gnt_i && mu_op_o inside {SEND_AXI_REQ_WRITE_BACK_W, SEND_AXI_REQ_WRITE_BACK_R};
+        assign perf_collision_cycles = !ac_busy_q && arb_req_out && !generic_stall && collision;
+        assign perf_collision_req    = perf_collision_cycles && !collision_req_observed_q;
+        assign perf_generic_stall    = !ac_busy_q && arb_req_out && generic_stall;
+        assign perf_ac_busy_stall    = ac_busy_q && arb_req_out && !ac_done;
+        assign perf_mu_stall         = mu_req_o && !mu_gnt_i;
+
+        assign perf_evt_o = {
+            perf_snoop_hit,
+            perf_snoop_miss,
+            perf_writeback,
+            perf_collision_cycles,
+            perf_collision_req,
+            perf_generic_stall,
+            perf_ac_busy_stall,
+            perf_mu_stall
+        };
+
+        assign collision_req_observed_d = perf_collision_cycles;
+    end else begin
+        assign perf_evt_o = '0;
+    end
 endmodule
