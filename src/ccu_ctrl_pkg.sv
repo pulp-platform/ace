@@ -5,7 +5,6 @@ package ccu_ctrl_pkg;
         SEND_AXI_REQ_WRITE_BACK_R,
         SEND_AXI_REQ_W,
         SEND_AXI_REQ_WRITE_BACK_W,
-        AMO_WAIT_READ,
         AMO_WAIT_WB_R,
         AMO_WAIT_WB_W
     } mu_op_e;

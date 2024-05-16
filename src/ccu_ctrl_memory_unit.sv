@@ -50,7 +50,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     output logic                   [7:0] perf_evt_o
 );
 
-localparam CD_FIFO_DEPTH  = 2;
+localparam CD_FIFO_DEPTH  = 4;
 localparam AXI_FIFO_DEPTH = 0; // Passthrough
 localparam W_FIFO_DEPTH   = 2;
 
@@ -160,13 +160,7 @@ always_comb begin
 
                 if (ccu_resp_in.aw_ready && !w_fifo_full) begin
                     w_fifo_push = 1'b1;
-                    if (ccu_req_holder_d.aw.atop[5]) begin
-                        // Blocking behavior for AMO operations
-                        // TODO: check if truly needed
-                        ax_op_d = AMO_WAIT_READ;
-                    end else begin
-                        ax_busy_d = 1'b0;
-                    end
+                    ax_busy_d = 1'b0;
                 end
             end
             SEND_AXI_REQ_WRITE_BACK_W: begin
@@ -193,11 +187,6 @@ always_comb begin
                     else
                         ax_op_d = SEND_AXI_REQ_W;
                 end
-            end
-            AMO_WAIT_READ: begin
-                if(ccu_resp_in.r_valid && ccu_req_i.r_ready && ccu_resp_in.r.last
-                && ccu_resp_in.r.id == ccu_req_holder_q.aw.id)
-                    ax_busy_d = 1'b0;
             end
             AMO_WAIT_WB_R: begin
                 if(ccu_resp_in.b_valid && ccu_req_out.b_ready
@@ -362,7 +351,7 @@ if (PerfCounters) begin : gen_perf_events
     logic perf_send_axi_req_write_back_r;
     logic perf_send_axi_req_w;
     logic perf_send_axi_req_write_back_w;
-    logic perf_amo_wait_read;
+    logic perf_cd_fifo_full;
     logic perf_amo_wait_wb_r;
     logic perf_amo_wait_wb_w;
     logic perf_w_fifo_full;
@@ -374,19 +363,19 @@ if (PerfCounters) begin : gen_perf_events
     assign perf_send_axi_req_write_back_r = ungranted_request && ax_op_q == SEND_AXI_REQ_WRITE_BACK_R;
     assign perf_send_axi_req_w            = ungranted_request && ax_op_q == SEND_AXI_REQ_W;
     assign perf_send_axi_req_write_back_w = ungranted_request && ax_op_q == SEND_AXI_REQ_WRITE_BACK_W;
-    assign perf_amo_wait_read             = ungranted_request && ax_op_q == AMO_WAIT_READ;
     assign perf_amo_wait_wb_r             = ungranted_request && ax_op_q == AMO_WAIT_WB_R;
     assign perf_amo_wait_wb_w             = ungranted_request && ax_op_q == AMO_WAIT_WB_W;
-    assign perf_w_fifo_full               = ungranted_request && w_fifo_full;
+    assign perf_cd_fifo_full              = cd_fifo_full_o;
+    assign perf_w_fifo_full               = w_fifo_full;
 
     assign perf_evt_o = {
         perf_send_axi_req_r,
         perf_send_axi_req_write_back_r,
         perf_send_axi_req_w,
         perf_send_axi_req_write_back_w,
-        perf_amo_wait_read,
         perf_amo_wait_wb_r,
         perf_amo_wait_wb_w,
+        perf_cd_fifo_full,
         perf_w_fifo_full
     };
 end else begin
