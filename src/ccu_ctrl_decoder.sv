@@ -18,6 +18,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter type snoop_cd_t    = logic,
     parameter type snoop_req_t   = logic,
     parameter type snoop_resp_t  = logic,
+    parameter type ar_msg_t      = logic,
+    parameter type aw_msg_t      = logic,
+    parameter type snp_flags_t   = logic,
     localparam int unsigned DcacheLineWords = DcacheLineWidth / AxiDataWidth,
     localparam int unsigned MstIdxBits      = $clog2(NoMstPorts)
 ) (
@@ -30,22 +33,29 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output snoop_req_t  [NoMstPorts-1:0] s2m_req_o,
     input  snoop_resp_t [NoMstPorts-1:0] m2s_resp_i,
 
+    output slv_r_chan_t                  r_o,
+    output logic                         r_valid_o,
+    input  logic                         r_ready_i,
+
     output logic                         slv_aw_ready_o,
     output logic                         slv_ar_ready_o,
 
-    output slv_req_t                     ccu_req_holder_o,
+    output aw_msg_t                      aw_msg_o,
+    output ar_msg_t                      ar_msg_o,
 
-    output logic                         su_req_o,
-    input  logic                         su_gnt_i,
-    output logic                         mu_req_o,
-    input  logic                         mu_gnt_i,
+    output snp_flags_t                   snp_flags_o,
 
-    output mu_op_e                       mu_op_o,
-    output su_op_e                       su_op_o,
-    output logic                         shared_o,
-    output logic                         dirty_o,
+    output logic [MstIdxBits-1:0]        first_responder_o,
+
+    output logic                         aw_req_o,
+    input  logic                         aw_gnt_i,
+    output logic                         ar_req_o,
+    input  logic                         ar_gnt_i,
+
+    output dest_t                        dest_o,
+    output logic                         dest_push_o,
+
     output logic        [NoMstPorts-1:0] data_available_o,
-    output logic        [MstIdxBits-1:0] first_responder_o,
 
     output logic                         lookup_req_o,
     output logic      [AxiAddrWidth-1:0] lookup_addr_o,
@@ -71,8 +81,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
 
     logic stall;
-    logic ac_done;
-    logic cr_done;
+    logic ac_done, cr_done;
+    logic aw_wb, ar_wb;
 
     // AW FIFO
     logic aw_fifo_empty, aw_fifo_full;
@@ -258,8 +268,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         assign response_error_d[i] =  cr_handshake[i] ? m2s_resp_i[i].cr_resp.error        : response_error_q[i];
     end
 
-    assign dirty_o  = |dirty_d;
-    assign shared_o = |shared_d;
+    assign snp_flags_o.dirty  = |dirty_d;
+    assign snp_flags_o.shared = |shared_d;
     assign data_available_o = data_available_d;
 
     logic [MstIdxBits-1:0] first_responder_q, first_responder_d;
@@ -290,12 +300,11 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         end
     end
 
-    assign first_responder_o = first_responder_d;
-
     snoop_ac_t ac_q, ac_d;
 
-    logic mu_done_d, mu_done_q;
-    logic su_done_d, su_done_q;
+    logic ar_handshake_d, ar_handshake_q;
+    logic r_handshake_d, r_handshake_q;
+    logic dest_pushed_d, dest_pushed_q;
 
     // ----------------------
     // Current State Block
@@ -304,13 +313,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         if(!rst_ni) begin
             ac_busy_q <= '0;
             ac_q      <= '0;
-            mu_done_q <= '0;
-            su_done_q <= '0;
+            ar_handshake_q <= '0;
+            r_handshake_q  <= '0;
+            dest_pushed_q  <= '0;
         end else begin
             ac_busy_q <= ac_busy_d;
             ac_q      <= ac_d;
-            mu_done_q <= mu_done_d;
-            su_done_q <= su_done_d;
+            ar_handshake_q <= ar_handshake_d;
+            r_handshake_q  <= r_handshake_d;
+            dest_pushed_q  <= dest_pushed_d;
         end
     end
 
@@ -363,16 +374,22 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     always_comb begin
 
-        mu_done_d = mu_done_q;
-        su_done_d = su_done_q;
+        r_valid_o = 1'b0;
 
-        su_req_o  = 1'b0;
-        mu_req_o  = 1'b0;
-        su_op_o = READ_SNP_DATA;
-        mu_op_o = SEND_AXI_REQ_R;
+        ar_handshake_d = ar_handshake_q;
+        r_handshake_d  = r_handshake_q;
+        dest_pushed_d  = 1'b0;
 
         aw_fifo_pop = '0;
         ar_fifo_pop = '0;
+
+        ar_wb = 1'b0;
+        aw_wb = 1'b0;
+        ar_req_o = 1'b0;
+        aw_req_o = 1'b0;
+
+        dest_o      = MEMORY_UNIT;
+        dest_push_o = 1'b0;
 
         cr_out_ready = '0;
 
@@ -384,19 +401,24 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     // wait for all CR handshakes
                     if (cr_handshake_d == ~cr_ar_initiator) begin
 
+                        dest_pushed_d = 1'b1;
+                        dest_push_o   = !dest_pushed_q;
+
                         if(|(data_available_d & ~response_error_d)) begin
-                            su_op_o = READ_SNP_DATA;
-                            su_req_o = 1'b1;
-                            if (su_gnt_i) begin
+                            dest_o          = SNOOP_UNIT;
+                            ar_req_o        = 1'b1;
+                            if (ar_gnt_i) begin
                                 ar_fifo_pop = 1'b1;
                                 cr_done     = 1'b1;
+                                dest_pushed_d = 1'b0;
                             end
                         end else begin
-                            mu_op_o = SEND_AXI_REQ_R;
-                            mu_req_o = 1'b1;
-                            if (mu_gnt_i) begin
+                            dest_o   = MEMORY_UNIT;
+                            ar_req_o = 1'b1;
+                            if (ar_gnt_i) begin
                                 ar_fifo_pop = 1'b1;
                                 cr_done     = 1'b1;
+                                dest_pushed_d = 1'b0;
                             end
                         end
                     end
@@ -405,37 +427,37 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                 end
 
                 INVALID_R: begin
-                    // TODO: sending the ack R transaction could be moved from
-                    // the snoop unit directly here
                     // wait for all CR handshakes
                     if (cr_handshake_d == ~cr_ar_initiator) begin
 
-                        su_req_o = !ar_fifo_out.lock && !su_done_q;
-                        su_done_d  = su_gnt_i || su_done_q;
+                        dest_o = MEMORY_UNIT;
+
+                        r_valid_o     = !ar_fifo_out.lock && !r_handshake_q;
+                        r_handshake_d = !ar_fifo_out.lock && (r_handshake_q || r_ready_i);
+
+                        ar_handshake_d = ar_handshake_q || ar_gnt_i;
 
                         if(|(data_available_d & ~response_error_d)) begin
-                            mu_op_o = SEND_AXI_REQ_WRITE_BACK_R;
-                            mu_req_o = !mu_done_q;
-                            cr_done = ar_fifo_out.lock ? mu_gnt_i :
-                            &({mu_gnt_i, su_gnt_i} | {mu_done_q, su_done_q});
+                            ar_wb    = 1'b1;
+                            ar_req_o = !ar_handshake_q;
+                            cr_done  = (ar_handshake_q || ar_gnt_i) &&
+                                       (ar_fifo_out.lock || r_handshake_q || r_ready_i);
+                            dest_pushed_d = 1'b1;
+                            dest_push_o   = !dest_pushed_q;
                         end else if (ar_fifo_out.lock) begin
-                            mu_op_o = SEND_AXI_REQ_R;
-                            mu_req_o = !mu_done_q;
-                            cr_done  = mu_gnt_i;
+                            cr_done  = ar_gnt_i;
+                            ar_req_o = !ar_handshake_q;
                         end else begin
-                            cr_done  = su_gnt_i;
+                            cr_done  = r_ready_i;
                         end
-
-                        mu_done_d = mu_gnt_i || mu_done_q;
 
                         if (cr_done) begin
                             ar_fifo_pop = 1'b1;
-                            mu_done_d   = 1'b0;
-                            su_done_d   = 1'b0;
+                            ar_handshake_d = 1'b0;
+                            r_handshake_d  = 1'b0;
+                            dest_pushed_d  = 1'b0;
                         end
                     end
-
-                    su_op_o = SEND_INVALID_ACK_R;
 
                     cr_out_ready = ~(cr_handshake_q | cr_ar_initiator);
                 end
@@ -443,18 +465,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                 INVALID_W: begin
                     // wait for all CR handshakes
                     if (cr_handshake_d == ~cr_aw_initiator) begin
-
-                        mu_req_o = 1'b1;
-
-                        if (mu_gnt_i) begin
+                        aw_req_o        = 1'b1;
+                        dest_o          = MEMORY_UNIT;
+                        dest_pushed_d   = 1'b1;
+                        dest_push_o     = !dest_pushed_q;
+                        aw_wb           = |(data_available_d & ~response_error_d);
+                        if (aw_gnt_i) begin
                             aw_fifo_pop = 1'b1;
                             cr_done     = 1'b1;
-                        end
-
-                        if(|(data_available_d & ~response_error_d)) begin
-                            mu_op_o = SEND_AXI_REQ_WRITE_BACK_W;
-                        end else begin
-                            mu_op_o = SEND_AXI_REQ_W;
+                            dest_pushed_d = 1'b0;
                         end
                     end
 
@@ -495,7 +514,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     );
 
     assign ar_fifo_in = ar_holder;
-    assign ccu_req_holder_o.ar = ar_fifo_out;
 
     fifo_v3 #(
         .FALL_THROUGH(0),
@@ -516,7 +534,6 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     );
 
     assign aw_fifo_in = aw_holder;
-    assign ccu_req_holder_o.aw = aw_fifo_out;
 
     fifo_v3 #(
         .FALL_THROUGH(0),
@@ -535,6 +552,20 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         .data_o     (aw_fifo_out),
         .pop_i      (aw_fifo_pop)
     );
+
+    assign ar_msg_o.ar             = ar_fifo_out;
+    assign ar_msg_o.wb             = ar_wb;
+
+    assign aw_msg_o.aw             = aw_fifo_out;
+    assign aw_msg_o.wb             = aw_wb;
+
+    assign first_responder_o       = first_responder_d;
+
+    always_comb begin
+        r_o       = '0;
+        r_o.id    =ar_fifo_out.id;
+        r_o.last  = 'b1;
+    end
 
     if (PerfCounters) begin : gen_perf_events
         logic perf_snoop_hit;
@@ -565,14 +596,14 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
         end
 
         // Perf counters
-        assign perf_snoop_hit        = su_req_o && su_gnt_i && cr_cmd_fifo_out == RESP_R && su_op_o == READ_SNP_DATA;
-        assign perf_snoop_miss       = mu_req_o && mu_gnt_i && cr_cmd_fifo_out == RESP_R && mu_op_o == SEND_AXI_REQ_R;
-        assign perf_writeback        = mu_req_o && mu_gnt_i && mu_op_o inside {SEND_AXI_REQ_WRITE_BACK_W, SEND_AXI_REQ_WRITE_BACK_R};
+        assign perf_snoop_hit        = ar_req_o && ar_gnt_i && cr_cmd_fifo_out == RESP_R && dest_o == SNOOP_UNIT;
+        assign perf_snoop_miss       = ar_req_o && ar_gnt_i && cr_cmd_fifo_out == RESP_R && dest_o == MEMORY_UNIT;
+        assign perf_writeback        = |({ar_req_o, aw_req_o} & {ar_gnt_i, aw_gnt_i} & {ar_wb, aw_wb}) && dest_o == MEMORY_UNIT;
         assign perf_collision_cycles = !ac_busy_q && arb_req_out && !generic_stall && collision;
         assign perf_collision_req    = perf_collision_cycles && !collision_req_observed_q;
         assign perf_generic_stall    = !ac_busy_q && arb_req_out && generic_stall;
         assign perf_ac_busy_stall    = ac_busy_q && arb_req_out && !ac_done;
-        assign perf_mu_stall         = mu_req_o && !mu_gnt_i;
+        assign perf_mu_stall         = |({ar_req_o, aw_req_o} & ~{ar_gnt_i, aw_gnt_i}) && dest_o == MEMORY_UNIT;
 
         assign perf_evt_o = {
             perf_snoop_hit,

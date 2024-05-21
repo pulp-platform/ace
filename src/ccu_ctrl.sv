@@ -49,6 +49,23 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     output logic                   [7:0] perf_evt_o
 );
 
+localparam int unsigned AxiIdWidth = $clog2(NoMstPorts) + SlvAxiIDWidth;
+
+typedef struct packed {
+    logic wb;
+    slv_ar_chan_t ar;
+} ar_msg_t;
+
+typedef struct packed {
+    logic wb;
+    slv_aw_chan_t aw;
+} aw_msg_t;
+
+typedef struct packed {
+    logic shared;
+    logic dirty;
+} snp_flags_t;
+
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
@@ -59,7 +76,7 @@ localparam int unsigned IdQueueDataWidth = CollisionOnSetOnly ?
 
 typedef logic [IdQueueDataWidth-1:0] id_queue_data_t;
 
-logic           [SlvAxiIDWidth:0] b_inp_id;
+logic           [AxiIdWidth-1:0]  b_inp_id;
 id_queue_data_t                   b_inp_data;
 logic                             b_inp_req;
 logic                             b_inp_gnt;
@@ -70,14 +87,14 @@ logic                             b_exists_req;
 logic                             b_exists;
 logic                             b_exists_gnt;
 
-logic           [SlvAxiIDWidth:0] b_oup_id;
+logic           [AxiIdWidth-1:0]  b_oup_id;
 logic                             b_oup_pop;
 logic                             b_oup_req;
 id_queue_data_t                   b_oup_data;
 logic                             b_oup_data_valid;
 logic                             b_oup_gnt;
 
-logic           [SlvAxiIDWidth:0] r_inp_id;
+logic           [AxiIdWidth-1:0]  r_inp_id;
 id_queue_data_t                   r_inp_data;
 logic                             r_inp_req;
 logic                             r_inp_gnt;
@@ -88,7 +105,7 @@ logic                             r_exists_req;
 logic                             r_exists;
 logic                             r_exists_gnt;
 
-logic           [SlvAxiIDWidth:0] r_oup_id;
+logic           [AxiIdWidth-1:0]  r_oup_id;
 logic                             r_oup_pop;
 logic                             r_oup_req;
 id_queue_data_t                   r_oup_data;
@@ -99,18 +116,14 @@ logic                             r_oup_gnt;
 slv_resp_t mu_ccu_resp;
 slv_req_t  mu_ccu_req;
 
-su_op_e su_op;
-mu_op_e mu_op;
+logic aw_gnt, mu_aw_gnt;
+logic aw_req, mu_aw_req;
+logic ar_gnt, mu_ar_gnt, su_ar_gnt;
+logic ar_req, mu_ar_req, su_ar_req;
 
-logic su_req, mu_req;
+snp_flags_t snp_flags;
 
-logic su_gnt, mu_gnt;
-
-slv_req_t dec_ccu_req_holder;
-
-logic dec_shared, dec_dirty;
-
-logic [MstIdxBits-1:0] dec_first_responder, cd_first_responder_in, cd_first_responder_out;
+logic [MstIdxBits-1:0] cd_first_responder_in, cd_first_responder_out;
 
 snoop_cd_t [NoMstPorts-1:0] cd;
 snoop_cd_t                  cd_first_responder;
@@ -121,8 +134,9 @@ logic      [NoMstPorts-1:0] cd_data_available_in, cd_data_available_out;
 logic      [NoMstPorts-1:0] cd_last_q;
 logic                       cd_fifo_full, mu_cd_fifo_full, su_cd_fifo_full;
 
-slv_r_chan_t su_r;
+slv_r_chan_t su_r, dec_r;
 logic        su_r_valid, su_r_ready;
+logic        dec_r_valid, dec_r_ready;
 
 logic ccu_ar_ready, ccu_aw_ready;
 
@@ -137,6 +151,20 @@ slv_ar_chan_t r_queue_ar;
 logic b_queue_push, r_queue_push;
 
 logic dec_cd_fifo_stall;
+
+ar_msg_t ar_msg;
+aw_msg_t aw_msg;
+
+dest_t dest;
+logic dest_push;
+
+logic [MstIdxBits-1:0] first_responder;
+
+assign aw_gnt    = mu_aw_gnt;
+assign mu_aw_req = aw_req;
+assign ar_gnt    = dest == MEMORY_UNIT ? mu_ar_gnt : su_ar_gnt;
+assign mu_ar_req = dest == MEMORY_UNIT ? ar_req    : 1'b0;
+assign su_ar_req = dest == SNOOP_UNIT  ? ar_req    : 1'b0;
 
 ccu_ctrl_decoder  #(
     .DcacheLineWidth (DcacheLineWidth),
@@ -155,7 +183,10 @@ ccu_ctrl_decoder  #(
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
     .snoop_req_t     (snoop_req_t),
-    .snoop_resp_t    (snoop_resp_t)
+    .snoop_resp_t    (snoop_resp_t),
+    .ar_msg_t        (ar_msg_t),
+    .aw_msg_t        (aw_msg_t),
+    .snp_flags_t     (snp_flags_t)
 ) ccu_ctrl_decoder_i (
     .clk_i,
     .rst_ni,
@@ -168,17 +199,26 @@ ccu_ctrl_decoder  #(
     .slv_aw_ready_o       (ccu_aw_ready),
     .slv_ar_ready_o       (ccu_ar_ready),
 
-    .ccu_req_holder_o     (dec_ccu_req_holder),
-    .su_gnt_i             (su_gnt),
-    .mu_gnt_i             (mu_gnt),
-    .su_req_o             (su_req),
-    .mu_req_o             (mu_req),
-    .su_op_o              (su_op),
-    .mu_op_o              (mu_op),
-    .shared_o             (dec_shared),
-    .dirty_o              (dec_dirty),
+    .r_o                  (dec_r),
+    .r_valid_o            (dec_r_valid),
+    .r_ready_i            (dec_r_ready),
+
+    .dest_o               (dest),
+    .dest_push_o          (dest_push),
+
+    .aw_msg_o             (aw_msg),
+    .aw_gnt_i             (aw_gnt),
+    .aw_req_o             (aw_req),
+
+    .ar_msg_o             (ar_msg),
+    .ar_gnt_i             (ar_gnt),
+    .ar_req_o             (ar_req),
+
+    .snp_flags_o          (snp_flags),
+
+    .first_responder_o    (first_responder),
+
     .data_available_o     (cd_data_available_in),
-    .first_responder_o    (dec_first_responder),
 
     .lookup_req_o         (dec_lookup_req),
     .lookup_addr_o        (dec_lookup_addr),
@@ -213,27 +253,26 @@ ccu_ctrl_snoop_unit #(
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
     .snoop_req_t     (snoop_req_t),
-    .snoop_resp_t    (snoop_resp_t)
+    .snoop_resp_t    (snoop_resp_t),
+    .ar_msg_t        (ar_msg_t),
+    .snp_flags_t     (snp_flags_t)
 ) ccu_ctrl_snoop_unit_i (
     .clk_i,
     .rst_ni,
 
-    .r_o                   (su_r),
-    .r_valid_o             (su_r_valid),
-    .r_ready_i             (su_r_ready),
+    .r_o            (su_r),
+    .r_valid_o      (su_r_valid),
+    .r_ready_i      (su_r_ready),
 
-    .cd_i                  (cd_first_responder),
-    .cd_handshake_i        (su_cd_handshake),
-    .cd_fifo_full_o        (su_cd_fifo_full),
+    .cd_i           (cd_first_responder),
+    .cd_handshake_i (su_cd_handshake),
+    .cd_fifo_full_o (su_cd_fifo_full),
 
-    .ccu_req_holder_i      (dec_ccu_req_holder),
+    .ar_msg_i       (ar_msg),
+    .su_gnt_o       (su_ar_gnt),
+    .su_req_i       (su_ar_req),
 
-    .su_gnt_o              (su_gnt),
-    .su_req_i              (su_req),
-    .su_op_i               (su_op),
-
-    .shared_i              (dec_shared),
-    .dirty_i               (dec_dirty)
+    .snp_flags_i    (snp_flags)
 );
 
 ccu_ctrl_memory_unit #(
@@ -258,7 +297,9 @@ ccu_ctrl_memory_unit #(
     .snoop_cr_t      (snoop_cr_t),
     .snoop_cd_t      (snoop_cd_t),
     .snoop_req_t     (snoop_req_t),
-    .snoop_resp_t    (snoop_resp_t)
+    .snoop_resp_t    (snoop_resp_t),
+    .ar_msg_t        (ar_msg_t),
+    .aw_msg_t        (aw_msg_t)
 ) ccu_ctrl_memory_unit_i (
     .clk_i,
     .rst_ni,
@@ -273,11 +314,15 @@ ccu_ctrl_memory_unit #(
     .cd_handshake_i    (mu_cd_handshake),
     .cd_fifo_full_o    (mu_cd_fifo_full),
 
-    .ccu_req_holder_i  (dec_ccu_req_holder),
-    .mu_gnt_o          (mu_gnt),
-    .mu_req_i          (mu_req),
-    .mu_op_i           (mu_op),
-    .first_responder_i (dec_first_responder),
+    .mu_aw_msg_i       (aw_msg),
+    .mu_aw_req_i       (mu_aw_req),
+    .mu_aw_gnt_o       (mu_aw_gnt),
+
+    .mu_ar_msg_i       (ar_msg),
+    .mu_ar_req_i       (mu_ar_req),
+    .mu_ar_gnt_o       (mu_ar_gnt),
+
+    .first_responder_i (first_responder),
 
     .perf_evt_o        (perf_evt_o)
 );
@@ -286,8 +331,8 @@ ccu_ctrl_memory_unit #(
 // R arbitration //
 ///////////////////
 
-logic [1:0] r_valid_in, r_ready_in;
-slv_r_chan_t [1:0] r_chans_in;
+logic [2:0] r_valid_in, r_ready_in;
+slv_r_chan_t [2:0] r_chans_in;
 
 slv_r_chan_t       r_chan_out;
 logic              r_valid_out, r_ready_out;
@@ -295,13 +340,13 @@ logic              r_valid_out, r_ready_out;
 always_comb begin
     mu_ccu_req = ccu_req_i;
 
-    r_valid_in = {mu_ccu_resp.r_valid, su_r_valid};
-    r_chans_in = {mu_ccu_resp.r, su_r};
-    {mu_ccu_req.r_ready, su_r_ready} = r_ready_in;
+    r_valid_in = {mu_ccu_resp.r_valid, su_r_valid, dec_r_valid};
+    r_chans_in = {mu_ccu_resp.r, su_r, dec_r};
+    {mu_ccu_req.r_ready, su_r_ready, dec_r_ready} = r_ready_in;
 end
 
 rr_arb_tree #(
-    .NumIn    ( 2             ),
+    .NumIn    ( 3             ),
     .DataType ( slv_r_chan_t  ),
     .AxiVldRdy( 1'b1          ),
     .LockIn   ( 1'b1          )
@@ -387,7 +432,7 @@ assign r_inp_data = r_inp_aligned_addr[DCacheByteOffset+:IdQueueDataWidth];
 assign r_inp_req  = r_queue_push;
 
 id_queue #(
-    .ID_WIDTH (SlvAxiIDWidth+1),
+    .ID_WIDTH (AxiIdWidth),
     .CAPACITY (6),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
@@ -415,7 +460,7 @@ id_queue #(
 );
 
 id_queue #(
-    .ID_WIDTH (SlvAxiIDWidth+1),
+    .ID_WIDTH (AxiIdWidth),
     .CAPACITY (6),
     .FULL_BW  (1),
     .data_t   (id_queue_data_t)
@@ -446,45 +491,15 @@ id_queue #(
 // CD arbitration //
 ////////////////////
 
-logic mu_wb_op, su_wb_op;
-
 logic cd_user_pop, cd_user_push, cd_user_empty, cd_user_full;
 
-typedef enum logic { MEMORY_UNIT, SNOOP_UNIT } cd_user_t;
-
-cd_user_t cd_user_in, cd_user_out;
+dest_t cd_user_in, cd_user_out;
 
 logic cd_done;
 
-assign mu_wb_op = mu_op inside {SEND_AXI_REQ_WRITE_BACK_R, SEND_AXI_REQ_WRITE_BACK_W};
-assign su_wb_op = su_op == READ_SNP_DATA;
-
+assign cd_user_push      = dest_push;
+assign cd_user_in        = dest;
 assign dec_cd_fifo_stall = cd_user_full;
-
-logic cd_user_pushed_d, cd_user_pushed_q;
-
-always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-        cd_user_pushed_q <= '0;
-    end else begin
-        cd_user_pushed_q <= cd_user_pushed_d;
-    end
-end
-
-always_comb begin
-    cd_user_pushed_d = cd_user_pushed_q;
-    cd_user_push = 1'b0;
-    cd_user_in    = MEMORY_UNIT;
-    if (mu_req && mu_wb_op) begin
-        cd_user_pushed_d = !mu_gnt;
-        cd_user_push = !cd_user_pushed_q;
-        cd_user_in   = MEMORY_UNIT;
-    end else if (su_req && su_wb_op) begin
-        cd_user_pushed_d = !su_gnt;
-        cd_user_push = !cd_user_pushed_q;
-        cd_user_in   = SNOOP_UNIT;
-    end
-end
 
 always_comb begin
     su_cd_handshake = '0;
@@ -493,7 +508,7 @@ always_comb begin
     cd_done      = '0;
 
     if (!cd_user_empty) begin
-        cd_done     = cd_last_q == cd_data_available_out;
+        cd_done = cd_last_q == cd_data_available_out;
         case (cd_user_out)
             MEMORY_UNIT: begin
                 mu_cd_handshake = cd_handshake;
@@ -520,8 +535,8 @@ end
 
 logic cd_user_out_temp, cd_user_in_temp;
 assign cd_user_in_temp        = logic'(cd_user_in);
-assign cd_user_out            = cd_user_t'(cd_user_out_temp);
-assign cd_first_responder_in  = dec_first_responder;
+assign cd_user_out            = dest_t'(cd_user_out_temp);
+assign cd_first_responder_in  = first_responder;
 
 assign cd_user_pop            = cd_done;
 
