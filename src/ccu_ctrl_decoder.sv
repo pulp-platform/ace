@@ -5,7 +5,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
-    parameter bit          PerfCounters  = 1,
+    parameter bit          PerfCounters  = 0,
     parameter type slv_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type slv_b_chan_t  = logic,

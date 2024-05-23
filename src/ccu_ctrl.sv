@@ -49,6 +49,8 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     output logic                   [7:0] perf_evt_o
 );
 
+logic [7:0] perf_evt;
+
 localparam int unsigned DcacheLineWords  = DcacheLineWidth / AxiDataWidth;
 localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
@@ -279,7 +281,7 @@ ccu_ctrl_memory_unit #(
     .mu_op_i           (mu_op),
     .first_responder_i (dec_first_responder),
 
-    .perf_evt_o        (perf_evt_o)
+    .perf_evt_o        (perf_evt)
 );
 
 ///////////////////
@@ -557,5 +559,13 @@ end
 
 assign cd_first_responder = cd[cd_first_responder_out];
 assign cd_handshake       = cd_valid[cd_first_responder_out] && cd_ready[cd_first_responder_out];
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+        perf_evt_o <= '0;
+    end else begin
+        perf_evt_o <= perf_evt;
+    end
+end
 
 endmodule
