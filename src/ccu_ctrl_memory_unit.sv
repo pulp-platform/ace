@@ -207,7 +207,7 @@ assign cd_fifo_pop = w_fifo_data_out == W_FROM_FIFO &&
                      ccu_resp_in.w_ready && ccu_req_out.w_valid;
 
 fifo_v3 #(
-    .FALL_THROUGH(1),
+    .FALL_THROUGH(0),
     .DATA_WIDTH(AxiDataWidth),
     .DEPTH(CD_FIFO_DEPTH)
   ) cd_memory_fifo_i (
@@ -248,7 +248,7 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
 end
 
 fifo_v3 #(
-    .FALL_THROUGH(1),
+    .FALL_THROUGH(0),
     .DEPTH(W_FIFO_DEPTH),
     .dtype(w_state_t)
   ) w_fifo_i (
