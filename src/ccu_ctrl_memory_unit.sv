@@ -4,7 +4,7 @@ module ccu_ctrl_memory_unit import ccu_ctrl_pkg::*;
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned NoMstPorts = 4,
     parameter int unsigned SlvAxiIDWidth = 0,
-    parameter bit          PerfCounters  = 1,
+    parameter bit          PerfCounters  = 0,
     parameter type mst_aw_chan_t = logic,
     parameter type w_chan_t      = logic,
     parameter type mst_b_chan_t  = logic,
