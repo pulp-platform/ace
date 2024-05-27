@@ -65,8 +65,8 @@ module ace_ccu_top
 );
 
 // signals from the ace_demuxes
-slv_req_t  [Cfg.NoSlvPorts-1:0] [1:0]      slv_reqs;   // one for non-shareable and one for shareable req
-slv_resp_t [Cfg.NoSlvPorts-1:0] [1:0]      slv_resps;
+slv_req_t  [Cfg.NoSlvPorts-1:0] [1:0]      slv_reqs, slv_reqs_pre_cut;   // one for non-shareable and one for shareable req
+slv_resp_t [Cfg.NoSlvPorts-1:0] [1:0]      slv_resps, slv_resps_pre_cut;
 // signals into the ace_muxes
 mst_stg_req_t  [Cfg.NoSlvPorts:0]          mst_reqs;   // one extra port for CCU
 mst_stg_resp_t [Cfg.NoSlvPorts:0]          mst_resps;
@@ -111,11 +111,11 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
       .AxiLookBits    ( Cfg.AxiIdUsedSlvPorts  ),
       .UniqueIds      ( Cfg.UniqueIds          ),
       //.FallThrough    ( Cfg.FallThrough        ),
-      .SpillAw        ( Cfg.LatencyMode[9]     ),
-      .SpillW         ( Cfg.LatencyMode[8]     ),
-      .SpillB         ( Cfg.LatencyMode[7]     ),
-      .SpillAr        ( Cfg.LatencyMode[6]     ),
-      .SpillR         ( Cfg.LatencyMode[5]     )
+      .SpillAw        ( '0                     ),
+      .SpillW         ( '0                     ),
+      .SpillB         ( '0                     ),
+      .SpillAr        ( '0                     ),
+      .SpillR         ( '0                     )
     ) i_axi_demux (
       .clk_i,   // Clock
       .rst_ni,  // Asynchronous reset active low
@@ -124,9 +124,52 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
       .slv_aw_select_i ( slv_aw_select[i]      ),
       .slv_ar_select_i ( slv_ar_select[i]      ),
       .slv_resp_o      ( slv_ports_resp_o[i]   ),
-      .mst_reqs_o      ( slv_reqs[i]           ),
-      .mst_resps_i     ( slv_resps[i]          )
+      .mst_reqs_o      ( slv_reqs_pre_cut[i]   ),
+      .mst_resps_i     ( slv_resps_pre_cut[i]  )
     );
+
+    for (genvar j = 0; j < 2; j++) begin
+
+      spill_register #(
+          .T       (slv_ar_chan_t),
+          .Bypass  (1'b0)
+      ) ar_spill_register (
+          .clk_i,
+          .rst_ni,
+          .valid_i (slv_reqs_pre_cut[i][j].ar_valid),
+          .ready_o (slv_resps_pre_cut[i][j].ar_ready),
+          .data_i  (slv_reqs_pre_cut[i][j].ar),
+          .valid_o (slv_reqs[i][j].ar_valid),
+          .ready_i (slv_resps[i][j].ar_ready),
+          .data_o  (slv_reqs[i][j].ar)
+      );
+
+      spill_register #(
+          .T       (slv_aw_chan_t),
+          .Bypass  (1'b0)
+      ) aw_spill_register (
+          .clk_i,
+          .rst_ni,
+          .valid_i (slv_reqs_pre_cut[i][j].aw_valid),
+          .ready_o (slv_resps_pre_cut[i][j].aw_ready),
+          .data_i  (slv_reqs_pre_cut[i][j].aw),
+          .valid_o (slv_reqs[i][j].aw_valid),
+          .ready_i (slv_resps[i][j].aw_ready),
+          .data_o  (slv_reqs[i][j].aw)
+      );
+
+      assign slv_reqs[i][j].w                = slv_reqs_pre_cut[i][j].w;
+      assign slv_reqs[i][j].w_valid          = slv_reqs_pre_cut[i][j].w_valid;
+      assign slv_resps_pre_cut[i][j].w_ready = slv_resps[i][j].w_ready;
+
+      assign slv_resps_pre_cut[i][j].r       = slv_resps[i][j].r;
+      assign slv_resps_pre_cut[i][j].r_valid = slv_resps[i][j].r_valid;
+      assign slv_reqs[i][j].r_ready          = slv_reqs_pre_cut[i][j].r_ready;
+      assign slv_resps_pre_cut[i][j].b       = slv_resps[i][j].b;
+      assign slv_resps_pre_cut[i][j].b_valid = slv_resps[i][j].b_valid;
+      assign slv_reqs[i][j].b_ready          = slv_reqs_pre_cut[i][j].b_ready;
+
+    end
 end
 
 axi_mux #(
@@ -147,11 +190,11 @@ axi_mux #(
   .NoSlvPorts    ( Cfg.NoSlvPorts + 1     ), // Number of Masters for the modules
   .MaxWTrans     ( Cfg.MaxMstTrans        ),
   .FallThrough   ( Cfg.FallThrough        ),
-  .SpillAw       ( Cfg.LatencyMode[4]     ),
-  .SpillW        ( Cfg.LatencyMode[3]     ),
-  .SpillB        ( Cfg.LatencyMode[2]     ),
-  .SpillAr       ( Cfg.LatencyMode[1]     ),
-  .SpillR        ( Cfg.LatencyMode[0]     )
+  .SpillAw       ( '0                     ),
+  .SpillW        ( '0                     ),
+  .SpillB        ( '0                     ),
+  .SpillAr       ( '0                     ),
+  .SpillR        ( '0                     )
 ) i_axi_mux (
   .clk_i,   // Clock
   .rst_ni,  // Asynchronous reset active low
@@ -210,11 +253,11 @@ axi_mux #(
   .NoSlvPorts    ( Cfg.NoSlvPorts         ), // Number of Masters for the modules
   .MaxWTrans     ( Cfg.MaxMstTrans        ),
   .FallThrough   ( Cfg.FallThrough        ),
-  .SpillAw       ( Cfg.LatencyMode[4]     ),
-  .SpillW        ( Cfg.LatencyMode[3]     ),
-  .SpillB        ( Cfg.LatencyMode[2]     ),
-  .SpillAr       ( Cfg.LatencyMode[1]     ),
-  .SpillR        ( Cfg.LatencyMode[0]     )
+  .SpillAw       ( '0                     ),
+  .SpillW        ( '0                     ),
+  .SpillB        ( '0                     ),
+  .SpillAr       ( '0                     ),
+  .SpillR        ( '0                     )
 ) i_ace_mux (
   .clk_i,   // Clock
   .rst_ni,  // Asynchronous reset active low
