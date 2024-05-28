@@ -130,7 +130,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     spill_register #(
         .T       (slv_aw_chan_t),
-        .Bypass  (1'b0)
+        .Bypass  (1'b1)
     ) aw_spill_register (
         .clk_i,
         .rst_ni,
@@ -144,7 +144,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     spill_register #(
         .T       (slv_ar_chan_t),
-        .Bypass  (1'b0)
+        .Bypass  (1'b1)
     ) ar_spill_register (
         .clk_i,
         .rst_ni,
