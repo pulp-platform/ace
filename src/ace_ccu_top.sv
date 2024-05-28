@@ -111,11 +111,11 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
       .AxiLookBits    ( Cfg.AxiIdUsedSlvPorts  ),
       .UniqueIds      ( Cfg.UniqueIds          ),
       //.FallThrough    ( Cfg.FallThrough        ),
-      .SpillAw        ( Cfg.LatencyMode[9]     ),
-      .SpillW         ( Cfg.LatencyMode[8]     ),
-      .SpillB         ( Cfg.LatencyMode[7]     ),
-      .SpillAr        ( Cfg.LatencyMode[6]     ),
-      .SpillR         ( Cfg.LatencyMode[5]     )
+      .SpillAw        ( 1     ),
+      .SpillW         ( 0     ),
+      .SpillB         ( 0     ),
+      .SpillAr        ( 1     ),
+      .SpillR         ( 0     )
     ) i_axi_demux (
       .clk_i,   // Clock
       .rst_ni,  // Asynchronous reset active low
@@ -147,11 +147,11 @@ axi_mux #(
   .NoSlvPorts    ( Cfg.NoSlvPorts + 1     ), // Number of Masters for the modules
   .MaxWTrans     ( Cfg.MaxMstTrans        ),
   .FallThrough   ( Cfg.FallThrough        ),
-  .SpillAw       ( Cfg.LatencyMode[4]     ),
-  .SpillW        ( Cfg.LatencyMode[3]     ),
-  .SpillB        ( Cfg.LatencyMode[2]     ),
-  .SpillAr       ( Cfg.LatencyMode[1]     ),
-  .SpillR        ( Cfg.LatencyMode[0]     )
+  .SpillAw       ( '0                     ),
+  .SpillW        ( '0                     ),
+  .SpillB        ( '0                     ),
+  .SpillAr       ( '0                     ),
+  .SpillR        ( '0                     )
 ) i_axi_mux (
   .clk_i,   // Clock
   .rst_ni,  // Asynchronous reset active low
@@ -210,11 +210,11 @@ axi_mux #(
   .NoSlvPorts    ( Cfg.NoSlvPorts         ), // Number of Masters for the modules
   .MaxWTrans     ( Cfg.MaxMstTrans        ),
   .FallThrough   ( Cfg.FallThrough        ),
-  .SpillAw       ( Cfg.LatencyMode[4]     ),
-  .SpillW        ( Cfg.LatencyMode[3]     ),
-  .SpillB        ( Cfg.LatencyMode[2]     ),
-  .SpillAr       ( Cfg.LatencyMode[1]     ),
-  .SpillR        ( Cfg.LatencyMode[0]     )
+  .SpillAw       ( '0                     ),
+  .SpillW        ( '0                     ),
+  .SpillB        ( '0                     ),
+  .SpillAr       ( '0                     ),
+  .SpillR        ( '0                     )
 ) i_ace_mux (
   .clk_i,   // Clock
   .rst_ni,  // Asynchronous reset active low
