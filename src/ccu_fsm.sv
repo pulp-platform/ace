@@ -19,6 +19,8 @@ module ccu_fsm
     //clock and reset
     input                               clk_i,
     input                               rst_ni,
+    // CCU aware if cores are in redundant execution
+    input  logic                        redundant_cores_i,
     // CCU Request In and response out
     input  mst_req_t                    ccu_req_i,
     output mst_resp_t                   ccu_resp_o,
@@ -80,7 +82,7 @@ module ccu_fsm
     // snoop response holder
     snoop_resp_t [NoMstPorts-1:0]   m2s_resp_holder;
     // initiating master port
-    logic [NoMstPorts-1:0]          initiator_d, initiator_q;
+    logic [NoMstPorts-1:0]          initiator_tmp, initiator_mask, initiator_d, initiator_q;
     logic [MstIdxBits-1:0]          first_responder;
 
     logic [DcacheLineWords-1:0][AxiDataWidth-1:0] cd_data;
@@ -97,6 +99,11 @@ module ccu_fsm
     } prio_t;
 
     prio_t prio_d, prio_q;
+
+    for (genvar i = 0; i < NoMstPorts; i++)
+      assign initiator_mask[i] = (i%2) ? 1'b1 : 1'b0;
+
+    assign initiator_d = (redundant_cores_i) ? (initiator_tmp | initiator_mask) : initiator_tmp;
 
     // ----------------------
     // Current State Block
@@ -119,25 +126,25 @@ module ccu_fsm
     always_comb begin : ccu_state_ctrl
 
         state_d = state_q;
-        initiator_d = initiator_q;
+        initiator_tmp = initiator_q;
         prio_d = prio_q;
 
         case(state_q)
 
         IDLE: begin
-            initiator_d = '0;
+            initiator_tmp = '0;
             prio_d = '0;
             //  wait for incoming valid request from master
             if((ccu_req_i.ar_valid & !ccu_req_i.aw_valid) |
                (ccu_req_i.ar_valid & prio_q.waiting_r) |
                (ccu_req_i.ar_valid & !prio_q.waiting_w)) begin
                 state_d = DECODE_R;
-                initiator_d[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
+                initiator_tmp[ccu_req_i.ar.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                 prio_d.waiting_w = ccu_req_i.aw_valid;
             end else if((ccu_req_i.aw_valid & !ccu_req_i.ar_valid) |
                         (ccu_req_i.aw_valid & prio_q.waiting_w)) begin
                 state_d = DECODE_W;
-                initiator_d[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
+                initiator_tmp[ccu_req_i.aw.id[SlvAxiIDWidth+:MstIdxBits]] = 1'b1;
                 prio_d.waiting_r = ccu_req_i.ar_valid;
             end else begin
                 state_d = IDLE;

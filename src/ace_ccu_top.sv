@@ -45,6 +45,7 @@ module ace_ccu_top
   input  logic                             clk_i,
   input  logic                             rst_ni,
   input  logic                             test_i,
+  input  logic                             redundant_cores_i,
   input  slv_req_t    [Cfg.NoSlvPorts-1:0] slv_ports_req_i,
   output slv_resp_t   [Cfg.NoSlvPorts-1:0] slv_ports_resp_o,
   output snoop_req_t  [Cfg.NoSlvPorts-1:0] slv_snp_req_o,
@@ -227,6 +228,7 @@ ccu_fsm #(
 ) fsm (
     .clk_i,
     .rst_ni,
+    .redundant_cores_i,
     .ccu_req_i       ( ccu_reqs_mux_o     ),
     .ccu_resp_o      ( ccu_resps_mux_i    ),
     .ccu_req_o       ( ccu_reqs_o         ),
@@ -248,6 +250,7 @@ module ace_ccu_top_intf
   input  logic     clk_i,
   input  logic     rst_ni,
   input  logic     test_i,
+  input  logic     redundant_cores_i,
   SNOOP_BUS.Slave  snoop_ports [Cfg.NoSlvPorts-1:0],
   ACE_BUS.Slave    slv_ports   [Cfg.NoSlvPorts-1:0],
   AXI_BUS.Master   mst_ports
@@ -343,6 +346,7 @@ module ace_ccu_top_intf
     .clk_i,
     .rst_ni,
     .test_i,
+    .redundant_cores_i,
     .slv_ports_req_i    ( slv_ace_reqs          ),
     .slv_ports_resp_o   ( slv_ace_resps         ),
     .slv_snp_req_o      ( snoop_reqs            ),
