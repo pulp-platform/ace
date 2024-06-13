@@ -36,6 +36,8 @@ module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
     //clock and reset
     input                               clk_i,
     input                               rst_ni,
+    // redundancy mode
+    input  logic                        redundant_cores_i,
     // CCU Request In and response out
     input  slv_req_t                    ccu_req_i,
     output slv_resp_t                   ccu_resp_o,
@@ -161,6 +163,8 @@ ccu_ctrl_decoder  #(
 ) ccu_ctrl_decoder_i (
     .clk_i,
     .rst_ni,
+
+    .redundant_cores_i,
 
     .ccu_req_i,
 

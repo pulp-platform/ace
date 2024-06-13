@@ -24,6 +24,8 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     //clock and reset
     input                               clk_i,
     input                               rst_ni,
+    // redundancy mode
+    input  logic                        redundant_cores_i,
     // CCU Request in
     input  slv_req_t                    ccu_req_i,
     // Snoop channel resuest and response
@@ -63,9 +65,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     output logic                   [7:0] perf_evt_o
 );
 
+    logic [NoMstPorts-1:0] initiator_mask;
+
     logic [NoMstPorts-1:0] ac_handshake_q, ac_handshake_d, ac_handshake;
 
     logic [NoMstPorts-1:0] cr_aw_initiator, cr_ar_initiator;
+    logic [NoMstPorts-1:0] cr_aw_initiator_masked, cr_ar_initiator_masked;
     logic [NoMstPorts-1:0] cr_handshake_q, cr_handshake_d, cr_handshake;
 
     typedef enum logic [1:0] { INVALID_W, INVALID_R, RESP_R } cr_cmd_fifo_t;
@@ -99,6 +104,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic                            ar_holder_valid, ar_holder_ready;
     snoop_ac_t                       aw_ac, ar_ac;
     logic           [NoMstPorts-1:0] aw_initiator, ar_initiator;
+    logic           [NoMstPorts-1:0] aw_initiator_masked, ar_initiator_masked;
 
     assign b_queue_push_o = aw_holder_ready && aw_holder_valid;
     assign r_queue_push_o = ar_holder_ready && ar_holder_valid;
@@ -108,6 +114,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign aw_initiator = 1 << aw_holder.id[SlvAxiIDWidth+:MstIdxBits];
     assign ar_initiator = 1 << ar_holder.id[SlvAxiIDWidth+:MstIdxBits];
+
+    assign aw_initiator_masked = aw_initiator | initiator_mask;
+    assign ar_initiator_masked = ar_initiator | initiator_mask;
 
 
     logic send_invalid_r;
@@ -286,6 +295,11 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
     assign first_responder_o = first_responder_d;
 
+    for (genvar i = 0; i < NoMstPorts; i += 2) begin
+        assign initiator_mask[i]   = 1'b0;
+        assign initiator_mask[i+1] = redundant_cores_i;
+    end
+
     snoop_ac_t ac_q, ac_d;
 
     logic mu_done_d, mu_done_q;
@@ -338,15 +352,15 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                     if (arb_idx_out == 1) begin
                         aw_fifo_push   = 1'b1;
                         cr_cmd_fifo_in = INVALID_W;
-                        ac_handshake_d = ac_handshake | aw_initiator;
-                        ac_out_valid   = ~aw_initiator;
-                        ac_busy_d      = (ac_handshake | aw_initiator) != '1;
+                        ac_handshake_d = ac_handshake | aw_initiator_masked;
+                        ac_out_valid   = ~aw_initiator_masked;
+                        ac_busy_d      = (ac_handshake | aw_initiator_masked) != '1;
                     end else if (arb_idx_out == 0) begin
                         ar_fifo_push   = 1'b1;
                         cr_cmd_fifo_in = send_invalid_r ? INVALID_R : RESP_R;
-                        ac_handshake_d = ac_handshake | ar_initiator;
-                        ac_out_valid   = ~ar_initiator;
-                        ac_busy_d      = (ac_handshake | ar_initiator) != '1;
+                        ac_handshake_d = ac_handshake | ar_initiator_masked;
+                        ac_out_valid   = ~ar_initiator_masked;
+                        ac_busy_d      = (ac_handshake | ar_initiator_masked) != '1;
                     end
                 end
             end
@@ -380,6 +394,9 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     assign cr_aw_initiator = 1 << aw_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
     assign cr_ar_initiator = 1 << ar_fifo_out.id[SlvAxiIDWidth+:MstIdxBits];
 
+    assign cr_aw_initiator_masked = cr_aw_initiator | initiator_mask;
+    assign cr_ar_initiator_masked = cr_ar_initiator | initiator_mask;
+
     always_comb begin
 
         mu_done_d = mu_done_q;
@@ -401,7 +418,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
             case (cr_cmd_fifo_out)
                 RESP_R: begin
                     // wait for all CR handshakes
-                    if (cr_handshake_d == ~cr_ar_initiator) begin
+                    if (cr_handshake_d == ~cr_ar_initiator_masked) begin
 
                         if(|(data_available_d & ~response_error_d)) begin
                             su_op_o = READ_SNP_DATA;
@@ -420,14 +437,14 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                         end
                     end
 
-                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator);
+                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator_masked);
                 end
 
                 INVALID_R: begin
                     // TODO: sending the ack R transaction could be moved from
                     // the snoop unit directly here
                     // wait for all CR handshakes
-                    if (cr_handshake_d == ~cr_ar_initiator) begin
+                    if (cr_handshake_d == ~cr_ar_initiator_masked) begin
 
                         su_req_o = !ar_fifo_out.lock && !su_done_q;
                         su_done_d  = su_gnt_i || su_done_q;
@@ -456,12 +473,12 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
 
                     su_op_o = SEND_INVALID_ACK_R;
 
-                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator);
+                    cr_out_ready = ~(cr_handshake_q | cr_ar_initiator_masked);
                 end
 
                 INVALID_W: begin
                     // wait for all CR handshakes
-                    if (cr_handshake_d == ~cr_aw_initiator) begin
+                    if (cr_handshake_d == ~cr_aw_initiator_masked) begin
 
                         mu_req_o = 1'b1;
 
@@ -477,7 +494,7 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
                         end
                     end
 
-                    cr_out_ready = ~(cr_handshake_q | cr_aw_initiator);
+                    cr_out_ready = ~(cr_handshake_q | cr_aw_initiator_masked);
                 end
             endcase
         end
