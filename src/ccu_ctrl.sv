@@ -8,7 +8,7 @@
 module ccu_ctrl import ccu_ctrl_pkg::*; import axi_pkg::*;
 #(
     parameter int unsigned DcacheLineWidth = 0,
-    parameter int unsigned DCacheIndexWidth = 0,
+    parameter int unsigned DcacheIndexWidth = 0,
     parameter int unsigned AxiDataWidth = 0,
     parameter int unsigned AxiAddrWidth = 0,
     parameter int unsigned NoMstPorts = 4,
@@ -56,7 +56,7 @@ localparam int unsigned DCacheByteOffset = $clog2(DcacheLineWidth/8);
 localparam int unsigned MstIdxBits       = $clog2(NoMstPorts);
 
 localparam int unsigned IdQueueDataWidth = CollisionOnSetOnly ?
-                                           DCacheIndexWidth   :
+                                           DcacheIndexWidth   :
                                            AxiAddrWidth - DCacheByteOffset;
 
 typedef logic [IdQueueDataWidth-1:0] id_queue_data_t;

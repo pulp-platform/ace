@@ -231,7 +231,7 @@ for (genvar i = 0; i < Cfg.NoSlvPorts; i++)
 
 ccu_ctrl #(
     .DcacheLineWidth ( Cfg.DcacheLineWidth    ),
-    .DCacheIndexWidth( Cfg.DCacheIndexWidth   ),
+    .DcacheIndexWidth( Cfg.DcacheIndexWidth   ),
     .AxiDataWidth    ( Cfg.AxiDataWidth       ),
     .AxiAddrWidth    ( Cfg.AxiAddrWidth       ),
     .NoMstPorts      ( Cfg.NoSlvPorts         ),
