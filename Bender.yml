@@ -21,6 +21,7 @@ sources:
   - src/snoop_intf.sv
   - src/ccu_ctrl_pkg.sv
   # Level 2
+  - src/ace_cut.sv
   - src/ace_trs_dec.sv
   - src/ccu_ctrl_decoder.sv
   - src/ccu_ctrl_memory_unit.sv

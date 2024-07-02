@@ -94,6 +94,38 @@
     logic     r_valid;                                  \
     r_chan_t  r;                                        \
   } resp_t;
+`define ACE_TYPEDEF_SNOOP_REQ_T(req_t, aw_chan_t, w_chan_t, ar_chan_t, cr_chan_t, cd_chan_t) \
+  typedef struct packed {                                                                    \
+    aw_chan_t aw;                                                                            \
+    logic     aw_valid;                                                                      \
+    w_chan_t  w;                                                                             \
+    logic     w_valid;                                                                       \
+    logic     b_ready;                                                                       \
+    ar_chan_t ar;                                                                            \
+    logic     ar_valid;                                                                      \
+    logic     r_ready;                                                                       \
+    logic     wack;                                                                          \
+    logic     rack;                                                                          \
+    logic     ac_ready;                                                                      \
+    logic     cr_valid;                                                                      \
+    cr_chan_t cr_resp;                                                                       \
+    logic     cd_valid;                                                                      \
+    cd_chan_t cd;                                                                            \
+  } req_t;
+`define ACE_TYPEDEF_SNOOP_RESP_T(resp_t, b_chan_t, r_chan_t, ac_chan_t) \
+  typedef struct packed {                                               \
+    logic     aw_ready;                                                 \
+    logic     ar_ready;                                                 \
+    logic     w_ready;                                                  \
+    logic     b_valid;                                                  \
+    b_chan_t  b;                                                        \
+    logic     r_valid;                                                  \
+    r_chan_t  r;                                                        \
+    ac_chan_t ac;                                                       \
+    logic     ac_valid;                                                 \
+    logic     cr_ready;                                                 \
+    logic     cd_ready;                                                 \
+  } resp_t;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
