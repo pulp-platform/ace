@@ -18,6 +18,7 @@
 module ace_cut #(
   // bypass enable
   parameter bit  Bypass     = 1'b0,
+  parameter bit  AceBypass  = 1'b1,
   // AXI channel structs
   parameter type  aw_chan_t = logic,
   parameter type   w_chan_t = logic,
@@ -116,7 +117,7 @@ module ace_cut #(
   // Snoop channels cut
   spill_register #(
     .T       ( ac_chan_t ),
-    .Bypass  ( Bypass    )
+    .Bypass  ( AceBypass )
   ) i_reg_ac (
     .clk_i   ( clk_i               ),
     .rst_ni  ( rst_ni              ),
@@ -130,7 +131,7 @@ module ace_cut #(
 
   spill_register #(
     .T       ( cd_chan_t ),
-    .Bypass  ( Bypass    )
+    .Bypass  ( AceBypass )
   ) i_reg_cd (
     .clk_i   ( clk_i               ),
     .rst_ni  ( rst_ni              ),
@@ -144,7 +145,7 @@ module ace_cut #(
 
   spill_register #(
     .T       ( cr_chan_t ),
-    .Bypass  ( Bypass    )
+    .Bypass  ( AceBypass )
   ) i_reg_cr (
     .clk_i   ( clk_i               ),
     .rst_ni  ( rst_ni              ),
