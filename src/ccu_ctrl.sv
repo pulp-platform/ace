@@ -396,6 +396,7 @@ id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
     .CAPACITY (6),
     .FULL_BW  (1),
+    .CUT_OUP_POP_INP_GNT (1),
     .data_t   (id_queue_data_t)
 ) b_id_queue (
     .clk_i,
@@ -424,6 +425,7 @@ id_queue #(
     .ID_WIDTH (SlvAxiIDWidth+1),
     .CAPACITY (6),
     .FULL_BW  (1),
+    .CUT_OUP_POP_INP_GNT (1),
     .data_t   (id_queue_data_t)
 ) r_id_queue (
     .clk_i,
