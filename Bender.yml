@@ -19,10 +19,15 @@ sources:
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
+  - src/ccu_ctrl_pkg.sv
   # Level 2
   - src/ace_trs_dec.sv
-  - src/ccu_fsm.sv
+  - src/ccu_ctrl_decoder.sv
+  - src/ccu_ctrl_memory_unit.sv
+  - src/ccu_ctrl_snoop_unit.sv
   # Level 3
+  - src/ccu_ctrl.sv
+  # Leval 4
   - src/ace_ccu_top.sv
 
   - target: simulation

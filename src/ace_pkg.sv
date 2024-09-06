@@ -68,6 +68,7 @@ package ace_pkg;
     int unsigned  AxiDataWidth;
     int unsigned  AxiUserWidth;
     int unsigned  DcacheLineWidth;
+    int unsigned  DcacheIndexWidth;
   } ccu_cfg_t;
 
   // transaction type
