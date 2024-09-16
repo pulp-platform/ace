@@ -445,7 +445,7 @@ package snoop_test;
         automatic ace_cr_beat_t  ace_cr_beat = new;
         wait (ace_ac_queue.size() > 0);
         ace_ac_beat         = ace_ac_queue.pop_front();
-        if(ace_ac_beat.ac_snoop == snoop_pkg::CLEAN_INVALID) begin
+        if(ace_ac_beat.ac_snoop == snoop_pkg::CleanInvalid) begin
           ace_cr_beat.cr_resp = 0;
         end else begin
           ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);

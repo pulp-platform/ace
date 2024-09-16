@@ -791,26 +791,26 @@ endclass
           bar     = 'b00;
           len     = $urandom();
         end
-        ace_pkg::READ_ONCE: begin
+        ace_pkg::ReadOnce: begin
           snoop   = 'b0000;
           domain  = 'b01;
           bar     = 'b00;
           len     = 1;
         end
-        ace_pkg::READ_SHARED: begin
+        ace_pkg::ReadShared: begin
           snoop   = 'b0001;
           domain  = 'b01;
           bar     = 'b00;
           len     = 1;
         end
-        ace_pkg::READ_UNIQUE: begin
+        ace_pkg::ReadUnique: begin
           snoop   = 'b0111;
           domain  = 'b01;
           bar     = 'b00;
           len     = 1;
         end
 
-        ace_pkg::CLEAN_UNIQUE: begin
+        ace_pkg::CleanUnique: begin
           snoop   = 'b1011;
           domain  = 'b01;
           bar     = 'b00;

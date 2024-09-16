@@ -113,19 +113,19 @@ module ccu_ctrl_decoder import ccu_ctrl_pkg::*;
     logic send_invalid_r;
     logic collision;
 
-    assign send_invalid_r = ar_holder.snoop == snoop_pkg::CLEAN_UNIQUE || ar_holder.lock;
+    assign send_invalid_r = ar_holder.snoop == snoop_pkg::CleanUnique || ar_holder.lock;
     assign collision      = b_collision_i || r_collision_i;
 
     always_comb begin
         aw_ac       = '0;
         aw_ac.addr  = aw_holder.addr;
         aw_ac.prot  = aw_holder.prot;
-        aw_ac.snoop = snoop_pkg::CLEAN_INVALID;
+        aw_ac.snoop = snoop_pkg::CleanInvalid;
 
         ar_ac       = '0;
         ar_ac.addr  = ar_holder.addr;
         ar_ac.prot  = ar_holder.prot;
-        ar_ac.snoop = send_invalid_r ? snoop_pkg::CLEAN_INVALID : ar_holder.snoop;
+        ar_ac.snoop = send_invalid_r ? snoop_pkg::CleanInvalid : ar_holder.snoop;
     end
 
     spill_register #(

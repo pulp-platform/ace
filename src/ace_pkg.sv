@@ -15,72 +15,87 @@
 /// Contains all necessary type definitions, constants, and generally useful functions.
 package ace_pkg;
 
-   // Support for snoop channels
-   typedef logic [3:0] arsnoop_t;
-   typedef logic [2:0] awsnoop_t;
-   typedef logic [1:0] bar_t;
-   typedef logic [1:0] domain_t;
-   typedef logic [0:0] awunique_t;
-   typedef logic [3:0] rresp_t;
+  //////////////
+  // Typedefs //
+  //////////////
 
-  /// Slice on Demux AW channel.
-  localparam logic [9:0] DemuxAw = (1 << 9);
-  /// Slice on Demux W channel.
-  localparam logic [9:0] DemuxW  = (1 << 8);
-  /// Slice on Demux B channel.
-  localparam logic [9:0] DemuxB  = (1 << 7);
-  /// Slice on Demux AR channel.
-  localparam logic [9:0] DemuxAr = (1 << 6);
-  /// Slice on Demux R channel.
-  localparam logic [9:0] DemuxR  = (1 << 5);
-  /// Slice on Mux AW channel.
-  localparam logic [9:0] MuxAw   = (1 << 4);
-  /// Slice on Mux W channel.
-  localparam logic [9:0] MuxW    = (1 << 3);
-  /// Slice on Mux B channel.
-  localparam logic [9:0] MuxB    = (1 << 2);
-  /// Slice on Mux AR channel.
-  localparam logic [9:0] MuxAr   = (1 << 1);
-  /// Slice on Mux R channel.
-  localparam logic [9:0] MuxR    = (1 << 0);
-  /// Latency configuration for `ace_xbar`.
-  typedef enum logic [9:0] {
-    NO_LATENCY    = 10'b000_00_000_00,
-    CUT_SLV_AX    = DemuxAw | DemuxAr,
-    CUT_MST_AX    = MuxAw | MuxAr,
-    CUT_ALL_AX    = DemuxAw | DemuxAr | MuxAw | MuxAr,
-    CUT_SLV_PORTS = DemuxAw | DemuxW | DemuxB | DemuxAr | DemuxR,
-    CUT_MST_PORTS = MuxAw | MuxW | MuxB | MuxAr | MuxR,
-    CUT_ALL_PORTS = 10'b111_11_111_11
-  } ccu_latency_e;
+  // Additional types for already existing AXI channels
+  typedef logic [3:0] arsnoop_t;
+  typedef logic [2:0] awsnoop_t;
+  typedef logic [1:0] axbar_t;
+  typedef logic [1:0] axdomain_t;
+  typedef logic [3:0] rresp_t;
 
-  /// Configuration for `ace_ccu`.
+  // Snoop related types
+  typedef logic [3:0] acsnoop_t;
+
   typedef struct packed {
-    int unsigned  NoSlvPorts;
-    int unsigned  MaxMstTrans;
-    int unsigned  MaxSlvTrans;
-    bit           FallThrough;
-    ccu_latency_e LatencyMode;
-    int unsigned  AxiIdWidthSlvPorts;
-    int unsigned  AxiIdUsedSlvPorts;
-    bit           UniqueIds;
-    int unsigned  AxiAddrWidth;
-    int unsigned  AxiDataWidth;
-    int unsigned  AxiUserWidth;
-    int unsigned  DcacheLineWidth;
-    int unsigned  DcacheIndexWidth;
-  } ccu_cfg_t;
+    logic WasUnique;
+    logic IsShared;
+    logic PassDirty;
+    logic Error;
+    logic DataTransfer;
+  } crresp_t;
 
-  // transaction type
-  typedef enum logic[2:0] {
-    READ_NO_SNOOP,
-    READ_ONCE,
-    READ_SHARED,
-    READ_UNIQUE,
-    CLEAN_UNIQUE,
-    WRITE_NO_SNOOP,
-    WRITE_BACK,
-    WRITE_UNIQUE
-  } ace_trs_t;
+  ///////////////
+  // Encodings //
+  ///////////////
+
+  // AxDOMAIN
+  localparam axdomain_t NonShareable   = 2'b00;
+  localparam axdomain_t InnerShareable = 2'b01;
+  localparam axdomain_t OuterShareable = 2'b10;
+  localparam axdomain_t System         = 2'b11;
+
+
+  // AxBAR
+  localparam axbar_t NormalAccessRespectingBarriers = 2'b00;
+  localparam axbar_t MemoryBarrier                  = 2'b01;
+  localparam axbar_t NormalAccessIgnoringBarriers   = 2'b10;
+  localparam axbar_t SynchronizationBarrier         = 2'b11;
+
+  // Uniquely defined here both for ARSNOOP and AWSNOOP
+  localparam int unsigned Barrier = 0;
+
+  // ARSNOOP
+  localparam arsnoop_t ReadNoSnoop        = 4'b0000;
+  localparam arsnoop_t ReadOnce           = 4'b0000;
+  localparam arsnoop_t ReadShared         = 4'b0001;
+  localparam arsnoop_t ReadClean          = 4'b0010;
+  localparam arsnoop_t ReadNotSharedDirty = 4'b0011;
+  localparam arsnoop_t ReadUnique         = 4'b0111;
+  localparam arsnoop_t CleanUnique        = 4'b1011;
+  localparam arsnoop_t MakeUnique         = 4'b1100;
+  localparam arsnoop_t CleanShared        = 4'b1000;
+  localparam arsnoop_t CleanInvalid       = 4'b1001;
+  localparam arsnoop_t MakeInvalid        = 4'b1101;
+  localparam arsnoop_t DVMComplete        = 4'b1110;
+  localparam arsnoop_t DVMMessage         = 4'b1111;
+  /* Barrier is already defined */
+
+  // AWSNOOP
+  localparam awsnoop_t WriteNoSnoop    = 3'b000;
+  localparam awsnoop_t WriteUnique     = 3'b000;
+  localparam awsnoop_t WriteLineUnique = 3'b001;
+  localparam awsnoop_t WriteClean      = 3'b010;
+  localparam awsnoop_t WriteBack       = 3'b011;
+  localparam awsnoop_t Evict           = 3'b100;
+  localparam awsnoop_t WriteEvict      = 3'b101;
+  /* Barrier is already defined */
+
+  // ACSNOOP
+  //
+  //  The encoding is shared with ARSNOOP transactions for the following cases:
+  //    - ReadOnce
+  //    - ReadShared
+  //    - ReadClean
+  //    - ReadNotSharedDirty
+  //    - ReadUnique
+  //    - CleanShared
+  //    - CleanInvalid
+  //    - MakeInvalid
+  //    - DVMComplete
+  //    - DVMMessage
+  //  Cast the parameters to acsnoop_t for consistency (but works anyway)
 
 endpackage
