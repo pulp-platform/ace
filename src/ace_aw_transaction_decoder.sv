@@ -6,6 +6,7 @@ module ace_aw_transaction_decoder import ace_pkg::*; #(
     // Control signals
     /*  TBD */
     output acsnoop_t acsnoop_o,
+    output logic     snoop_trs_o,
     output logic     illegal_trs_o
 );
 
@@ -42,15 +43,18 @@ assign barrier           =  is_barrier                  && awsnoop == awsnoop_t'
 always_comb begin
     illegal_trs_o  = 1'b0;
     acsnoop_o      = acsnoop_t'(CleanInvalid);
+    snoop_trs_o    = 1'b0;
     unique case (1'b1)
         write_no_snoop: begin
 
         end
         write_unique: begin
-            acsnoop_o = acsnoop_t'(CleanInvalid);
+            acsnoop_o   = acsnoop_t'(CleanInvalid);
+            snoop_trs_o = 1'b1;
         end
         write_line_unique: begin
-            acsnoop_o = acsnoop_t'(MakeInvalid);
+            acsnoop_o   = acsnoop_t'(MakeInvalid);
+            snoop_trs_o = 1'b1;
         end
         write_clean: begin
 
