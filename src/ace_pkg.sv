@@ -100,4 +100,18 @@ package ace_pkg;
   //    - DVMMessage
   //  Cast the parameters to acsnoop_t for consistency (but works anyway)
 
+  //////////////////
+  // Domain rules //
+  //////////////////
+
+  localparam int unsigned MaxMasterNum  = 16;
+  localparam int unsigned MasterIdxBits = $clog2(MaxMasterNum);
+
+  typedef struct packed {
+        logic [MasterIdxBits-1:0] InnerShareableNum;
+        logic [MaxMasterNum-1:0][MasterIdxBits-1:0] InnerShareableList;
+        logic [MasterIdxBits-1:0] OuterShareableNum;
+        logic [MaxMasterNum-1:0][MasterIdxBits-1:0] OuterShareableList;
+  } domain_rule_t;
+
 endpackage
