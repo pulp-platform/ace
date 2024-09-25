@@ -42,8 +42,8 @@ interface ACE_BUS #(
   logic             aw_valid;
   logic             aw_ready;
   ace_pkg::awsnoop_t aw_snoop;
-  ace_pkg::bar_t    aw_bar;
-  ace_pkg::domain_t aw_domain;
+  ace_pkg::axbar_t    aw_bar;
+  ace_pkg::axdomain_t aw_domain;
   ace_pkg::awunique_t aw_awunique;
 
   data_t            w_data;
@@ -73,8 +73,8 @@ interface ACE_BUS #(
   logic             ar_valid;
   logic             ar_ready;
   ace_pkg::arsnoop_t ar_snoop;
-  ace_pkg::bar_t    ar_bar;
-  ace_pkg::domain_t ar_domain;
+  ace_pkg::axbar_t    ar_bar;
+  ace_pkg::axdomain_t ar_domain;
  
   id_t              r_id;
   data_t            r_data;
@@ -150,8 +150,8 @@ interface ACE_BUS_DV #(
   logic             aw_valid;
   logic             aw_ready;
   ace_pkg::awsnoop_t aw_snoop;
-  ace_pkg::bar_t    aw_bar;
-  ace_pkg::domain_t aw_domain;
+  ace_pkg::axbar_t    aw_bar;
+  ace_pkg::axdomain_t aw_domain;
   ace_pkg::awunique_t aw_awunique;
 
   data_t            w_data;
@@ -181,8 +181,8 @@ interface ACE_BUS_DV #(
   logic             ar_valid;
   logic             ar_ready;
   ace_pkg::arsnoop_t ar_snoop;
-  ace_pkg::bar_t    ar_bar;
-  ace_pkg::domain_t ar_domain;
+  ace_pkg::axbar_t    ar_bar;
+  ace_pkg::axdomain_t ar_domain;
 
   id_t              r_id;
   data_t            r_data;
