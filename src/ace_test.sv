@@ -1091,7 +1091,7 @@ endclass
         aw_ace_queue.push_back(aw_ace_beat);
         w_queue.push_back(aw_ace_beat);
       end
-      $info("Finish aws");
+      $info("Finish AWs");
     endtask
 
     task send_aws(ref logic aw_done);
@@ -1135,6 +1135,7 @@ endclass
           drv.send_w(w_beat);
         end
       end
+      $info("Finish Ws");
     endtask
 
     task recv_bs(ref logic aw_done);
@@ -1150,6 +1151,7 @@ endclass
         tot_w_flight_cnt--;
         cnt_sem.put();
       end
+      $info("Finish Bs");
     endtask
 
     // Issue n_reads random read and n_writes random write transactions to an address range.
