@@ -91,36 +91,6 @@ assign cd_handshake = snoop_resp_i.cd_valid && snoop_req_o.cd_ready;
 assign ac_handshake = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign b_handshake = mst_req_o.b_ready && mst_resp_i.b_valid;
 
-// Connect to memory request
-always_comb begin
-    mst_req_o.aw = aw_holder_q;
-    mst_req_o.ar = '0;
-    mst_req_o.ar_valid = 1'b0;
-    mst_req_o.r_ready = 1'b0;
-    mst_req_o.rack = 1'b0;
-    mst_req_o.wack = 1'b0;
-    mst_req_o.w_valid = 1'b0;
-    mst_req_o.w = '0;
-    mst_req_o.b_ready = 1'b0;
-    slv_resp_o.b         = '0;
-    if (fsm_state_q == WRITE_CD) begin
-        // Snooped data is provided wrap-bursted
-        mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
-        mst_req_o.w_valid    = snoop_resp_i.cd_valid;
-        mst_req_o.w.data     = snoop_resp_i.cd.data;
-        mst_req_o.w.strb     = '1;
-        mst_req_o.w.last     = snoop_resp_i.cd.last;
-        mst_req_o.w.user     = '0; // What to put here?
-        mst_req_o.b_ready    = 1'b1;
-        slv_resp_o.b         = mst_resp_i.b;
-    end else if (fsm_state_q == WRITE_W) begin
-        mst_req_o.w_valid = slv_req_i.w_valid;
-        mst_req_o.w  = slv_req_i.w;
-        mst_req_o.b_ready = slv_req_i.b_ready;
-        slv_resp_o.b = mst_resp_i.b;
-    end
-end
-
 assign snoop_req_o.ac.addr = slv_req_i.aw.addr;
 assign snoop_req_o.ac.snoop = snoop_trs_i;
 assign snoop_req_o.ac.prot = slv_req_i.aw.prot;
@@ -131,17 +101,26 @@ always_comb begin
     ac_start = 1'b0;
     aw_valid_d = aw_valid_q;
     fsm_state_d = fsm_state_q;
+    load_aw_holder       = 1'b0;
     snoop_req_o.ac_valid = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
     snoop_req_o.cd_ready = 1'b0;
     slv_resp_o.aw_ready  = 1'b0;
     slv_resp_o.ar_ready  = 1'b0;
+    slv_resp_o.w_ready   = 1'b0;
     slv_resp_o.r_valid   = 1'b0;
     slv_resp_o.r         = '0;
-    load_aw_holder       = 1'b0;
-    slv_resp_o.aw_ready  = 1'b0;
-    slv_resp_o.w_ready   = 1'b0;
     slv_resp_o.b_valid   = 1'b0;
+    slv_resp_o.b         = '0;
+    mst_req_o.aw         = aw_holder_q;
+    mst_req_o.w          = '0;
+    mst_req_o.w_valid    = 1'b0;
+    mst_req_o.b_ready    = 1'b0;
+    mst_req_o.ar         = '0;
+    mst_req_o.ar_valid   = 1'b0;
+    mst_req_o.r_ready    = 1'b0;
+    mst_req_o.rack       = 1'b0;
+    mst_req_o.wack       = 1'b0;
 
     case(fsm_state_q)
         SNOOP_REQ: begin
@@ -165,6 +144,17 @@ always_comb begin
             end
         end
         WRITE_CD: begin
+            // Snooped data is provided wrap-bursted
+            mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
+            mst_req_o.w_valid    = snoop_resp_i.cd_valid;
+            mst_req_o.w.data     = snoop_resp_i.cd.data;
+            mst_req_o.w.strb     = '1;
+            mst_req_o.w.last     = snoop_resp_i.cd.last;
+            mst_req_o.w.user     = '0; // What to put here?
+            mst_req_o.b_ready    = 1'b1;
+            snoop_req_o.cd_ready = mst_resp_i.w_ready;
+            slv_resp_o.b         = mst_resp_i.b;
+
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
@@ -176,6 +166,12 @@ always_comb begin
             end
         end
         WRITE_W: begin
+            mst_req_o.w_valid = slv_req_i.w_valid;
+            mst_req_o.w  = slv_req_i.w;
+            mst_req_o.b_ready = slv_req_i.b_ready;
+            slv_resp_o.b_valid = mst_resp_i.b_valid;
+            slv_resp_o.b = mst_resp_i.b;
+            slv_resp_o.w_ready = mst_resp_i.w_ready;
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
