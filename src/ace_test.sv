@@ -1091,6 +1091,7 @@ endclass
         aw_ace_queue.push_back(aw_ace_beat);
         w_queue.push_back(aw_ace_beat);
       end
+      $info("Finish aws");
     endtask
 
     task send_aws(ref logic aw_done);
