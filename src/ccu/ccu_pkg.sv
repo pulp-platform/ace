@@ -1,22 +1,5 @@
   package ccu_pkg;
 
-  /// Configuration for `ace_ccu`.
-  typedef struct packed {
-    int unsigned  NoSlvPorts;
-    int unsigned  MaxMstTrans;
-    int unsigned  MaxSlvTrans;
-    bit           FallThrough;
-    ccu_latency_e LatencyMode;
-    int unsigned  AxiIdWidthSlvPorts;
-    int unsigned  AxiIdUsedSlvPorts;
-    bit           UniqueIds;
-    int unsigned  AxiAddrWidth;
-    int unsigned  AxiDataWidth;
-    int unsigned  AxiUserWidth;
-    int unsigned  DcacheLineWidth;
-    int unsigned  DcacheIndexWidth;
-  } ccu_cfg_t;
-
   /// Slice on Demux AW channel.
   localparam logic [9:0] DemuxAw = (1 << 9);
   /// Slice on Demux W channel.
@@ -47,5 +30,22 @@
     CUT_MST_PORTS = MuxAw | MuxW | MuxB | MuxAr | MuxR,
     CUT_ALL_PORTS = 10'b111_11_111_11
   } ccu_latency_e;
+
+  /// Configuration for `ace_ccu`.
+  typedef struct packed {
+    int unsigned  NoSlvPorts;
+    int unsigned  MaxMstTrans;
+    int unsigned  MaxSlvTrans;
+    bit           FallThrough;
+    ccu_latency_e LatencyMode;
+    int unsigned  AxiIdWidthSlvPorts;
+    int unsigned  AxiIdUsedSlvPorts;
+    bit           UniqueIds;
+    int unsigned  AxiAddrWidth;
+    int unsigned  AxiDataWidth;
+    int unsigned  AxiUserWidth;
+    int unsigned  DcacheLineWidth;
+    int unsigned  DcacheIndexWidth;
+  } ccu_cfg_t;
 
   endpackage
