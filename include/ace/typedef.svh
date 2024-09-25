@@ -42,8 +42,8 @@
     axi_pkg::atop_t     atop;                                     \
     user_t              user;                                     \
     ace_pkg::awsnoop_t  snoop;                                  \
-    ace_pkg::bar_t      bar;                                      \
-    ace_pkg::domain_t   domain;                                   \
+    ace_pkg::axbar_t      bar;                                      \
+    ace_pkg::axdomain_t   domain;                                   \
     ace_pkg::awunique_t awunique;                                 \
   } aw_chan_t;
 `define ACE_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)  \
@@ -60,8 +60,8 @@
     axi_pkg::region_t   region;                                   \
     user_t              user;                                     \
     ace_pkg::arsnoop_t  snoop;                                  \
-    ace_pkg::bar_t      bar;                                      \
-    ace_pkg::domain_t   domain;                                   \
+    ace_pkg::axbar_t      bar;                                      \
+    ace_pkg::axdomain_t   domain;                                   \
   } ar_chan_t;
 `define ACE_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)  \
   typedef struct packed {                                        \
@@ -124,8 +124,8 @@
 `define SNOOP_TYPEDEF_AC_CHAN_T(ac_chan_t, addr_t)              \
   typedef struct packed {                                       \
     addr_t                addr;                                 \
-    snoop_pkg::acsnoop_t  snoop;                              \
-    snoop_pkg::acprot_t   prot;                               \
+    ace_pkg::acsnoop_t  snoop;                              \
+    ace_pkg::acprot_t   prot;                               \
   } ac_chan_t;
 `define SNOOP_TYPEDEF_CD_CHAN_T(cd_chan_t, data_t)              \
   typedef struct packed {                                       \
@@ -133,7 +133,7 @@
     logic                 last;                                 \
   } cd_chan_t;
 `define SNOOP_TYPEDEF_CR_CHAN_T(cr_chan_t)                      \
-   typedef snoop_pkg::crresp_t     cr_chan_t;
+   typedef ace_pkg::crresp_t     cr_chan_t;
 `define SNOOP_TYPEDEF_REQ_T(req_t, ac_chan_t)      \
   typedef struct packed {                                       \
     logic     ac_valid;                                         \
