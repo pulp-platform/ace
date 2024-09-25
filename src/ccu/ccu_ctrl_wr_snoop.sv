@@ -1,6 +1,7 @@
 import ace_pkg::*;
 import ccu_ctrl_pkg::*;
 
+// FSM to control write snoop transactions
 // This module assumes that snooping happens
 // Non-snooping transactions should be handled outside
 module ccu_ctrl_wr_snoop #(
@@ -12,20 +13,8 @@ module ccu_ctrl_wr_snoop #(
     parameter type mst_req_t         = logic,
     /// Response channel type towards memory
     parameter type mst_resp_t        = logic,
-    /// AW channel type towards memoryy
-    // parameter type mst_aw_chan_t     = logic,
-    // /// W channel type towards memory
-    // parameter type mst_w_chan_t      = logic,
-    // /// B channel type towards memory
-    // parameter type mst_b_chan_t      = logic,
     // /// AW channel type towards cached master
     parameter type slv_aw_chan_t     = logic,
-    // /// W channel type towards cached master
-    // parameter type slv_w_chan_t      = logic,
-    // /// B channel type towards cached master
-    // parameter type slv_b_chan_t      = logic,
-    /// Snoop AC channel type
-    // parameter type mst_ac_t          = logic,
     /// Snoop request type
     parameter type mst_snoop_req_t   = logic,
     /// Snoop response type
@@ -132,6 +121,8 @@ always_comb begin
     mst_req_o.wack       = 1'b0;
 
     case(fsm_state_q)
+        // Forward AW channel into a snoop request on the
+        // AC channel
         SNOOP_REQ: begin
             w_last_d = 1'b0;
             cd_last_d = 1'b0;
@@ -142,6 +133,8 @@ always_comb begin
                 load_aw_holder = 1'b1;
             end
         end
+        // Receive snoop response and either write CD data or
+        // move to writing to main memory
         SNOOP_RESP: begin
             snoop_req_o.cr_ready = 1'b1;
             if (snoop_resp_i.cr_valid) begin
@@ -154,6 +147,7 @@ always_comb begin
                 end
             end
         end
+        // Write CD data back to memory
         WRITE_CD: begin
             // Snooped data is provided wrap-bursted
             mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
@@ -180,6 +174,7 @@ always_comb begin
                 fsm_state_d = WRITE_W;
             end
         end
+        // Write data to memory
         WRITE_W: begin
             if (!w_last_q) begin
                 mst_req_o.w_valid  = slv_req_i.w_valid;
