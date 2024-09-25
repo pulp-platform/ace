@@ -26,9 +26,11 @@ fi
 # regression-consistent.
 SEEDS=(0)
 
+# $VSIM -do "log -r *; onfinish stop; run -all; view wave;" -sv_seed $seed "$@" | tee vsim.log 2>&1
+# echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
 call_vsim() {
     for seed in ${SEEDS[@]}; do
-        echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
+        $VSIM -do "log -r *; onfinish stop; run -all; view wave;" -sv_seed $seed "$@" | tee vsim.log 2>&1
         grep "Errors: 0," vsim.log
     done
 }
@@ -70,7 +72,7 @@ exec_test() {
             done
             ;;
         *)
-            call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc +cover=bcesfx"
+            call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc"
             ;;
     esac
 }
