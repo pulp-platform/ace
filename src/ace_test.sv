@@ -1108,15 +1108,12 @@ endclass
         automatic ax_ace_beat_t aw_ace_beat;
         automatic addr_t addr;
         static logic rand_success;
-        $info("Before\n");
         wait (w_queue.size() > 0 || (aw_done && w_queue.size() == 0));
-        $info("After aw_done: %d w_queue.size() %d\n", aw_done, w_queue.size());
         aw_ace_beat = w_queue.pop_front();
         for (int unsigned i = 0; i < aw_ace_beat.ax_len + 1; i++) begin
           automatic w_beat_t w_beat = new;
           automatic int unsigned begin_byte, end_byte, n_bytes;
           automatic logic [AXI_STRB_WIDTH-1:0] rand_strb, strb_mask;
-          $info("i: %d < %d", i, aw_ace_beat.ax_len);
           addr = axi_pkg::beat_addr(aw_ace_beat.ax_addr, aw_ace_beat.ax_size, aw_ace_beat.ax_len,
                                     aw_ace_beat.ax_burst, i);
           //rand_success = w_beat.randomize(); assert (rand_success);
