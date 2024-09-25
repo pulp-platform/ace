@@ -15,29 +15,42 @@ sources:
   # levels 1 and 0, etc. Files within a level are ordered alphabetically.
   # Level 0
   - src/ace_pkg.sv
-  - src/snoop_pkg.sv
+  - src/ccu/ccu_ctrl_pkg.sv
+  - src/ccu/ccu_pkg.sv
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
-  - src/ccu_ctrl_pkg.sv
-  # Level 2
-  - src/ace_trs_dec.sv
-  - src/ccu_ctrl_decoder.sv
-  - src/ccu_ctrl_memory_unit.sv
-  - src/ccu_ctrl_snoop_unit.sv
-  # Level 3
-  - src/ccu_ctrl.sv
-  # Leval 4
-  - src/ace_ccu_top.sv
+  - src/ccu/ccu_ctrl_wr_snoop.sv
+  - src/ace_aw_transaction_decoder.sv
+  #- src/ccu_ctrl_pkg.sv
+  ## Level 2
+  #- src/ace_trs_dec.sv
+  #- src/ccu_ctrl_decoder.sv
+  #- src/ccu_ctrl_memory_unit.sv
+  #- src/ccu_ctrl_snoop_unit.sv
+  ## Level 3
+  #- src/ccu_ctrl.sv
+  ## Leval 4
+  #- src/ace_ccu_top.sv
 
-  - target: simulation
-    files:
-      - src/ace_test.sv
-      - src/snoop_test.sv
+  #- target: simulation
+  #  files:
+  #    - src/ace_test.sv
+  #    - src/snoop_test.sv
+
+  #- target: test
+  #  files:
+  #    # Level 0
+  #    - test/tb_ace_ccu_pkg.sv
+  #    # Level 1
+  #    - test/tb_ace_ccu_top.sv
+
+  #- target: vscode
+  #  files:
+  #    - src/ccu/ccu_ctrl_wr_snoop.sv
 
   - target: test
     files:
-      # Level 0
-      - test/tb_ace_ccu_pkg.sv
-      # Level 1
-      - test/tb_ace_ccu_top.sv
+      - src/snoop_test.sv
+      - src/ace_test.sv
+      - test/tb_ccu_ctrl_wr_snoop.sv
