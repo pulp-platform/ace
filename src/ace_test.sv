@@ -576,8 +576,8 @@ endclass
     typedef axi_pkg::len_t      len_t;
     typedef axi_pkg::size_t     size_t;
     typedef ace_pkg::arsnoop_t  snoop_t; // use only arsnoop_t, which is bigger than awsnoop_t
-    typedef ace_pkg::bar_t      bar_t;
-    typedef ace_pkg::domain_t   domain_t;
+    typedef ace_pkg::axbar_t      bar_t;
+    typedef ace_pkg::axdomain_t   domain_t;
     typedef ace_pkg::awunique_t awunique_t;
 
 
@@ -785,7 +785,7 @@ endclass
       trs      = $urandom_range(0,7);
       size     = $clog2(AXI_STRB_WIDTH)-1;
       case(trs )
-        ace_pkg::READ_NO_SNOOP: begin
+        ace_pkg::ReadNoSnoop: begin
           snoop   = 'b0000;
           domain  = 'b00;
           bar     = 'b00;
@@ -817,19 +817,19 @@ endclass
           len     = 0;
         end
 
-        ace_pkg::WRITE_NO_SNOOP: begin
+        ace_pkg::WriteNoSnoop: begin
           snoop   = 'b0000;
           domain  = 'b00;
           bar     = 'b00;
           len     = $urandom();
         end
-        ace_pkg::WRITE_BACK: begin
+        ace_pkg::WriteBack: begin
           snoop   = 'b0011;
           domain  = 'b00;
           bar     = 'b00;
           len     = 1;
         end
-        ace_pkg::WRITE_UNIQUE: begin
+        ace_pkg::WriteUnique: begin
           snoop   = 'b0000;
           domain  = 'b10;
           bar     = 'b00;
