@@ -25,9 +25,11 @@ package ace_pkg;
   typedef logic [1:0] axbar_t;
   typedef logic [1:0] axdomain_t;
   typedef logic [3:0] rresp_t;
+  typedef logic [0:0] awunique_t;
 
   // Snoop related types
   typedef logic [3:0] acsnoop_t;
+  typedef logic [2:0] acprot_t;
 
   typedef struct packed {
     logic WasUnique;
