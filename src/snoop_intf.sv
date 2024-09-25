@@ -21,12 +21,12 @@ interface SNOOP_BUS #(
   typedef logic [SNOOP_DATA_WIDTH-1:0] data_t;
 
   addr_t                ac_addr;
-  snoop_pkg::acprot_t   ac_prot;
-  snoop_pkg::acsnoop_t  ac_snoop;
+  ace_pkg::acprot_t   ac_prot;
+  ace_pkg::acsnoop_t  ac_snoop;
   logic                 ac_valid;
   logic                 ac_ready;
 
-  snoop_pkg::crresp_t     cr_resp;
+  ace_pkg::crresp_t     cr_resp;
   logic                 cr_valid;
   logic                 cr_ready;
 
@@ -68,12 +68,12 @@ interface SNOOP_BUS_DV #(
   typedef logic [SNOOP_DATA_WIDTH-1:0] data_t;
 
   addr_t                ac_addr;
-  snoop_pkg::acprot_t   ac_prot;
-  snoop_pkg::acsnoop_t  ac_snoop;
+  ace_pkg::acprot_t   ac_prot;
+  ace_pkg::acsnoop_t  ac_snoop;
   logic                 ac_valid;
   logic                 ac_ready;
 
-  snoop_pkg::crresp_t     cr_resp;
+  ace_pkg::crresp_t     cr_resp;
   logic                 cr_valid;
   logic                 cr_ready;
 

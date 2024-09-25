@@ -29,7 +29,7 @@ package snoop_test;
 
   /// The data transferred on a beat on the CR channel.
   class ace_cr_beat;
-    snoop_pkg::crresp_t cr_resp    = '0;
+    ace_pkg::crresp_t cr_resp    = '0;
   endclass
 
   /// The data transferred on a beat on the CD channel.
@@ -238,9 +238,9 @@ package snoop_test;
     ) snoop_driver_t;
     typedef logic [AW-1:0]      addr_t;
     typedef logic [DW-1:0]      data_t;
-    typedef snoop_pkg::acsnoop_t  acsnoop_t;
-    typedef snoop_pkg::acprot_t   acprot_t;
-    typedef snoop_pkg::crresp_t   crresp_t;
+    typedef ace_pkg::acsnoop_t  acsnoop_t;
+    typedef ace_pkg::acprot_t   acprot_t;
+    typedef ace_pkg::crresp_t   crresp_t;
 
     typedef snoop_driver_t::ace_ac_beat_t ace_ac_beat_t;
     typedef snoop_driver_t::ace_cr_beat_t ace_cr_beat_t;
@@ -277,8 +277,8 @@ package snoop_test;
       automatic logic rand_success;
       automatic ace_ac_beat_t ace_ac_beat = new;
       automatic addr_t addr;
-      automatic snoop_pkg::acsnoop_t snoop;
-      automatic snoop_pkg::acprot_t prot;
+      automatic ace_pkg::acsnoop_t snoop;
+      automatic ace_pkg::acprot_t prot;
       automatic int unsigned mem_region_idx;
       automatic mem_region_t mem_region;
 
@@ -345,7 +345,7 @@ package snoop_test;
         automatic ace_cd_beat_t ace_cd_beat;
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
         drv.recv_cr(ace_cr_beat);
-        if (!ace_cr_beat.cr_resp.error & ace_cr_beat.cr_resp.dataTransfer)
+        if (!ace_cr_beat.cr_resp.Error & ace_cr_beat.cr_resp.DataTransfer)
           drv.recv_cd(ace_cd_beat);
       end
     endtask
@@ -445,7 +445,7 @@ package snoop_test;
         automatic ace_cr_beat_t  ace_cr_beat = new;
         wait (ace_ac_queue.size() > 0);
         ace_ac_beat         = ace_ac_queue.pop_front();
-        if(ace_ac_beat.ac_snoop == snoop_pkg::CleanInvalid) begin
+        if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
           ace_cr_beat.cr_resp = 0;
         end else begin
           ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
@@ -454,7 +454,7 @@ package snoop_test;
         end
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
         drv.send_cr(ace_cr_beat);
-        if (ace_cr_beat.cr_resp.dataTransfer && !ace_cr_beat.cr_resp.error) begin
+        if (ace_cr_beat.cr_resp.DataTransfer && !ace_cr_beat.cr_resp.Error) begin
           cd_wait_cnt++;
         end
       end
