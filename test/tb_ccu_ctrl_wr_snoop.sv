@@ -4,6 +4,8 @@
 module tb_ccu_ctrl_wr_snoop #(
 );
 
+    localparam time TestTime =  8ns; // When sampling starts
+
     localparam int unsigned NoWrites = 80;   // How many writes per master
     localparam int unsigned NoReads  = 80;   // How many reads per master
 
@@ -146,6 +148,27 @@ module tb_ccu_ctrl_wr_snoop #(
         .AW(AxiAddrWidth),
         .DW(AxiDataWidth)
     ) snoop_slave;
+
+    snoop_chan_logger #(
+        .TestTime (TestTime),
+        .LoggerName ( "snoop_logger" ),
+        .ac_chan_t (snoop_ac_t),
+        .cr_chan_t (snoop_cr_t),
+        .cd_chan_t (snoop_cd_t)
+    ) snoop_chan_logger (
+        .clk_i (clk),
+        .rst_ni (rst_n),
+        .end_sim_i (end_of_sim),
+        .ac_chan_i (snoop_req.ac),
+        .ac_valid_i (snoop_req.ac_valid),
+        .ac_ready_i (snoop_resp.ac_ready),
+        .cr_chan_i (snoop_resp.cr_resp),
+        .cr_valid_i (snoop_resp.cr_valid),
+        .cr_ready_i (snoop_req.cr_ready),
+        .cd_chan_i (snoop_resp.cd),
+        .cd_valid_i (snoop_resp.cd_valid),
+        .cd_ready_i ( snoop_req.cd_ready)
+    );
 
     initial begin
         ace_master = new(master_dv);
