@@ -4,7 +4,6 @@
 module tb_ccu_ctrl_wr_snoop #(
 );
 
-    localparam time TestTime =  8ns; // When sampling starts
 
     localparam int unsigned NoWrites = 80;   // How many writes per master
     localparam int unsigned NoReads  = 80;   // How many reads per master
@@ -19,6 +18,8 @@ module tb_ccu_ctrl_wr_snoop #(
     localparam int unsigned AxiUserWidth      =  5;
 
     localparam time CyclTime = 10ns;
+    localparam time ApplTime =  2ns;
+    localparam time TestTime =  8ns;
 
     // in the bench can change this variables which are set here freely
     localparam ccu_pkg::ccu_cfg_t ccu_cfg = '{
@@ -133,7 +134,9 @@ module tb_ccu_ctrl_wr_snoop #(
         .UW (AxiUserWidth),
         .MAX_READ_TXNS (20),
         .MAX_WRITE_TXNS (20),
-        .UNIQUE_IDS (1)
+        .UNIQUE_IDS (1),
+        .TA ( ApplTime ),
+        .TT (TestTime )
     ) ace_master;
 
     axi_test::axi_rand_slave #(
@@ -141,12 +144,16 @@ module tb_ccu_ctrl_wr_snoop #(
         .AW ( AxiAddrWidth     ),
         .DW ( AxiDataWidth     ),
         .IW ( AxiIdWidthSlaves ),
-        .UW ( AxiUserWidth     )
+        .UW ( AxiUserWidth     ),
+        .TA ( ApplTime ),
+        .TT (TestTime )
     ) axi_rand_slave;
 
     snoop_test::snoop_rand_slave #(
         .AW(AxiAddrWidth),
-        .DW(AxiDataWidth)
+        .DW(AxiDataWidth),
+        .TA ( ApplTime ),
+        .TT (TestTime )
     ) snoop_slave;
 
     snoop_chan_logger #(

@@ -115,6 +115,7 @@ package snoop_test;
       snoop.cr_resp <= #TA beat.cr_resp;
       cycle_start();
       while (snoop.cr_ready != 1) begin cycle_end(); cycle_start(); end
+      cycle_end();
       snoop.cr_valid <= #TA '0;
       snoop.cr_resp <= #TA '0;
     endtask
