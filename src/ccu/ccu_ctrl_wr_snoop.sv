@@ -1,6 +1,8 @@
 import ace_pkg::*;
 import ccu_ctrl_pkg::*;
 
+// This module assumes that snooping happens
+// Non-snooping transactions should be handled outside
 module ccu_ctrl_wr_snoop #(
     /// Request channel type towards cached master
     parameter type slv_req_t         = logic,
@@ -11,19 +13,19 @@ module ccu_ctrl_wr_snoop #(
     /// Response channel type towards memory
     parameter type mst_resp_t        = logic,
     /// AW channel type towards memoryy
-    parameter type mst_aw_chan_t     = logic,
-    /// W channel type towards memory
-    parameter type mst_w_chan_t      = logic,
-    /// B channel type towards memory
-    parameter type mst_b_chan_t      = logic,
-    /// AW channel type towards cached master
+    // parameter type mst_aw_chan_t     = logic,
+    // /// W channel type towards memory
+    // parameter type mst_w_chan_t      = logic,
+    // /// B channel type towards memory
+    // parameter type mst_b_chan_t      = logic,
+    // /// AW channel type towards cached master
     parameter type slv_aw_chan_t     = logic,
-    /// W channel type towards cached master
-    parameter type slv_w_chan_t      = logic,
-    /// B channel type towards cached master
-    parameter type slv_b_chan_t      = logic,
+    // /// W channel type towards cached master
+    // parameter type slv_w_chan_t      = logic,
+    // /// B channel type towards cached master
+    // parameter type slv_b_chan_t      = logic,
     /// Snoop AC channel type
-    parameter type mst_ac_t          = logic,
+    // parameter type mst_ac_t          = logic,
     /// Snoop request type
     parameter type mst_snoop_req_t   = logic,
     /// Snoop response type
@@ -38,7 +40,7 @@ module ccu_ctrl_wr_snoop #(
     /// Decoded snoop transaction
     input  acsnoop_t                    snoop_trs_i,
     /// Response channel towards cached master
-    output slv_resp_t                   slv_req_o,
+    output slv_resp_t                   slv_resp_o,
     /// Request channel towards memory
     output mst_req_t                    mst_req_o,
     /// Response channel towards memory
@@ -62,15 +64,6 @@ logic aw_valid_d, aw_valid_q;
 
 typedef enum logic [1:0] { SNOOP_REQ, SNOOP_RESP, WRITE_CD, WRITE_W } wr_fsm_t;
 wr_fsm_t fsm_state_d, fsm_state_q;
-
-assign snoop_req_o.ac_addr  = aw_holder.addr;
-assign snoop_req_o.ac_prot  = aw_holder.prot;
-assign snoop_req_o.ac_snoop = snoop_trs_i;
-assign snoop_req_o.ac_valid = slv_req_i.aw_valid && ac_start;
-
-assign slv_resp_o.aw_ready  = snoop_req_i.ac_ready && ac_start;
-
-assign snoop_req_o.ac_addr = slv_req_i.aw.addr;
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
@@ -125,7 +118,6 @@ always_comb begin
     snoop_req_o.cr_ready = 1'b0;
     snoop_req_o.cd_ready = 1'b0;
     slv_resp_o.aw_ready  = 1'b0;
-    mst_req_o.w_valid    = 1'b0;
     load_aw_holder       = 1'b0;
     slv_resp_o.aw_ready  = 1'b0;
 
@@ -140,10 +132,10 @@ always_comb begin
         end
         SNOOP_RESP: begin
             snoop_req_o.cr_ready = 1'b1;
-            if (snoop_req_i.cr_valid) begin
+            if (snoop_resp_i.cr_valid) begin
                 aw_valid_d = 1'b1;
-                if (snoop_req_i.cr_resp.DataTransfer
-                    && !snoop_req_i.cr_resp.Error) begin
+                if (snoop_resp_i.cr_resp.DataTransfer
+                    && !snoop_resp_i.cr_resp.Error) begin
                     fsm_state_d = WRITE_CD;
                 end else begin
                     fsm_state_d = WRITE_W;
@@ -155,7 +147,6 @@ always_comb begin
                 aw_valid_d = 1'b0;
             end
             snoop_req_o.cd_ready = mst_resp_i.w_ready;
-            mst_req_o.w_valid    = snoop_resp_i.cd_valid;
             // TODO: monitor B handshakes outside the FSM
             if (b_handshake) begin
                 aw_valid_d  = 1'b1;
