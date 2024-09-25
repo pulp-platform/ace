@@ -205,7 +205,6 @@ endclass
       ace.aw_awunique <= #TA beat.ax_awunique;
       cycle_start();
       while (ace.aw_ready != 1) begin cycle_end(); cycle_start(); end
-      cycle_end();
       ace.aw_id       <= #TA '0;
       ace.aw_addr     <= #TA '0;
       ace.aw_len      <= #TA '0;
