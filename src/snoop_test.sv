@@ -656,7 +656,7 @@ module snoop_chan_logger #(
           log_string = $sformatf("%0t ns> CR %d RESP: %b, ",
                           $time, no_r_beat, cr_beat);
           $fdisplay(fd, log_string);
-          if (cr_beat.dataTransfer && !cr_beat.error) begin
+          if (cr_beat.DataTransfer && !cr_beat.Error) begin
             while(cd_queues.size() != 0) begin
               cd_beat = cd_queues.pop_front();
               log_string = $sformatf("%0t ns> CD %d DATA: %h, ",
