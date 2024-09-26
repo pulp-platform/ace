@@ -27,6 +27,7 @@ module ccu_ctrl_wr_snoop #(
     /// Request channel towards cached master
     input  slv_req_t                    slv_req_i,
     /// Decoded snoop transaction
+    /// Assumed to be valid when slv_req_i is valid
     input  acsnoop_t                    snoop_trs_i,
     /// Response channel towards cached master
     output slv_resp_t                   slv_resp_o,
@@ -52,6 +53,7 @@ logic ac_handshake, cd_handshake, w_slv_handshake;
 logic aw_valid_d, aw_valid_q;
 logic w_last_d, w_last_q;
 logic cd_last_d, cd_last_q;
+logic ignore_cd_d, ignore_cd_q;
 
 typedef enum logic [1:0] { SNOOP_REQ, SNOOP_RESP, WRITE_CD, WRITE_W } wr_fsm_t;
 wr_fsm_t fsm_state_d, fsm_state_q;
@@ -62,11 +64,13 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         aw_valid_q  <= 1'b0;
         w_last_q    <= 1'b0;
         cd_last_q   <= 1'b0;
+        ignore_cd_q <= 1'b0;
     end else begin
         fsm_state_q <= fsm_state_d;
         aw_valid_q  <= aw_valid_d;
         w_last_q    <= w_last_d;
         cd_last_q   <= cd_last_d;
+        ignore_cd_q <= ignore_cd_d;
     end
 end
 
@@ -99,6 +103,7 @@ always_comb begin
     fsm_state_d          = fsm_state_q;
     w_last_d             = w_last_q;
     cd_last_d            = cd_last_q;
+    ignore_cd_d          = ignore_cd_q;
     load_aw_holder       = 1'b0;
     snoop_req_o.ac_valid = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
@@ -126,6 +131,7 @@ always_comb begin
         SNOOP_REQ: begin
             w_last_d = 1'b0;
             cd_last_d = 1'b0;
+            ignore_cd_d = 1'b0;
             snoop_req_o.ac_valid = slv_req_i.aw_valid;
             slv_resp_o.aw_ready  = snoop_resp_i.ac_ready;
             if (ac_handshake) begin
@@ -138,11 +144,18 @@ always_comb begin
         SNOOP_RESP: begin
             snoop_req_o.cr_ready = 1'b1;
             if (snoop_resp_i.cr_valid) begin
-                aw_valid_d = 1'b1;
-                if (snoop_resp_i.cr_resp.DataTransfer
-                    && !snoop_resp_i.cr_resp.Error) begin
+                if (snoop_resp_i.cr_resp.DataTransfer) begin
+                    // If received data is erronous or clean,
+                    // we receive CD but do not write it
+                    if (snoop_resp_i.cr_resp.Error ||
+                        !snoop_resp_i.cr_resp.PassDirty) begin
+                        ignore_cd_d = 1'b1;
+                    end else begin
+                        aw_valid_d = 1'b1;
+                    end
                     fsm_state_d = WRITE_CD;
                 end else begin
+                    aw_valid_d = 1'b1;
                     fsm_state_d = WRITE_W;
                 end
             end
@@ -151,7 +164,7 @@ always_comb begin
         WRITE_CD: begin
             // Snooped data is provided wrap-bursted
             mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
-            if (!cd_last_q) begin
+            if (!cd_last_q && !ignore_cd_q) begin
                 mst_req_o.w_valid = snoop_resp_i.cd_valid;
             end
             mst_req_o.w.data     = snoop_resp_i.cd.data;
@@ -159,7 +172,7 @@ always_comb begin
             mst_req_o.w.last     = snoop_resp_i.cd.last;
             mst_req_o.w.user     = '0; // What to put here?
             mst_req_o.b_ready    = 1'b1;
-            snoop_req_o.cd_ready = mst_resp_i.w_ready;
+            snoop_req_o.cd_ready = mst_resp_i.w_ready || ignore_cd_q;
             slv_resp_o.b         = mst_resp_i.b;
             if (cd_handshake && snoop_resp_i.cd.last) begin
                 cd_last_d = 1'b1;
@@ -167,9 +180,8 @@ always_comb begin
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
-            snoop_req_o.cd_ready = mst_resp_i.w_ready;
             // TODO: monitor B handshakes outside the FSM
-            if (b_handshake) begin
+            if (b_handshake || (cd_last_q && ignore_cd_q)) begin
                 aw_valid_d  = 1'b1;
                 fsm_state_d = WRITE_W;
             end
