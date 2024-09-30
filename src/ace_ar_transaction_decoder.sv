@@ -5,8 +5,8 @@ module ace_ar_transaction_decoder import ace_pkg::*; #(
     input  ar_chan_t ar_i,
     // Control signals
     /* TBD */
-    output acsnoop_t acsnoop_o,
-    output logic     illegal_trs_o
+    output snoop_info_t snoop_info_o,
+    output logic        illegal_trs_o
 );
 
 arsnoop_t arsnoop;
@@ -53,7 +53,8 @@ assign dvm_message           = !is_barrier &&  is_shareable && arsnoop == arsnoo
 
 always_comb begin
     illegal_trs_o  = 1'b0;
-    acsnoop_o      = acsnoop_t'(arsnoop);
+    snoop_info_o.snoop_trs = acsnoop_t'(arsnoop);
+    snoop_info_o.accepts_dirty = 1'b0;
     unique case (1'b1)
         read_no_snoop: begin
 
@@ -74,10 +75,10 @@ always_comb begin
 
         end
         clean_unique: begin
-            acsnoop_o = acsnoop_t'(CleanInvalid);
+            snoop_info_o.snoop_trs = acsnoop_t'(CleanInvalid);
         end
         make_unique: begin
-            acsnoop_o = acsnoop_t'(MakeInvalid);
+             snoop_info_o.snoop_trs = acsnoop_t'(MakeInvalid);
         end
         clean_shared: begin
 

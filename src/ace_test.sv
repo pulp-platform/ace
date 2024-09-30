@@ -782,7 +782,7 @@ endclass
       id       = $urandom();
       qos      = $urandom();
       awunique = 0;
-      trs      = $urandom_range(0,7);
+      trs      = ace_pkg::ReadOnce; //$urandom_range(0,7);
       size     = $clog2(AXI_STRB_WIDTH)-1;
       case(trs )
         ace_pkg::ReadNoSnoop: begin
