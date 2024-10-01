@@ -1,7 +1,7 @@
 `include "ace/typedef.svh"
 `include "ace/assign.svh"
 
-module tb_ccu_ctrl_wr_snoop #(
+module tb_ccu_ctrl_r_snoop #(
 );
 
 
@@ -204,15 +204,14 @@ module tb_ccu_ctrl_wr_snoop #(
     end
 
 
-    ace_pkg::acsnoop_t snoopy_trs;
+    ace_pkg::snoop_info_t snoopy_trs;
     logic snoop_trs, illegal;
 
     ace_ar_transaction_decoder #(
-        .aw_chan_t(slave_aw_chan_t)
+        .ar_chan_t(slave_ar_chan_t)
     ) aw_trs_decoder (
-        .aw_i(slaves_req.aw),
-        .acsnoop_o(snoopy_trs),
-        .snoop_trs_o(snoop_trs),
+        .ar_i(slaves_req.ar),
+        .snoop_info_o(snoopy_trs),
         .illegal_trs_o(illegal)
     );
 
@@ -221,15 +220,15 @@ module tb_ccu_ctrl_wr_snoop #(
         .slv_resp_t(slv_resp_t),
         .mst_req_t(mst_req_t),
         .mst_resp_t(mst_resp_t),
-        .slv_aw_chan_t(slave_aw_chan_t),
+        .slv_ar_chan_t(slave_ar_chan_t),
         .mst_snoop_req_t(snoop_req_t),
         .mst_snoop_resp_t(snoop_resp_t),
-        .axlen(2),
-        .axsize(2'b11)
+        .AXLEN(2),
+        .AXSIZE(2'b11)
     ) DUT (
         .clk_i(clk),
         .rst_ni(rst_n),
-        .snoop_trs_i(snoopy_trs),
+        .snoop_info_i(snoopy_trs),
         .slv_req_i(masters_req),
         .slv_resp_o(masters_resp),
         .mst_req_o(slaves_req),
