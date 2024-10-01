@@ -185,7 +185,10 @@ module ace_ccu_snoop_resp #(
         end
     end
 
-    assign fr_one_hot = oup_idx_t'(1 << fr_d);
+    always_comb begin
+        fr_one_hot = '0;
+        fr_one_hot[fr_d] = 1'b1;
+    end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
