@@ -203,6 +203,7 @@ always_comb begin
                             end
                         end
                     end else begin
+                        cd_mask_d   = '1;
                         fsm_state_d = IGNORE_CD;
                     end
                 end else begin
@@ -215,6 +216,12 @@ always_comb begin
         end
         // Ignore CD if data is erronous
         IGNORE_CD: begin
+            cd_fork_ready = '1;
+            snoop_req_o.cd_ready = cd_ready;
+            if (cd_handshake && snoop_resp_i.cd.last) begin
+                fsm_state_d = READ_R;
+                ar_valid_d  = 1'b1;
+            end
         end
         // Write CD
         // To memory and/or to initiating master
