@@ -136,7 +136,10 @@ module tb_ccu_ctrl_r_snoop #(
         .MAX_WRITE_TXNS (20),
         .UNIQUE_IDS (1),
         .TA ( ApplTime ),
-        .TT (TestTime )
+        .TT (TestTime ),
+        .AXI_BURST_FIXED (0),
+        .AXI_BURST_INCR (0),
+        .AXI_BURST_WRAP (1)
     ) ace_master;
 
     axi_test::axi_rand_slave #(
