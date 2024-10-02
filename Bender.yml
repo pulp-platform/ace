@@ -4,7 +4,8 @@ package:
     # Alphabetically ordered by last name (maintainers first)
 
 dependencies:
-  axi: { git: "https://github.com/pulp-platform/axi.git", version: 0.39.0-beta.2 }
+  axi:          { git: "https://github.com/pulp-platform/axi.git", version: 0.39.4 }
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: aa85c7ae1179668994146b901f164bc0e0ce9d38 }
 
 export_include_dirs:
   - include
@@ -22,6 +23,9 @@ sources:
   - src/snoop_intf.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
   - src/ace_aw_transaction_decoder.sv
+  - src/ccu/ace_ccu_snoop_resp.sv
+  - src/ccu/ace_ccu_snoop_port_ctrl.sv
+  - src/ccu/ace_ccu_snoop_interconnect.sv
   #- src/ccu_ctrl_pkg.sv
   ## Level 2
   #- src/ace_trs_dec.sv
@@ -54,3 +58,4 @@ sources:
       - src/snoop_test.sv
       - src/ace_test.sv
       - test/tb_ccu_ctrl_wr_snoop.sv
+      - test/tb_ace_ccu_snoop_interconnect.sv

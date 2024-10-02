@@ -18,6 +18,19 @@ package snoop_test;
   import axi_pkg::*;
   import ace_pkg::*;
 
+  typedef enum logic [3:0] {
+    AC_READ_ONCE             = 0,
+    AC_READ_SHARED           = 1,
+    AC_READ_CLEAN            = 2,
+    AC_READ_NOT_SHARED_DIRTY = 3,
+    AC_READ_UNIQUE           = 4,
+    AC_CLEAN_SHARED          = 5,
+    AC_CLEAN_INVALID         = 6,
+    AC_MAKE_INVALID          = 7,
+    AC_DVM_COMPLETE          = 8,
+    AC_DVM_MESSAGE           = 9
+  } ac_snoop_e;
+
   /// The data transferred on a beat on the AC channel.
   class ace_ac_beat #(
     parameter AW = 32
@@ -281,6 +294,7 @@ package snoop_test;
       automatic ace_pkg::acprot_t prot;
       automatic int unsigned mem_region_idx;
       automatic mem_region_t mem_region;
+      automatic ac_snoop_e trs;
 
       // No memory regions defined
       if (mem_map.size() == 0) begin
@@ -303,7 +317,23 @@ package snoop_test;
       addr  = mem_region.addr_begin + $urandom_range(mem_region.addr_end-mem_region.addr_begin+1);
 
       ace_ac_beat.ac_addr = addr;
-      snoop      = $urandom();
+
+      std::randomize(trs) with
+      {!(trs inside {AC_DVM_MESSAGE, AC_DVM_COMPLETE});}; // DVM not supported for the moment
+
+      case (trs)
+        AC_READ_ONCE            : snoop = ace_pkg::ReadOnce;
+        AC_READ_SHARED          : snoop = ace_pkg::ReadShared;
+        AC_READ_CLEAN           : snoop = ace_pkg::ReadClean;
+        AC_READ_NOT_SHARED_DIRTY: snoop = ace_pkg::ReadNotSharedDirty;
+        AC_READ_UNIQUE          : snoop = ace_pkg::ReadUnique;
+        AC_CLEAN_SHARED         : snoop = ace_pkg::CleanShared;
+        AC_CLEAN_INVALID        : snoop = ace_pkg::CleanInvalid;
+        AC_MAKE_INVALID         : snoop = ace_pkg::MakeInvalid;
+        AC_DVM_COMPLETE         : snoop = ace_pkg::DVMComplete;
+        AC_DVM_MESSAGE          : snoop = ace_pkg::DVMMessage;
+      endcase
+
       prot     = $urandom();
 
       // rand_success = std::randomize(id); assert(rand_success);
@@ -453,10 +483,10 @@ package snoop_test;
           ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
         end
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
-        drv.send_cr(ace_cr_beat);
         if (ace_cr_beat.cr_resp.DataTransfer && !ace_cr_beat.cr_resp.Error) begin
           cd_wait_cnt++;
         end
+        drv.send_cr(ace_cr_beat);
       end
     endtask
 
