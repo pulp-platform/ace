@@ -50,7 +50,7 @@ slv_ar_chan_t ar_holder_d, ar_holder_q;
 logic ignore_cd_d, ignore_cd_q;
 logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
-logic ac_handshake, cd_handshake, b_handshake;
+logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
 logic arlen_counter_en, arlen_counting, arlen_counter_reset;
@@ -61,6 +61,7 @@ logic r_last, r_last_q, r_last_reset;
 logic first_req_d, first_req_q;
 
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
+assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
 assign r_last             = (arlen_counter == ar_holder_q.len);
 assign mst_req_o.aw_valid = aw_valid_q;
 assign mst_req_o.ar       = ar_holder_q;
@@ -124,21 +125,38 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
 end
 
 always_comb begin
-    load_ar_holder      = 1'b0;
-    rresp_d[3:2]        = rresp_q[3:2];
-    cd_mask_d           = cd_mask_q;
-    arlen_counter_reset = 1'b0;
-    aw_valid_d          = aw_valid_q;
-    mst_req_o.w         = '0;
-    mst_req_o.aw        = '0; // defaults
-    mst_req_o.aw.id     = ar_holder_q.id;
-    mst_req_o.aw.addr   = ar_holder_q.addr;
-    mst_req_o.aw.len    = AXLEN;
-    mst_req_o.aw.size   = AXSIZE;
-    mst_req_o.aw.burst  = axi_pkg::BURST_WRAP;
-    mst_req_o.aw.domain = 2'b00;
-    mst_req_o.aw.snoop  = ace_pkg::WriteBack;
+    fsm_state_d          = fsm_state_q;
+    load_ar_holder       = 1'b0;
+    rresp_d[3:2]         = rresp_q[3:2];
+    cd_mask_d            = cd_mask_q;
+    arlen_counter_reset  = 1'b0;
+    aw_valid_d           = aw_valid_q;
+    mst_req_o.w          = '0;
+    mst_req_o.w_valid    = '0;
+    mst_req_o.aw         = '0; // defaults
+    mst_req_o.aw.id      = ar_holder_q.id;
+    mst_req_o.aw.addr    = ar_holder_q.addr;
+    mst_req_o.aw.len     = AXLEN;
+    mst_req_o.aw.size    = AXSIZE;
+    mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
+    mst_req_o.aw.domain  = 2'b00;
+    mst_req_o.aw.snoop   = ace_pkg::WriteBack;
+    mst_req_o.r_ready    = 1'b0;
+    mst_req_o.b_ready    = 1'b0;
+    slv_resp_o.ar_ready  = 1'b0;
+    slv_resp_o.aw_ready  = 1'b0;
+    slv_resp_o.w_ready   = 1'b0;
+    slv_resp_o.b_valid   = 1'b0;
+    slv_resp_o.b         = '0;
+    slv_resp_o.r_valid   = 1'b0;
+    snoop_req_o.ac_valid = 1'b0;
+    snoop_req_o.cd_ready = 1'b0;
+    snoop_req_o.cr_ready = 1'b0;
+    cd_fork_ready        = '0;
+    cd_mask_valid        = 1'b1;
+    arlen_counter_en     = 1'b0;
 
+    slv_resp_o.r        = '0;
     slv_resp_o.r.id     = ar_holder_q.id;
 
     case(fsm_state_q)
@@ -181,6 +199,9 @@ always_comb begin
                     end else begin
                         fsm_state_d = IGNORE_CD;
                     end
+                end else begin
+                    // No DataTransfer
+                    fsm_state_d = READ_R;
                 end
             end
         end
@@ -190,7 +211,7 @@ always_comb begin
         // Write CD
         // To memory and/or to initiating master
         WRITE_CD: begin
-
+            arlen_counting    = cd_mask_q[MST_R_IDX];
             mst_req_o.w_valid = cd_fork_valid[MEM_W_IDX] && !aw_valid_q;
             mst_req_o.w.data  = snoop_resp_i.cd.data;
             mst_req_o.w.strb  = '1;
@@ -202,8 +223,8 @@ always_comb begin
             slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q;
             arlen_counter_en   = cd_fork_valid[MST_R_IDX] && !r_last_q;
 
-            cd_fork_ready[MEM_W_IDX] = cd_mask_ready && mst_resp_i.w_ready && !aw_valid_q;
-            cd_fork_ready[MST_R_IDX] = cd_mask_ready && slv_req_i.r_ready || r_last_q;
+            cd_fork_ready[MEM_W_IDX] = mst_resp_i.w_ready && !aw_valid_q;
+            cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready || r_last_q;
 
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = cd_ready;
@@ -215,6 +236,11 @@ always_comb begin
                 aw_valid_d = 1'b0;
             end
             if (b_handshake) begin
+                // If memory access, end on b handshake
+                fsm_state_d = SNOOP_REQ;
+            end
+            if (r_handshake && r_last && !cd_mask_q[MEM_W_IDX]) begin
+                // If no memory access, end on r handshake and r_last
                 fsm_state_d = SNOOP_REQ;
             end
         end
@@ -226,8 +252,9 @@ always_comb begin
             slv_resp_o.r       = mst_resp_i.r;
             slv_resp_o.r_valid = mst_resp_i.r_valid;
             mst_req_o.r_ready  = slv_req_i.r_ready;
-            
-
+            if (r_handshake && slv_resp_o.r.last) begin
+                fsm_state_d = SNOOP_REQ;
+            end
         end
     endcase
 end
@@ -245,7 +272,7 @@ stream_fork_dynamic #(
     .ready_o(cd_ready),
     .sel_i(cd_mask_q),
     .sel_valid_i(cd_mask_valid),
-    .sel_ready_o(cd_mask_ready),
+    .sel_ready_o(),
     .valid_o(cd_fork_valid),
     .ready_i(cd_fork_ready)
 );
