@@ -190,6 +190,7 @@ always_comb begin
             if (snoop_resp_i.cr_valid) begin
                 rresp_d[3:2] = '0;
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
+                    rresp_d[3] = snoop_resp_i.cr_resp.IsShared;
                     if (!snoop_resp_i.cr_resp.Error) begin
                         cd_mask_d[MST_R_IDX] = 1'b1;
                         fsm_state_d = WRITE_CD;
