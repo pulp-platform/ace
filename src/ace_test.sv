@@ -817,7 +817,7 @@ endclass
       size     = $clog2(AXI_STRB_WIDTH)-1;
       if (is_read) begin
         // Read operation
-        std::randomize(ar_trs) with { !(ar_trs inside {ar_unsupported_ops}); };
+        std::randomize(ar_trs) with { (ar_trs inside {AR_READ_ONCE}); };
         case( ar_trs )
           AR_READ_NO_SNOOP: begin
             snoop   = ace_pkg::ReadNoSnoop;
