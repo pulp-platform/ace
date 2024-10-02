@@ -768,7 +768,7 @@ endclass
 
         // Randomize address.  Make sure that the burst does not cross a 4KiB boundary.
         forever begin
-          size  = $clog2(AXI_STRB_WIDTH)-1;
+          size  = $clog2(AXI_STRB_WIDTH);
           // rand_success = std::randomize(size) with {
           //   2**size <= AXI_STRB_WIDTH;
           //   2**size <= len;
@@ -814,7 +814,7 @@ endclass
       id       = $urandom();
       qos      = $urandom();
       awunique = 0;
-      size     = $clog2(AXI_STRB_WIDTH)-1;
+      size     = $clog2(AXI_STRB_WIDTH);
       if (is_read) begin
         // Read operation
         std::randomize(ar_trs) with { (ar_trs inside {AR_READ_ONCE}); };
@@ -1073,7 +1073,7 @@ endclass
         automatic int unsigned n_bytes;
         automatic size_t size;
         automatic addr_t addr_mask;
-        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH)-1;
+        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH);
         
         // The address must be aligned to the total number of bytes in the burst.
         ar_ace_beat.ax_addr = ar_ace_beat.ax_addr & ~(2);
@@ -1185,6 +1185,7 @@ endclass
         drv.send_ar(ar_ace_beat);
         if (ar_ace_beat.ax_lock) excl_queue.push_back(ar_ace_beat);
       end
+      $info("Finish ARs");
     endtask
 
     task recv_rs(ref logic ar_done, aw_done);
@@ -1207,6 +1208,7 @@ endclass
           end
         end
       end
+      $info("Finish Rs");
     endtask
 
     task create_aws(input int n_writes);
