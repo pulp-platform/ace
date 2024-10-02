@@ -4,7 +4,8 @@ package:
     # Alphabetically ordered by last name (maintainers first)
 
 dependencies:
-  axi: { git: "https://github.com/pulp-platform/axi.git", version: 0.39.0-beta.2 }
+  axi:          { git: "https://github.com/pulp-platform/axi.git", version: 0.39.4 }
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: aa85c7ae1179668994146b901f164bc0e0ce9d38 }
 
 export_include_dirs:
   - include
