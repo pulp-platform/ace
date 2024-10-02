@@ -30,7 +30,7 @@ SEEDS=(0)
 # echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
 call_vsim() {
     for seed in ${SEEDS[@]}; do
-        echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
+        $VSIM -do ${ROOT}/scripts/dofile_r_snoop.do -sv_seed $seed "$@" | tee vsim.log 2>&1
         grep "Errors: 0," vsim.log
     done
 }
