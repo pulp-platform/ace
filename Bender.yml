@@ -24,7 +24,7 @@ sources:
   - src/ccu/ccu_ctrl_wr_snoop.sv
   - src/ace_aw_transaction_decoder.sv
   - src/ccu/ace_ccu_snoop_resp.sv
-  - src/ccu/ace_ccu_snoop_port_ctrl.sv
+  - src/ccu/ace_ccu_snoop_port.sv
   - src/ccu/ace_ccu_snoop_interconnect.sv
   #- src/ccu_ctrl_pkg.sv
   ## Level 2

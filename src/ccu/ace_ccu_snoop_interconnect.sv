@@ -141,34 +141,35 @@ stream_fork_dynamic #(
 for (genvar i = 0; i < NumOup; i++) begin : gen_oup
 
     // Control valid/ready
-    ace_ccu_snoop_port_ctrl #(
+    ace_ccu_snoop_port #(
         .NumInp                (NumInp),
-        .NumOup                (NumOup)
-    ) i_snoop_port_ctrl (
+        .NumOup                (NumOup),
+        .ac_chan_t             (ac_chan_t),
+        .cr_chan_t             (cr_chan_t),
+        .cd_chan_t             (cd_chan_t)
+    ) i_snoop_port (
         .clk_i,
         .rst_ni,
         .inp_ac_valid_i        (fork_ac_valids[i]),
         .inp_ac_ready_o        (fork_ac_readies[i]),
+        .inp_ac_chan_i         (arb_ac_chan),
         .inp_cr_valids_o       (cr_valids[i]),
         .inp_cr_readies_i      (cr_readies[i]),
+        .inp_cr_chans_o        (cr_chans[i]),
         .inp_cd_valids_o       (cd_valids[i]),
         .inp_cd_readies_i      (cd_readies[i]),
+        .inp_cd_chans_o        (cd_chans[i]),
         .inp_idx_i             (arb_ac_idx),
-        .cd_last_i             (oup_cd_chans[i].last),
-        .cr_data_transfer_i    (oup_cr_chans[i].DataTransfer),
         .oup_ac_valid_o        (oup_ac_valids[i]),
         .oup_ac_ready_i        (oup_ac_readies[i]),
+        .oup_ac_chan_o         (oup_ac_chans[i]),
         .oup_cr_valid_i        (oup_cr_valids[i]),
         .oup_cr_ready_o        (oup_cr_readies[i]),
+        .oup_cr_chan_i         (oup_cr_chans[i]),
         .oup_cd_valid_i        (oup_cd_valids[i]),
-        .oup_cd_ready_o        (oup_cd_readies[i])
+        .oup_cd_ready_o        (oup_cd_readies[i]),
+        .oup_cd_chan_i         (oup_cd_chans[i])
     );
-
-    // Data channels
-    assign oup_ac_chans[i] = arb_ac_chan;
-    assign cr_chans[i]     = {NumInp{oup_cr_chans[i]}};
-    assign cd_chans[i]     = {NumInp{oup_cd_chans[i]}};
-
 end
 
 for (genvar i = 0; i < NumInp; i++) begin : gen_inp
