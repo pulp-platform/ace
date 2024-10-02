@@ -463,7 +463,7 @@ endclass
       beat.r_user = ace.r_user;
       cycle_end();
       ace.r_ready <= #TA 0;
-      ace.rack <= #TA 1;
+      ace.rack <= #TA ace.r_last;
       cycle_start();
       ace.rack <= #TA 0;
     endtask
