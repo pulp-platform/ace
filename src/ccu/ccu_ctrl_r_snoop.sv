@@ -62,6 +62,8 @@ logic first_req_d, first_req_q;
 
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
+assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
+assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
 assign r_last             = (arlen_counter == ar_holder_q.len);
 assign mst_req_o.aw_valid = aw_valid_q;
 assign mst_req_o.ar       = ar_holder_q;
@@ -89,6 +91,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         first_req_q  <= '0;
         aw_valid_q   <= '0;
         ar_valid_q   <= '0;
+        cd_last_q    <= '0;
     end else begin
         fsm_state_q  <= fsm_state_d;
         ignore_cd_q  <= ignore_cd_d;
@@ -97,6 +100,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         first_req_q  <= first_req_d;
         aw_valid_q   <= aw_valid_d;
         ar_valid_q   <= ar_valid_d;
+        cd_last_q    <= cd_last_d;
     end
 end
 
@@ -131,6 +135,8 @@ always_comb begin
     cd_mask_d            = cd_mask_q;
     arlen_counter_reset  = 1'b0;
     aw_valid_d           = aw_valid_q;
+    ar_valid_d           = ar_valid_q;
+    cd_last_d            = cd_last_q;
     mst_req_o.w          = '0;
     mst_req_o.w_valid    = '0;
     mst_req_o.aw         = '0; // defaults
@@ -163,6 +169,7 @@ always_comb begin
         // Forward AW channel into a snoop request on the
         // AC channel
         SNOOP_REQ: begin
+            cd_last_d            = 1'b0;
             arlen_counter_reset  = 1'b1;
             r_last_reset         = 1'b1;
             snoop_req_o.ac_valid = slv_req_i.ar_valid;
@@ -189,19 +196,19 @@ always_comb begin
                         if (snoop_resp_i.cr_resp.PassDirty) begin
                             if (snoop_info_holder_q.accepts_dirty) begin
                                 rresp_d[2] = 1'b1;
-                                fsm_state_d = READ_CD;
                             end else begin
                                 cd_mask_d[MEM_W_IDX] = 1'b1;
+                                aw_valid_d           = 1'b1;
                             end
-                        end else begin
-                            aw_valid_d = 1'b1;
                         end
                     end else begin
                         fsm_state_d = IGNORE_CD;
                     end
                 end else begin
                     // No DataTransfer
+                    // read from memory
                     fsm_state_d = READ_R;
+                    ar_valid_d  = 1'b1;
                 end
             end
         end
@@ -221,7 +228,7 @@ always_comb begin
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
             slv_resp_o.r.last  = r_last;
             slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q;
-            arlen_counter_en   = cd_fork_valid[MST_R_IDX] && !r_last_q;
+            arlen_counter_en   = r_handshake;
 
             cd_fork_ready[MEM_W_IDX] = mst_resp_i.w_ready && !aw_valid_q;
             cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready || r_last_q;
