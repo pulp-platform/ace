@@ -45,9 +45,8 @@ module ccu_ctrl_r_snoop #(
 );
 
 logic load_ar_holder;
-snoop_info_t snoop_info_holder_q, snoop_info_holder_d;
-slv_ar_chan_t ar_holder_d, ar_holder_q;
-logic ignore_cd_d, ignore_cd_q;
+snoop_info_t snoop_info_holder_q;
+slv_ar_chan_t ar_holder_q;
 logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
@@ -55,10 +54,10 @@ rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
 logic arlen_counter_en, arlen_counting, arlen_counter_reset;
 logic cd_ready;
-logic [1:0] cd_mask_d, cd_mask_q, cd_fork_valid, cd_fork_ready;
-logic cd_mask_valid, cd_mask_ready;
+logic [1:0] cd_mask_d, cd_mask_q;
+logic [1:0] cd_fork_valid, cd_fork_ready;
+logic cd_mask_valid;
 logic r_last, r_last_q, r_last_reset;
-logic first_req_d, first_req_q;
 
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
@@ -85,19 +84,15 @@ end
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
         fsm_state_q  <= SNOOP_REQ;
-        ignore_cd_q  <= 1'b0;
         rresp_q[3:2] <= '0;
         cd_mask_q    <= '0;
-        first_req_q  <= '0;
         aw_valid_q   <= '0;
         ar_valid_q   <= '0;
         cd_last_q    <= '0;
     end else begin
         fsm_state_q  <= fsm_state_d;
-        ignore_cd_q  <= ignore_cd_d;
         rresp_q[3:2] <= rresp_d[3:2];
         cd_mask_q    <= cd_mask_d;
-        first_req_q  <= first_req_d;
         aw_valid_q   <= aw_valid_d;
         ar_valid_q   <= ar_valid_d;
         cd_last_q    <= cd_last_d;
@@ -166,7 +161,7 @@ always_comb begin
     slv_resp_o.r.id     = ar_holder_q.id;
 
     case(fsm_state_q)
-        // Forward AW channel into a snoop request on the
+        // Forward AR channel into a snoop request on the
         // AC channel
         SNOOP_REQ: begin
             cd_last_d            = 1'b0;
