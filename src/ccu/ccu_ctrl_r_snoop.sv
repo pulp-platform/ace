@@ -1,7 +1,7 @@
 import ace_pkg::*;
 import ccu_ctrl_pkg::*;
 
-// FSM to control write snoop transactions
+// FSM to control read snoop transactions
 // This module assumes that snooping happens
 // Non-snooping transactions should be handled outside
 module ccu_ctrl_r_snoop #(
@@ -19,8 +19,9 @@ module ccu_ctrl_r_snoop #(
     parameter type mst_snoop_req_t   = logic,
     /// Snoop response type
     parameter type mst_snoop_resp_t  = logic,
-
+    /// Fixed value for AXLEN for write back
     parameter int unsigned AXLEN = 0,
+    /// Fixed value for AXSIZE for write back
     parameter int unsigned AXSIZE = 0
 ) (
     /// Clock
