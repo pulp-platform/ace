@@ -147,15 +147,15 @@ always_comb begin
     slv_resp_o.b_valid   = 1'b0;
     slv_resp_o.b         = '0;
     slv_resp_o.r_valid   = 1'b0;
+    slv_resp_o.r         = '0;
+    slv_resp_o.r.id      = ar_holder_q.id;
+    snoop_req_o.ac       = '0;
     snoop_req_o.ac_valid = 1'b0;
     snoop_req_o.cd_ready = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
     cd_fork_ready        = '0;
     cd_mask_valid        = 1'b1;
     arlen_counter_en     = 1'b0;
-
-    slv_resp_o.r        = '0;
-    slv_resp_o.r.id     = ar_holder_q.id;
 
     case(fsm_state_q)
         // Forward AR channel into a snoop request on the
