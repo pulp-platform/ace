@@ -35,7 +35,7 @@ package ace_test;
     AR_DVM_MESSAGE
   } ar_snoop_e;
 
-  logic [2:0] ar_unsupported_ops = {AR_BARRIER, AR_DVM_COMPLETE, AR_DVM_MESSAGE};
+  ar_snoop_e ar_unsupported_ops[] = '{AR_READ_NO_SNOOP, AR_BARRIER, AR_DVM_COMPLETE, AR_DVM_MESSAGE};
 
   typedef enum logic [2:0] {
     AW_WRITE_NO_SNOOP,
@@ -48,7 +48,7 @@ package ace_test;
     AW_BARRIER
   } aw_snoop_e;
 
-  logic [2:0] aw_unsupported_ops = {AW_BARRIER};
+  aw_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
 
   /// The data transferred on a beat on the AW/AR channels.
   class ace_ax_beat #(
@@ -463,7 +463,7 @@ endclass
       beat.r_user = ace.r_user;
       cycle_end();
       ace.r_ready <= #TA 0;
-      ace.rack <= #TA 1;
+      ace.rack <= #TA ace.r_last;
       cycle_start();
       ace.rack <= #TA 0;
     endtask
@@ -768,7 +768,7 @@ endclass
 
         // Randomize address.  Make sure that the burst does not cross a 4KiB boundary.
         forever begin
-          size  = $clog2(AXI_STRB_WIDTH)-1;
+          size  = $clog2(AXI_STRB_WIDTH);
           // rand_success = std::randomize(size) with {
           //   2**size <= AXI_STRB_WIDTH;
           //   2**size <= len;
@@ -814,7 +814,7 @@ endclass
       id       = $urandom();
       qos      = $urandom();
       awunique = 0;
-      size     = $clog2(AXI_STRB_WIDTH)-1;
+      size     = $clog2(AXI_STRB_WIDTH);
       if (is_read) begin
         // Read operation
         std::randomize(ar_trs) with { !(ar_trs inside {ar_unsupported_ops}); };
@@ -829,7 +829,7 @@ endclass
             snoop   = ace_pkg::ReadOnce;
             domain  = 'b01;
             bar     = 'b00;
-            len     = 1;
+            len     = $urandom_range(0,1);
           end
           AR_READ_SHARED: begin
             snoop   = ace_pkg::ReadShared;
@@ -909,13 +909,12 @@ endclass
             domain  = 'b00;
             bar     = 'b00;
             len     = $urandom();
-            $exit(1);
           end
         endcase
       end else begin
         // Write operation
         std::randomize(aw_trs) with { !(aw_trs inside {aw_unsupported_ops}); };
-        case( ar_trs )
+        case( aw_trs )
           AW_WRITE_NO_SNOOP: begin
             snoop   = ace_pkg::WriteNoSnoop;
             domain  = 'b00;
@@ -976,7 +975,6 @@ endclass
             domain  = 'b00;
             bar     = 'b00;
             len     = $urandom();
-            $exit(1);
           end
         endcase
       end
@@ -1073,7 +1071,7 @@ endclass
         automatic int unsigned n_bytes;
         automatic size_t size;
         automatic addr_t addr_mask;
-        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH)-1;
+        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH);
         
         // The address must be aligned to the total number of bytes in the burst.
         ar_ace_beat.ax_addr = ar_ace_beat.ax_addr & ~(2);
@@ -1185,6 +1183,7 @@ endclass
         drv.send_ar(ar_ace_beat);
         if (ar_ace_beat.ax_lock) excl_queue.push_back(ar_ace_beat);
       end
+      $info("Finish ARs");
     endtask
 
     task recv_rs(ref logic ar_done, aw_done);
@@ -1207,6 +1206,7 @@ endclass
           end
         end
       end
+      $info("Finish Rs");
     endtask
 
     task create_aws(input int n_writes);

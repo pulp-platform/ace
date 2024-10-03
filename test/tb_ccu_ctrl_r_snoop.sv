@@ -1,12 +1,12 @@
 `include "ace/typedef.svh"
 `include "ace/assign.svh"
 
-module tb_ccu_ctrl_wr_snoop #(
+module tb_ccu_ctrl_r_snoop #(
 );
 
 
-    localparam int unsigned NoWrites = 8000;   // How many writes per master
-    localparam int unsigned NoReads  = 0;   // How many reads per master
+    localparam int unsigned NoWrites = 0;   // How many writes per master
+    localparam int unsigned NoReads  = 100000;   // How many reads per master
 
     // axi configuration
     localparam int unsigned AxiIdWidthMasters =  1;
@@ -136,7 +136,10 @@ module tb_ccu_ctrl_wr_snoop #(
         .MAX_WRITE_TXNS (20),
         .UNIQUE_IDS (1),
         .TA ( ApplTime ),
-        .TT (TestTime )
+        .TT (TestTime ),
+        .AXI_BURST_FIXED (0),
+        .AXI_BURST_INCR (0),
+        .AXI_BURST_WRAP (1)
     ) ace_master;
 
     axi_test::axi_rand_slave #(
@@ -204,30 +207,31 @@ module tb_ccu_ctrl_wr_snoop #(
     end
 
 
-    ace_pkg::acsnoop_t snoopy_trs;
+    ace_pkg::snoop_info_t snoopy_trs;
     logic snoop_trs, illegal;
 
-    ace_aw_transaction_decoder #(
-        .aw_chan_t(slave_aw_chan_t)
+    ace_ar_transaction_decoder #(
+        .ar_chan_t(slave_ar_chan_t)
     ) aw_trs_decoder (
-        .aw_i(slaves_req.aw),
-        .acsnoop_o(snoopy_trs),
-        .snoop_trs_o(snoop_trs),
+        .ar_i(slaves_req.ar),
+        .snoop_info_o(snoopy_trs),
         .illegal_trs_o(illegal)
     );
 
-    ccu_ctrl_wr_snoop #(
+    ccu_ctrl_r_snoop #(
         .slv_req_t(slv_req_t),
         .slv_resp_t(slv_resp_t),
         .mst_req_t(mst_req_t),
         .mst_resp_t(mst_resp_t),
-        .slv_aw_chan_t(slave_aw_chan_t),
+        .slv_ar_chan_t(slave_ar_chan_t),
         .mst_snoop_req_t(snoop_req_t),
-        .mst_snoop_resp_t(snoop_resp_t)
+        .mst_snoop_resp_t(snoop_resp_t),
+        .AXLEN(2),
+        .AXSIZE(2'b11)
     ) DUT (
         .clk_i(clk),
         .rst_ni(rst_n),
-        .snoop_trs_i(snoopy_trs),
+        .snoop_info_i(snoopy_trs),
         .slv_req_i(masters_req),
         .slv_resp_o(masters_resp),
         .mst_req_o(slaves_req),

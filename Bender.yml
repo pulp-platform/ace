@@ -22,7 +22,9 @@ sources:
   - src/ace_intf.sv
   - src/snoop_intf.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
+  - src/ccu/ccu_ctrl_r_snoop.sv
   - src/ace_aw_transaction_decoder.sv
+  - src/ace_ar_transaction_decoder.sv
   - src/ccu/ace_ccu_snoop_resp.sv
   - src/ccu/ace_ccu_snoop_port_ctrl.sv
   - src/ccu/ace_ccu_snoop_interconnect.sv
@@ -57,5 +59,6 @@ sources:
     files:
       - src/snoop_test.sv
       - src/ace_test.sv
+      - test/tb_ccu_ctrl_r_snoop.sv
       - test/tb_ccu_ctrl_wr_snoop.sv
       - test/tb_ace_ccu_snoop_interconnect.sv

@@ -26,7 +26,7 @@ fi
 # regression-consistent.
 SEEDS=(0)
 
-# $VSIM -do "log -r *; onfinish stop; run -all; view wave;" -sv_seed $seed "$@" | tee vsim.log 2>&1
+# $VSIM -do ${ROOT}/scripts/dofile.do -sv_seed $seed "$@" | tee vsim.log 2>&1
 # echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
 call_vsim() {
     for seed in ${SEEDS[@]}; do

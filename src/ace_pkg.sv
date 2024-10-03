@@ -39,6 +39,13 @@ package ace_pkg;
     logic DataTransfer;
   } crresp_t;
 
+  typedef struct packed {
+    acsnoop_t snoop_trs;
+    logic accepts_dirty;
+    logic accepts_dirty_shared;
+    logic accepts_shared;
+  } snoop_info_t;
+
   ///////////////
   // Encodings //
   ///////////////
