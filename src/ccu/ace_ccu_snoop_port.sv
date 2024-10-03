@@ -115,10 +115,18 @@ module ace_ccu_snoop_port import ace_pkg::*; #(
         .oup_ready_i (inp_cr_readies_i)
     );
 
-    // A sequential element can be easily inserted here
-    assign cd_sel_valid    = cd_sel_in_valid;
-    assign cd_sel_in_ready = cd_sel_ready && cd_last;
-    assign cd_sel          = cr_sel;
+    ace_ccu_lock_reg #(
+        .dtype      (inp_idx_t)
+    ) i_cd_sel_lock (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .valid_i    (cd_sel_in_valid),
+        .ready_o    (cd_sel_in_ready),
+        .data_i     (cr_sel),
+        .valid_o    (cd_sel_valid),
+        .ready_i    (cd_sel_ready && cd_last),
+        .data_o     (cd_sel)
+    );
 
     stream_join #(
         .N_INP (2)
