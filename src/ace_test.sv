@@ -48,7 +48,7 @@ package ace_test;
     AW_BARRIER
   } aw_snoop_e;
 
-  ar_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
+  aw_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
 
   /// The data transferred on a beat on the AW/AR channels.
   class ace_ax_beat #(
@@ -829,7 +829,7 @@ endclass
             snoop   = ace_pkg::ReadOnce;
             domain  = 'b01;
             bar     = 'b00;
-            len     = 1;
+            len     = $urandom_range(0,1);
           end
           AR_READ_SHARED: begin
             snoop   = ace_pkg::ReadShared;
