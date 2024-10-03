@@ -174,8 +174,8 @@ always_comb begin
                 load_ar_holder = 1'b1;
             end
         end
-        // Receive snoop response and either write CD data or
-        // move to writing to main memory
+        // Receive snoop response
+        // Move to receiving CD response or reading from memory
         SNOOP_RESP: begin
             snoop_req_o.cr_ready = 1'b1;
             if (snoop_resp_i.cr_valid) begin
