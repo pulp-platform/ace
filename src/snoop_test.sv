@@ -483,7 +483,7 @@ package snoop_test;
           ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
         end
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
-        if (ace_cr_beat.cr_resp.DataTransfer && !ace_cr_beat.cr_resp.Error) begin
+        if (ace_cr_beat.cr_resp.DataTransfer) begin
           cd_wait_cnt++;
         end
         drv.send_cr(ace_cr_beat);
