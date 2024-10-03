@@ -89,9 +89,16 @@ for (genvar i = 0; i < NumOup; i++) begin
     assign oup_cd_chans[i]       = oup_resp_i[i].cd;
 end
 
-for (genvar i = 0; i < NumInp; i++) begin
-    for (genvar j = 0; j < NumOup; j++) begin
-        if (BufferResp) begin
+for (genvar i = 0; i < NumInp; i++) begin : inp_loop
+    for (genvar j = 0; j < NumOup; j++) begin : oup_loop
+        if (i == j) begin : gen_tieoff
+            assign cr_valids_rev  [i][j] = '0;
+            assign cr_readies     [j][i] = '0;
+            assign cr_chans_rev   [i][j] = '0;
+            assign cd_valids_rev  [i][j] = '0;
+            assign cd_readies     [j][i] = '0;
+            assign cd_chans_rev   [i][j] = '0;
+        end else if (BufferResp) begin : gen_resp_fifos
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
                 .type_t (cr_chan_t)
@@ -125,7 +132,7 @@ for (genvar i = 0; i < NumInp; i++) begin
                 .ready_i    (cd_readies_rev[i][j]),
                 .data_o     (cd_chans_rev  [i][j])
             );
-        end else begin
+        end else begin : gen_resp_assigns
             assign cr_valids_rev  [i][j] = cr_valids     [j][i];
             assign cr_readies     [j][i] = cr_readies_rev[i][j];
             assign cr_chans_rev   [i][j] = cr_chans      [j][i];
