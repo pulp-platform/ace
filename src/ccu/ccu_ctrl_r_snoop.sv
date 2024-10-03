@@ -57,7 +57,8 @@ logic cd_ready;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
 logic cd_mask_valid;
-logic r_last, r_last_q, r_last_reset;
+logic r_last;
+logic r_last_q, r_last_d;
 logic write_back, resp_shared, resp_dirty;
 
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
@@ -90,6 +91,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         aw_valid_q   <= '0;
         ar_valid_q   <= '0;
         cd_last_q    <= '0;
+        r_last_q     <= '0;
     end else begin
         fsm_state_q  <= fsm_state_d;
         rresp_q[3:2] <= rresp_d[3:2];
@@ -97,18 +99,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         aw_valid_q   <= aw_valid_d;
         ar_valid_q   <= ar_valid_d;
         cd_last_q    <= cd_last_d;
-    end
-end
-
-always_ff @(posedge clk_i, negedge rst_ni) begin
-    if (!rst_ni) begin
-        r_last_q <= '0;
-    end else begin
-        if (r_last_reset) begin
-            r_last_q <= 1'b0;
-        end else if (r_last && arlen_counting) begin
-            r_last_q <= 1'b1;
-        end
+        r_last_q     <= r_last_d;
     end
 end
 
@@ -125,6 +116,8 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
 end
 
 always_comb begin
+    r_last_d             = r_last_q;
+    arlen_counting       = 1'b0;
     fsm_state_d          = fsm_state_q;
     load_ar_holder       = 1'b0;
     rresp_d[3:2]         = rresp_q[3:2];
@@ -167,9 +160,10 @@ always_comb begin
         // Forward AR channel into a snoop request on the
         // AC channel
         SNOOP_REQ: begin
+            cd_mask_d            = '0;
             cd_last_d            = 1'b0;
+            r_last_d             = 1'b0;
             arlen_counter_reset  = 1'b1;
-            r_last_reset         = 1'b1;
             snoop_req_o.ac_valid = slv_req_i.ar_valid;
             snoop_req_o.ac.addr  = slv_req_i.ar.addr;
             snoop_req_o.ac.snoop = snoop_info_i.snoop_trs;
@@ -183,7 +177,6 @@ always_comb begin
         // Receive snoop response and either write CD data or
         // move to writing to main memory
         SNOOP_RESP: begin
-            cd_mask_d = '0;
             snoop_req_o.cr_ready = 1'b1;
             if (snoop_resp_i.cr_valid) begin
                 rresp_d[2] = resp_dirty;
@@ -247,7 +240,15 @@ always_comb begin
                 fsm_state_d = SNOOP_REQ;
             end
             if (r_handshake && r_last && !cd_mask_q[MEM_W_IDX]) begin
-                // If no memory access, end on r handshake and r_last
+                r_last_d    = 1'b1;
+                if (cd_handshake && snoop_resp_i.cd.last) begin
+                    // Move forward only if it was the last cd sample
+                    fsm_state_d = SNOOP_REQ;
+                end
+            end
+            if (cd_handshake && snoop_resp_i.cd.last &&
+                r_last_q && !cd_mask_q[MEM_W_IDX]) begin
+                // Move forward after all CD data has come
                 fsm_state_d = SNOOP_REQ;
             end
         end
