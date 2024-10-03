@@ -35,7 +35,7 @@ package ace_test;
     AR_DVM_MESSAGE
   } ar_snoop_e;
 
-  logic [2:0] ar_unsupported_ops = {AR_BARRIER, AR_DVM_COMPLETE, AR_DVM_MESSAGE};
+  ar_snoop_e ar_unsupported_ops[] = '{AR_READ_NO_SNOOP, AR_BARRIER, AR_DVM_COMPLETE, AR_DVM_MESSAGE};
 
   typedef enum logic [2:0] {
     AW_WRITE_NO_SNOOP,
@@ -48,7 +48,7 @@ package ace_test;
     AW_BARRIER
   } aw_snoop_e;
 
-  logic [2:0] aw_unsupported_ops = {AW_BARRIER};
+  ar_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
 
   /// The data transferred on a beat on the AW/AR channels.
   class ace_ax_beat #(
@@ -817,7 +817,7 @@ endclass
       size     = $clog2(AXI_STRB_WIDTH);
       if (is_read) begin
         // Read operation
-        std::randomize(ar_trs) with { (ar_trs inside {AR_READ_ONCE}); };
+        std::randomize(ar_trs) with { !(ar_trs inside {ar_unsupported_ops}); };
         case( ar_trs )
           AR_READ_NO_SNOOP: begin
             snoop   = ace_pkg::ReadNoSnoop;
