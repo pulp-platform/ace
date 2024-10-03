@@ -58,6 +58,7 @@ logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
 logic cd_mask_valid;
 logic r_last, r_last_q, r_last_reset;
+logic write_back, resp_shared, resp_dirty;
 
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
@@ -144,6 +145,8 @@ always_comb begin
     mst_req_o.aw.snoop   = ace_pkg::WriteBack;
     mst_req_o.r_ready    = 1'b0;
     mst_req_o.b_ready    = 1'b0;
+    mst_req_o.rack       = 1'b0;
+    mst_req_o.wack       = 1'b0;
     slv_resp_o.ar_ready  = 1'b0;
     slv_resp_o.aw_ready  = 1'b0;
     slv_resp_o.w_ready   = 1'b0;
@@ -183,20 +186,14 @@ always_comb begin
             cd_mask_d = '0;
             snoop_req_o.cr_ready = 1'b1;
             if (snoop_resp_i.cr_valid) begin
-                rresp_d[3:2] = '0;
+                rresp_d[2] = resp_dirty;
+                rresp_d[3] = resp_shared;
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
-                    rresp_d[3] = snoop_resp_i.cr_resp.IsShared;
                     if (!snoop_resp_i.cr_resp.Error) begin
+                        fsm_state_d          = WRITE_CD;
                         cd_mask_d[MST_R_IDX] = 1'b1;
-                        fsm_state_d = WRITE_CD;
-                        if (snoop_resp_i.cr_resp.PassDirty) begin
-                            if (snoop_info_holder_q.accepts_dirty) begin
-                                rresp_d[2] = 1'b1;
-                            end else begin
-                                cd_mask_d[MEM_W_IDX] = 1'b1;
-                                aw_valid_d           = 1'b1;
-                            end
-                        end
+                        cd_mask_d[MEM_W_IDX] = write_back;
+                        aw_valid_d           = write_back;
                     end else begin
                         cd_mask_d   = '1;
                         fsm_state_d = IGNORE_CD;
@@ -264,6 +261,39 @@ always_comb begin
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
                 fsm_state_d = SNOOP_REQ;
+            end
+        end
+    endcase
+end
+
+
+// Determine whether write-back is needed and what the
+// RRESP[3:2] bits are
+always_comb begin
+    write_back  = 1'b1;
+    resp_shared = 1'b0;
+    resp_dirty  = 1'b0;
+    case ({snoop_resp_i.cr_resp.PassDirty, snoop_resp_i.cr_resp.IsShared})
+        2'b00: begin
+            write_back = 1'b0;
+        end
+        2'b01: begin
+            if (snoop_info_holder_q.accepts_shared) begin
+                write_back  = 1'b0;
+                resp_shared = 1'b1;
+            end
+        end
+        2'b10: begin
+            if (snoop_info_holder_q.accepts_dirty) begin
+                write_back = 1'b0;
+                resp_dirty = 1'b1;
+            end
+        end
+        2'b11: begin
+            if (snoop_info_holder_q.accepts_dirty_shared) begin
+                write_back  = 1'b0;
+                resp_shared = 1'b1;
+                resp_dirty  = 1'b1;
             end
         end
     endcase
