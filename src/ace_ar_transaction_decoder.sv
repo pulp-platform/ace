@@ -54,25 +54,30 @@ assign dvm_message           = !is_barrier &&  is_shareable && arsnoop == arsnoo
 always_comb begin
     illegal_trs_o  = 1'b0;
     snoop_info_o.snoop_trs = acsnoop_t'(arsnoop);
-    snoop_info_o.accepts_dirty = 1'b0;
+    snoop_info_o.accepts_dirty        = 1'b0;
+    snoop_info_o.accepts_dirty_shared = 1'b0;
+    snoop_info_o.accepts_shared       = 1'b0;
     unique case (1'b1)
         read_no_snoop: begin
 
         end
         read_once: begin
-
+            snoop_info_o.accepts_shared       = 1'b1;
         end
         read_shared: begin
-
+            snoop_info_o.accepts_dirty        = 1'b1;
+            snoop_info_o.accepts_dirty_shared = 1'b1;
+            snoop_info_o.accepts_shared       = 1'b1;
         end
         read_clean: begin
-
+            snoop_info_o.accepts_shared       = 1'b1;
         end
         read_not_shared_dirty: begin
-
+            snoop_info_o.accepts_dirty        = 1'b1;
+            snoop_info_o.accepts_shared       = 1'b1;
         end
         read_unique: begin
-
+            snoop_info_o.accepts_dirty        = 1'b1;
         end
         clean_unique: begin
             snoop_info_o.snoop_trs = acsnoop_t'(CleanInvalid);
@@ -81,22 +86,17 @@ always_comb begin
              snoop_info_o.snoop_trs = acsnoop_t'(MakeInvalid);
         end
         clean_shared: begin
-
+            snoop_info_o.accepts_shared       = 1'b1;
         end
         clean_invalid: begin
-
         end
         make_invalid: begin
-
         end
         barrier: begin
-
         end
         dvm_complete: begin
-
         end
         dvm_message: begin
-
         end
         default: illegal_trs_o = 1'b1;
     endcase
