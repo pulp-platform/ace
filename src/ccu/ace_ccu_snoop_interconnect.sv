@@ -233,7 +233,6 @@ for (genvar i = 0; i < NumOup; i++) begin : gen_oup
     // Control valid/ready
     ace_ccu_snoop_port #(
         .NumInp                (NumInp),
-        .NumOup                (NumOup),
         .ac_chan_t             (ac_chan_t),
         .cr_chan_t             (cr_chan_t),
         .cd_chan_t             (cd_chan_t)

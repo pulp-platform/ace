@@ -1,6 +1,5 @@
 module ace_ccu_snoop_port import ace_pkg::*; #(
     parameter int unsigned NumInp    = 0,
-    parameter int unsigned NumOup    = 0,
     parameter type         ac_chan_t = logic,
     parameter type         cr_chan_t = logic,
     parameter type         cd_chan_t = logic,
