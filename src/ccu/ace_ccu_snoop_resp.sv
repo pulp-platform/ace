@@ -47,6 +47,8 @@ module ace_ccu_snoop_resp #(
     oup_idx_t lowest_index_responder;
     logic set_fr, clear_fr;
 
+    logic [NumOup-1:0] cd_sel;
+
     for (genvar j = 0; j < NumOup; j++) begin : gen_chan
 
         logic cr_data_transfer;
@@ -56,6 +58,8 @@ module ace_ccu_snoop_resp #(
 
         logic to_dt_filter_valid, from_dt_filter_ready;
         logic to_cd_join_valid, from_cd_join_ready;
+
+        logic cd_sel_lock_valid, cd_sel_lock_ready;
 
         assign cr_data_transfer = cr_chans_i[j].DataTransfer;
         assign cd_last = cd_chans_i[j].last;
@@ -138,8 +142,21 @@ module ace_ccu_snoop_resp #(
         .rst_ni      (rst_ni),
         .valid_i     (oup_sel_valid_i),
         .ready_o     (oup_sel_ready_o),
-        .valid_o     ({cr_sel_valid, cd_sel_valid}),
-        .ready_i     ({cr_sel_ready, cd_sel_ready})
+        .valid_o     ({cr_sel_valid, cd_sel_lock_valid}),
+        .ready_i     ({cr_sel_ready, cd_sel_lock_ready})
+    );
+
+    ace_ccu_lock_reg #(
+        .dtype (logic [NumOup-1:0])
+    ) i_cd_sel_lock (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .valid_i    (cd_sel_lock_valid),
+        .ready_o    (cd_sel_lock_ready),
+        .data_i     (oup_sel_i),
+        .valid_o    (cd_sel_valid),
+        .ready_i    (cd_sel_ready),
+        .data_o     (cd_sel)
     );
 
     stream_fork_dynamic #(
@@ -149,7 +166,7 @@ module ace_ccu_snoop_resp #(
         .rst_ni      (rst_ni),
         .valid_i     (cd_sel_valid),
         .ready_o     (cd_sel_ready),
-        .sel_i       (oup_sel_i),
+        .sel_i       (cd_sel),
         .sel_valid_i (cd_sel_valid),
         .sel_ready_o (),
         .valid_o     (cd_sel_valids),
