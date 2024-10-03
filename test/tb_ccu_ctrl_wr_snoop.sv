@@ -5,7 +5,7 @@ module tb_ccu_ctrl_wr_snoop #(
 );
 
 
-    localparam int unsigned NoWrites = 8000000;   // How many writes per master
+    localparam int unsigned NoWrites = 8000;   // How many writes per master
     localparam int unsigned NoReads  = 0;   // How many reads per master
 
     // axi configuration

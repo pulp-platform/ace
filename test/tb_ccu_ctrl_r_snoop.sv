@@ -6,7 +6,7 @@ module tb_ccu_ctrl_r_snoop #(
 
 
     localparam int unsigned NoWrites = 0;   // How many writes per master
-    localparam int unsigned NoReads  = 100;   // How many reads per master
+    localparam int unsigned NoReads  = 100000;   // How many reads per master
 
     // axi configuration
     localparam int unsigned AxiIdWidthMasters =  1;
