@@ -42,6 +42,8 @@ package ace_pkg;
   typedef struct packed {
     acsnoop_t snoop_trs;
     logic accepts_dirty;
+    logic accepts_dirty_shared;
+    logic accepts_shared;
   } snoop_info_t;
 
   ///////////////
