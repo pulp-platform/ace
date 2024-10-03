@@ -909,13 +909,12 @@ endclass
             domain  = 'b00;
             bar     = 'b00;
             len     = $urandom();
-            $exit(1);
           end
         endcase
       end else begin
         // Write operation
         std::randomize(aw_trs) with { !(aw_trs inside {aw_unsupported_ops}); };
-        case( ar_trs )
+        case( aw_trs )
           AW_WRITE_NO_SNOOP: begin
             snoop   = ace_pkg::WriteNoSnoop;
             domain  = 'b00;
@@ -976,7 +975,6 @@ endclass
             domain  = 'b00;
             bar     = 'b00;
             len     = $urandom();
-            $exit(1);
           end
         endcase
       end
