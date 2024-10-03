@@ -1,6 +1,8 @@
-module ace_ccu_snoop_port_ctrl import ace_pkg::*; #(
-    parameter int unsigned NumInp = 0,
-    parameter int unsigned NumOup = 0,
+module ace_ccu_snoop_port import ace_pkg::*; #(
+    parameter int unsigned NumInp    = 0,
+    parameter type         ac_chan_t = logic,
+    parameter type         cr_chan_t = logic,
+    parameter type         cd_chan_t = logic,
 
     localparam type inp_idx_t = logic [$clog2(NumInp)-1:0]
 ) (
@@ -10,23 +12,27 @@ module ace_ccu_snoop_port_ctrl import ace_pkg::*; #(
 
     input  logic                  inp_ac_valid_i,
     output logic                  inp_ac_ready_o,
+    input  ac_chan_t              inp_ac_chan_i,
 
     output logic     [NumInp-1:0] inp_cr_valids_o,
     input  logic     [NumInp-1:0] inp_cr_readies_i,
+    output cr_chan_t [NumInp-1:0] inp_cr_chans_o,
 
     output logic     [NumInp-1:0] inp_cd_valids_o,
     input  logic     [NumInp-1:0] inp_cd_readies_i,
+    output cd_chan_t [NumInp-1:0] inp_cd_chans_o,
 
     input  inp_idx_t              inp_idx_i,
-    input  logic                  cd_last_i,
-    input  logic                  cr_data_transfer_i,
 
     output logic                  oup_ac_valid_o,
     input  logic                  oup_ac_ready_i,
+    output ac_chan_t              oup_ac_chan_o,
     input  logic                  oup_cr_valid_i,
     output logic                  oup_cr_ready_o,
+    input  cr_chan_t              oup_cr_chan_i,
     input  logic                  oup_cd_valid_i,
-    output logic                  oup_cd_ready_o
+    output logic                  oup_cd_ready_o,
+    input  cd_chan_t              oup_cd_chan_i
 );
     logic inp_idx_valid, inp_idx_ready;
 
@@ -40,6 +46,22 @@ module ace_ccu_snoop_port_ctrl import ace_pkg::*; #(
     logic cr_valid, cr_ready;
     logic cd_valid, cd_ready;
 
+    logic cr_data_transfer, cd_last;
+
+    assign cr_data_transfer = oup_cr_chan_i.DataTransfer;
+    assign cd_last          = oup_cd_chan_i.last;
+
+    //////////
+    // Data //
+    //////////
+
+    assign oup_ac_chan_o  = inp_ac_chan_i;
+    assign inp_cr_chans_o = {NumInp{oup_cr_chan_i}};
+    assign inp_cd_chans_o = {NumInp{oup_cd_chan_i}};
+
+    /////////////
+    // Control //
+    /////////////
 
     stream_fork #(
         .N_OUP (2)
@@ -76,7 +98,7 @@ module ace_ccu_snoop_port_ctrl import ace_pkg::*; #(
         .rst_ni,
         .valid_i     (cr_sel_valid),
         .ready_o     (cr_sel_ready),
-        .sel_i       ({1'b1, cr_data_transfer_i}),
+        .sel_i       ({1'b1, cr_data_transfer}),
         .sel_valid_i (oup_cr_valid_i),
         .sel_ready_o (oup_cr_ready_o),
         .valid_o     ({cr_valid, cd_sel_in_valid}),
@@ -93,10 +115,18 @@ module ace_ccu_snoop_port_ctrl import ace_pkg::*; #(
         .oup_ready_i (inp_cr_readies_i)
     );
 
-    // A sequential element can be easily inserted here
-    assign cd_sel_valid    = cd_sel_in_valid;
-    assign cd_sel_in_ready = cd_sel_ready && cd_last_i;
-    assign cd_sel          = cr_sel;
+    ace_ccu_lock_reg #(
+        .dtype      (inp_idx_t)
+    ) i_cd_sel_lock (
+        .clk_i      (clk_i),
+        .rst_ni     (rst_ni),
+        .valid_i    (cd_sel_in_valid),
+        .ready_o    (cd_sel_in_ready),
+        .data_i     (cr_sel),
+        .valid_o    (cd_sel_valid),
+        .ready_i    (cd_sel_ready && cd_last),
+        .data_o     (cd_sel)
+    );
 
     stream_join #(
         .N_INP (2)
