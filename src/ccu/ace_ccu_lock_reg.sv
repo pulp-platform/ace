@@ -18,37 +18,13 @@ logic clear_lock, set_lock;
 logic lock_q, lock_d;
 dtype data_q, data_d;
 
-always_comb begin
-    valid_o    = 1'b0;
-    ready_o    = 1'b0;
-    set_lock   = 1'b0;
-    clear_lock = 1'b0;
-
-    case (lock_q)
-        1'b0: begin
-            ready_o = 1'b1;
-            if (valid_i) begin
-                valid_o = 1'b1;
-                if (!ready_i)
-                    set_lock = 1'b1;
-            end
-        end
-        1'b1: begin
-            valid_o = 1'b1;
-            if (ready_i) begin
-                if (valid_i) begin
-                    ready_o = 1'b1;
-                    set_lock = 1'b1;
-                end else
-                    clear_lock = 1'b1;
-            end
-        end
-    endcase
-end
-
-assign lock_d  = !clear_lock && (set_lock || lock_q);
-assign data_o  = lock_q ? data_q : data_i;
-assign data_d  = set_lock ? data_i : data_q;
+assign valid_o    = valid_i || lock_q;
+assign ready_o    = (valid_o && ready_i) || !lock_q;
+assign set_lock   = valid_i && (!ready_i || lock_q);
+assign clear_lock = valid_o && ready_i;
+assign lock_d     = set_lock || (!clear_lock && lock_q);
+assign data_d     = valid_i && ready_o ? data_i : data_q;
+assign data_o     = lock_q ? data_q : data_i;
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
