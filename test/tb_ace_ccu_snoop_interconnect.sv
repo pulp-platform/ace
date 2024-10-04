@@ -56,6 +56,14 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
     logic clk;
     logic rst_n;
 
+    task cycle_start;
+      #(ApplTime);
+    endtask
+
+    task cycle_end;
+      @(posedge clk);
+    endtask
+
     // snoop structs
     snoop_req_t  [TbNumMst-1:0] inp_snoop_req;
     snoop_resp_t [TbNumMst-1:0] inp_snoop_resp;
@@ -128,39 +136,53 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
     logic [TbNumMst-1:0]               inp_sel_valid, inp_sel_ready;
     logic [TbNumMst-1:0]               inp_fifo_sel_valid, inp_fifo_sel_ready;
 
+    logic [TbNumMst-1:0] sel_done;
+
+    initial begin
+        @(posedge rst_n);
+        cycle_start();
+        while (sel_done != '1) begin
+            cycle_end();
+            cycle_start();
+        end
+        cycle_end();
+        $finish;
+    end
+
 
     for (genvar i = 0; i < TbNumMst; i++) begin : gen_sel
-        logic [TbNumMst-2:0] temp;
-        int unsigned k = 0;
+
+        localparam int unsigned idx = i;
+        logic [TbNumMst-1:0] temp_inp_sel;
+
         initial begin
             inp_sel[i] = '0;
             inp_sel_valid[i] = 1'b0;
+            sel_done[i] = 1'b0;
 
             @(posedge rst_n);
-            @(posedge clk);
 
-            #(5*CyclTime);
+            repeat(5) cycle_end();
 
-            repeat (256) begin
-                #(ApplTime);
-                temp = $urandom_range(1, {TbNumMst-1{1'b1}});
-                k = 0;
-                for (int j = 0; j < TbNumMst; j++) begin
-                    if (j == i) begin
-                        inp_sel[i][j] = 1'b0;
-                    end else begin
-                        inp_sel[i][j] = temp[k];
-                        k += 1;
-                    end
+            repeat (64) begin
+                // Randomize the temp variable with the constraint
+                std::randomize(temp_inp_sel) with {
+                    temp_inp_sel      != '0;
+                    temp_inp_sel[idx] == 1'b0;
+                };
+                // Assign the randomized value to inp_sel[i]
+                inp_sel[i]       <= #(ApplTime) temp_inp_sel;
+                inp_sel_valid[i] <= #(ApplTime) 1'b1;
+                cycle_start();
+                while (!inp_sel_ready[i]) begin
+                    cycle_end();
+                    cycle_start();
                 end
-                inp_sel_valid[i] = 1'b1;
-                #(TestTime-ApplTime);
-                while (!inp_sel_ready) #(CyclTime);
-                #(CyclTime-TestTime);
-                inp_sel_valid[i] = 1'b0;
-                repeat($urandom_range(0, 6)) @(negedge clk);
+                cycle_end();
+                inp_sel_valid[i] <= #(ApplTime) 1'b0;
+                repeat($urandom_range(0, 6)) cycle_end();
             end
-            $finish;
+            sel_done[i] = 1'b1;
         end
 
         stream_fifo_optimal_wrap #(
