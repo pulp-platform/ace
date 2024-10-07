@@ -127,7 +127,7 @@ module tb_ccu_ctrl_wr_snoop #(
     `SNOOP_ASSIGN_TO_RESP(snoop_resp, snoop)
 
 
-    ace_sim_master::ace_rand_master #(
+    ace_test::ace_rand_master #(
         .AW (AxiAddrWidth),
         .DW (AxiDataWidth),
         .IW (AxiIdWidthMasters),
@@ -148,6 +148,13 @@ module tb_ccu_ctrl_wr_snoop #(
         .TA ( ApplTime ),
         .TT (TestTime )
     ) axi_rand_slave;
+
+    snoop_test::snoop_rand_slave #(
+        .AW(AxiAddrWidth),
+        .DW(AxiDataWidth),
+        .TA ( ApplTime ),
+        .TT (TestTime )
+    ) snoop_slave;
 
     snoop_chan_logger #(
         .TestTime (TestTime),
@@ -171,7 +178,7 @@ module tb_ccu_ctrl_wr_snoop #(
     );
 
     initial begin
-        ace_master = new(master_dv, snoop_dv);
+        ace_master = new(master_dv);
         end_of_sim <= 1'b0;
         ace_master.add_memory_region(
             32'h0000_0000, 32'h0000_3000,
@@ -188,6 +195,14 @@ module tb_ccu_ctrl_wr_snoop #(
         @(posedge rst_n);
         axi_rand_slave.run();
     end
+
+    initial begin
+        snoop_slave = new(snoop_dv);
+        snoop_slave.reset();
+        @(posedge rst_n);
+        snoop_slave.run();
+    end
+
 
     ace_pkg::acsnoop_t snoopy_trs;
     logic snoop_trs, illegal;
