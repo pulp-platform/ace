@@ -136,7 +136,9 @@ module tb_ccu_ctrl_wr_snoop #(
         .MAX_WRITE_TXNS (20),
         .UNIQUE_IDS (1),
         .TA ( ApplTime ),
-        .TT (TestTime )
+        .TT (TestTime ),
+        .CACHELINE_WIDTH (4),
+        .CACHELINE_WORD_SIZE (8)
     ) ace_master;
 
     axi_test::axi_rand_slave #(
