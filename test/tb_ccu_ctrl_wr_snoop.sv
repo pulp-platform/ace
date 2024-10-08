@@ -182,6 +182,7 @@ module tb_ccu_ctrl_wr_snoop #(
         @(posedge rst_n);
         ace_master.run(NoReads, NoWrites);
         end_of_sim <= 1'b1;
+        $finish;
     end
 
     initial begin
