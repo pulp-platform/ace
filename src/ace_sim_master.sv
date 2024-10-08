@@ -518,17 +518,23 @@ class ace_driver #(
 
     /// Wait for a beat on the AC channel.
     task recv_ac (
-        output ac_beat_t beat
+        output ac_beat_t beat,
+        ref logic sim_done
     );
-      snoop.ac_ready <= #TA 1;
-      cycle_start();
-      while (snoop.ac_valid != 1) begin cycle_end(); cycle_start(); end
-      beat          = new;
-      beat.ac_addr  = snoop.ac_addr;
-      beat.ac_snoop = snoop.ac_snoop;
-      beat.ac_prot  = snoop.ac_prot;
-      cycle_end();
-      snoop.ac_ready <= #TA 0;
+        snoop.ac_ready <= #TA 1;
+        cycle_start();
+        while ((snoop.ac_valid != 1) && !sim_done) begin
+            cycle_end(); cycle_start();
+            //$display("Sim done: %0d", sim_done);
+        end
+        if (!sim_done) begin
+            beat          = new;
+            beat.ac_addr  = snoop.ac_addr;
+            beat.ac_snoop = snoop.ac_snoop;
+            beat.ac_prot  = snoop.ac_prot;
+            cycle_end();
+            snoop.ac_ready <= #TA 0;
+        end
     endtask
 
     /// Wait for a beat on the CR channel.
@@ -840,13 +846,31 @@ class ace_rand_master #(
     // Generate random AxLen that
     // maps between allowed values
     // AxLEN cannot be wider than cache line width
-    function axi_pkg::len_t gen_rand_len(input axi_pkg::size_t size);
+    function axi_pkg::len_t gen_rand_len(
+        input axi_pkg::size_t size,
+        input logic snoop_trs,
+        input axi_pkg::burst_t burst
+    );
         automatic logic rand_success;
         axi_pkg::len_t len;
-        rand_success = std::randomize(len) with {
-            len inside {1, 2, 4, 8, 16};
-            len <= cline_len;
-        }; assert(rand_success);
+        if (snoop_trs) begin
+            rand_success = std::randomize(len) with {
+                len inside {1, 2, 4, 8, 16};
+                len <= cline_len;
+            }; assert(rand_success);
+            if ((burst == axi_pkg::BURST_WRAP) && (len == 1)) begin
+                // AxLEN 1 not allowed for wrap bursts
+                len = 2;
+            end
+        end else begin
+            if (burst == axi_pkg::BURST_WRAP) begin
+                rand_success = std::randomize(len) with {
+                    len inside {2, 4, 8, 16};
+                }; assert(rand_success);
+            end else begin
+                len = $urandom_range(0, 256);
+            end
+        end
         return len;
     endfunction
 
@@ -903,14 +927,14 @@ class ace_rand_master #(
                     bar       = 'b00;
                     snoop_trs = 1'b0;
                     size      = gen_rand_size();
-                    len       = $urandom();
+                    len       = gen_rand_len(size, snoop_trs, burst);
                 end
                 AR_READ_ONCE: begin
                     snoop   = ace_pkg::ReadOnce;
                     domain  = 'b01;
                     bar     = 'b00;
                     size    = gen_rand_size();
-                    len     = gen_rand_len(size);
+                    len     = gen_rand_len(size, snoop_trs, burst);
                 end
                 AR_READ_SHARED: begin
                     snoop   = ace_pkg::ReadShared;
@@ -1010,7 +1034,7 @@ class ace_rand_master #(
                     domain  = 'b01;
                     bar     = 'b00;
                     size    = gen_rand_size();
-                    len     = gen_rand_len(size);
+                    len     = gen_rand_len(size, snoop_trs, burst);
                 end
                 AW_WRITE_LINE_UNIQUE: begin
                     snoop   = ace_pkg::WriteLineUnique;
@@ -1070,9 +1094,6 @@ class ace_rand_master #(
             mem_type: axi_pkg::NORMAL_NONCACHEABLE_BUFFERABLE
         };
 
-        $display("size: %0d, len: %0d, snoop: %0d,
-                 domain: %0d, snoop_trs: %0d", size, len, snoop, domain, snoop_trs);
-
         forever begin
             // Randomize address
             addr = $urandom_range(mem_region.addr_begin, mem_region.addr_end);
@@ -1097,7 +1118,7 @@ class ace_rand_master #(
         ax_ace_beat.ax_addr     = addr;
         ax_ace_beat.ax_burst    = burst;
         ax_ace_beat.ax_size     = size;
-        ax_ace_beat.ax_len      = len;
+        ax_ace_beat.ax_len      = len - 1;
         ax_ace_beat.ax_id       = id;
         ax_ace_beat.ax_qos      = qos;
         ax_ace_beat.ax_snoop    = snoop;
@@ -1137,7 +1158,7 @@ class ace_rand_master #(
         $info("Finish ARs");
     endtask
 
-    task recv_rs(ref logic ar_done, aw_done);
+    task recv_rs(ref logic ar_done);
         while (!(ar_done && tot_r_flight_cnt == 0)) begin
             automatic ace_driver_t::r_beat_t r_ace_beat;
             rand_wait(RESP_MIN_WAIT_CYCLES, RESP_MAX_WAIT_CYCLES);
@@ -1167,7 +1188,7 @@ class ace_rand_master #(
             aw_ace_queue.push_back(aw_ace_beat);
             w_queue.push_back(aw_ace_beat);
         end
-        $info("Finish AWs");
+        $info("Finish AW creates");
     endtask
 
     task send_aws(ref logic aw_done);
@@ -1178,6 +1199,7 @@ class ace_rand_master #(
             rand_wait(AX_MIN_WAIT_CYCLES, AX_MAX_WAIT_CYCLES);
             ace_drv.send_aw(aw_ace_beat);
         end
+        $info("Finish AW sends");
     endtask
 
     task send_ws(ref logic aw_done);
@@ -1227,78 +1249,105 @@ class ace_rand_master #(
         $info("Finish Bs");
     endtask
 
-    task recv_acs();
-        forever begin
+    task recv_acs(ref logic sim_done);
+        while (!sim_done) begin
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
             rand_wait(AC_MIN_WAIT_CYCLES, AC_MAX_WAIT_CYCLES);
-            ace_drv.recv_ac(ace_ac_beat);
+            ace_drv.recv_ac(ace_ac_beat, sim_done);
             ace_ac_queue.push_back(ace_ac_beat);
         end
+        $info("Finish ACs");
     endtask
 
-    task send_crs();
-        forever begin
+    task send_crs(ref logic sim_done);
+        while (!sim_done) begin
             automatic logic rand_success;
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
             automatic ace_driver_t::cr_beat_t  ace_cr_beat = new;
-            wait (ace_ac_queue.size() > 0);
-            ace_ac_beat         = ace_ac_queue.pop_front();
-            if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
-                ace_cr_beat.cr_resp = 0;
-            end else begin
-                ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
-                ace_cr_beat.cr_resp[1]   = 1'b0;
-                ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
+            wait ((ace_ac_queue.size() > 0) || sim_done);
+            if (ace_ac_queue.size() > 0) begin
+                ace_ac_beat         = ace_ac_queue.pop_front();
+                if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
+                    ace_cr_beat.cr_resp = 0;
+                end else begin
+                    ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
+                    ace_cr_beat.cr_resp[1]   = 1'b0;
+                    ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
+                end
+                rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
+                if (ace_cr_beat.cr_resp.DataTransfer) begin
+                    cd_wait_cnt++;
+                end
+                ace_drv.send_cr(ace_cr_beat);
             end
-            rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
-            if (ace_cr_beat.cr_resp.DataTransfer) begin
-                cd_wait_cnt++;
-            end
-            ace_drv.send_cr(ace_cr_beat);
         end
     endtask
 
-    task send_cds();
-        forever begin
+    task send_cds(ref logic sim_done);
+        while (!sim_done) begin
             automatic logic rand_success;
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
             automatic ace_driver_t::cd_beat_t ace_cd_beat = new;
             automatic addr_t    byte_addr;
-            wait (cd_wait_cnt > 0);
-            // random response
-            ace_cd_beat.cd_data = $urandom();
-            ace_cd_beat.cd_last = 1'b0;
-            rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
-            ace_drv.send_cd(ace_cd_beat);
-            ace_cd_beat.cd_data = $urandom();
-            ace_cd_beat.cd_last = 1'b1;
-            rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
-            ace_drv.send_cd(ace_cd_beat);
-            cd_wait_cnt--;
+            wait ((cd_wait_cnt > 0) || sim_done);
+            if (cd_wait_cnt > 0) begin
+                // random response
+                ace_cd_beat.cd_data = $urandom();
+                ace_cd_beat.cd_last = 1'b0;
+                rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+                ace_drv.send_cd(ace_cd_beat);
+                ace_cd_beat.cd_data = $urandom();
+                ace_cd_beat.cd_last = 1'b1;
+                rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+                ace_drv.send_cd(ace_cd_beat);
+                cd_wait_cnt--;
+            end
+        end
+    endtask
+
+    task sim_done_task(ref logic first, ref logic second);
+        forever begin
+            if (first && second) begin
+                break;
+            end
+            #TT;
         end
     endtask
 
     // Issue n_reads random read and n_writes random 
     // write transactions to an address range.
     task run(input int n_reads, input int n_writes);
-        automatic logic ar_done = 1'b0,
-                        aw_done = 1'b0;
+        automatic logic ar_done  = 1'b0,
+                        aw_done  = 1'b0,
+                        b_done   = 1'b0,
+                        r_done   = 1'b0,
+                        sim_done = 1'b0;
         fork
             begin
                 send_ars(n_reads);
                 ar_done = 1'b1;
             end
-            recv_rs(ar_done, aw_done);
+            begin
+                recv_rs(ar_done);
+                r_done = 1'b1;
+            end
             begin
                 create_aws(n_writes);
                 aw_done = 1'b1;
             end
             send_aws(aw_done);
             send_ws(aw_done);
-            recv_bs(aw_done);
-            recv_acs();
-            send_crs();
-            send_cds();
+            begin
+                recv_bs(aw_done);
+                b_done = 1'b1;
+            end
+            begin
+                sim_done_task(r_done, b_done);
+                sim_done = 1'b1;
+            end
+            recv_acs(sim_done);
+            send_crs(sim_done);
+            send_cds(sim_done);
         join
     endtask
 
