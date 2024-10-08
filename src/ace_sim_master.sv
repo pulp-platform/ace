@@ -32,7 +32,7 @@ typedef enum logic [2:0] {
     AW_BARRIER
 } aw_snoop_e;
 
-aw_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
+aw_snoop_e aw_unsupported_ops[] = '{AW_WRITE_NO_SNOOP, AW_BARRIER};
 
 /// The data transferred on a beat on the AW/AR channels.
 class ace_ax_beat #(
@@ -718,12 +718,12 @@ class ace_rand_master #(
     parameter bit   AXI_ATOPS         = 1'b0,
     parameter bit   AXI_BURST_FIXED   = 1'b0,
     parameter bit   AXI_BURST_INCR    = 1'b1,
-    parameter bit   AXI_BURST_WRAP    = 1'b0,
+    parameter bit   AXI_BURST_WRAP    = 1'b1,
     parameter bit   UNIQUE_IDS        = 1'b0, // guarantee that the ID of each transaction is
                                               // unique among all in-flight transactions in the
                                               // same direction
-    parameter bit CACHELINE_WIDTH     = 1'b0, // How many words in a cache line
-    parameter bit CACHELINE_WORD_SIZE = 1'b0, // How many bytes in one word
+    parameter int CACHELINE_WIDTH     = 0, // How many words in a cache line
+    parameter int CACHELINE_WORD_SIZE = 0, // How many bytes in one word
     // Dependent parameters, do not override.
     parameter int   AXI_STRB_WIDTH = DW/8,
     parameter int   N_AXI_IDS = 2**IW
@@ -866,6 +866,8 @@ class ace_rand_master #(
         automatic mem_region_t            mem_region;
         automatic ar_snoop_e              ar_trs;
         automatic aw_snoop_e              aw_trs;
+        
+        logic snoop_trs;
 
         cache = axi_pkg::get_arcache(axi_pkg::DEVICE_BUFFERABLE);
         burst = get_rand_burst();
@@ -877,17 +879,21 @@ class ace_rand_master #(
         // a size of the data bus width
         size = max_size;
 
+        awunique  = 1'b0;
+        snoop_trs = 1'b1;
+
         if (is_read) begin
             // Read operation
             std::randomize(ar_trs) with
                 { !(ar_trs inside {ar_unsupported_ops}); };
             case( ar_trs )
                 AR_READ_NO_SNOOP: begin
-                    snoop   = ace_pkg::ReadNoSnoop;
-                    domain  = 'b00;
-                    bar     = 'b00;
-                    size    = gen_rand_size();
-                    len     = $urandom();
+                    snoop     = ace_pkg::ReadNoSnoop;
+                    domain    = 'b00;
+                    bar       = 'b00;
+                    snoop_trs = 1'b0;
+                    size      = gen_rand_size();
+                    len       = $urandom();
                 end
                 AR_READ_ONCE: begin
                     snoop   = ace_pkg::ReadOnce;
@@ -982,11 +988,12 @@ class ace_rand_master #(
                 { !(aw_trs inside {aw_unsupported_ops}); };
             case( aw_trs )
                 AW_WRITE_NO_SNOOP: begin
-                    snoop   = ace_pkg::WriteNoSnoop;
-                    domain  = 'b00;
-                    bar     = 'b00;
-                    size    = gen_rand_size();
-                    len     = $urandom();
+                    snoop     = ace_pkg::WriteNoSnoop;
+                    domain    = 'b00;
+                    bar       = 'b00;
+                    snoop_trs = 1'b0;
+                    size      = gen_rand_size();
+                    len       = $urandom();
                 end
                 AW_WRITE_UNIQUE: begin
                     snoop   = ace_pkg::WriteUnique;
@@ -1053,19 +1060,28 @@ class ace_rand_master #(
             mem_type: axi_pkg::NORMAL_NONCACHEABLE_BUFFERABLE
         };
 
+        $display("size: %0d, len: %0d, snoop: %0d,
+                 domain: %0d, snoop_trs: %0d", size, len, snoop, domain, snoop_trs);
+
         forever begin
             // Randomize address
             addr = $urandom_range(mem_region.addr_begin, mem_region.addr_end);
             addr[AXI_STRB_WIDTH:0] = '0; // align address to word boundary
-            if (burst == axi_pkg::BURST_FIXED) begin
-                $error("FIXED type burst not allowed!");
-            end else if (burst == axi_pkg::BURST_INCR) begin
-                // Assert that transaction does not cross cache line boundary
-                if (((addr + 2**size * (len + 1)) & CLINE_BOUNDARY_MASK) == (addr & CLINE_BOUNDARY_MASK)) begin
+            if (snoop_trs) begin
+                if (burst == axi_pkg::BURST_FIXED) begin
+                    $error("FIXED type burst not allowed!");
+                end else if (burst == axi_pkg::BURST_INCR) begin
+                    // Assert that transaction does not cross cache line boundary
+                    if (((addr + (2**size * len)) & CLINE_BOUNDARY_MASK) == (addr & CLINE_BOUNDARY_MASK)) begin
+                        break;
+                    end
+                end else begin
+                    // WRAP bursts should be fine in all situations
                     break;
                 end
+            end else begin
+                break;
             end
-            // WRAP bursts should be fine in all situations
         end
 
         ax_ace_beat.ax_addr     = addr;
