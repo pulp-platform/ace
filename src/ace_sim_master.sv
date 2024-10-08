@@ -724,6 +724,12 @@ class ace_rand_master #(
                                               // same direction
     parameter int CACHELINE_WIDTH     = 0, // How many words in a cache line
     parameter int CACHELINE_WORD_SIZE = 0, // How many bytes in one word
+    parameter int   AC_MIN_WAIT_CYCLES = 0,
+    parameter int   AC_MAX_WAIT_CYCLES = 100,
+    parameter int   CR_MIN_WAIT_CYCLES = 0,
+    parameter int   CR_MAX_WAIT_CYCLES = 5,
+    parameter int   CD_MIN_WAIT_CYCLES = 0,
+    parameter int   CD_MAX_WAIT_CYCLES = 20,
     // Dependent parameters, do not override.
     parameter int   AXI_STRB_WIDTH = DW/8,
     parameter int   N_AXI_IDS = 2**IW
@@ -752,6 +758,8 @@ class ace_rand_master #(
     // List of allowed burst types
     axi_pkg::burst_t allowed_bursts[$];
 
+    int unsigned cd_wait_cnt;
+
     // Max value for AxSIZE
     localparam unsigned max_size = $clog2(DW);
     // AxLEN for full cache line transaction
@@ -763,6 +771,7 @@ class ace_rand_master #(
                  tot_w_flight_cnt;
 
     ace_driver_t::ax_beat_t aw_ace_queue[$], w_queue[$];
+    ace_driver_t::ac_beat_t ace_ac_queue[$];
 
     typedef struct packed {
         addr_t              addr_begin;
@@ -784,8 +793,9 @@ class ace_rand_master #(
             .SNOOP_DATA_WIDTH (DW)
         ) snoop
     );
-        this.ace_drv   = new(ace, snoop);
+        this.ace_drv = new(ace, snoop);
         this.cnt_sem = new(1);
+        this.cd_wait_cnt = 0;
         this.reset();
         if (AXI_BURST_FIXED) begin
             this.allowed_bursts.push_back(axi_pkg::BURST_FIXED);
@@ -1120,6 +1130,7 @@ class ace_rand_master #(
             while (tot_r_flight_cnt >= MAX_READ_TXNS) begin
                 rand_wait(1, 1);
             end
+            tot_r_flight_cnt++;
             rand_wait(AX_MIN_WAIT_CYCLES, AX_MAX_WAIT_CYCLES);
             ace_drv.send_ar(ar_ace_beat);
         end
@@ -1152,6 +1163,7 @@ class ace_rand_master #(
             while (tot_w_flight_cnt >= MAX_WRITE_TXNS) begin
                 rand_wait(1, 1);
             end
+            tot_w_flight_cnt++;
             aw_ace_queue.push_back(aw_ace_beat);
             w_queue.push_back(aw_ace_beat);
         end
@@ -1215,6 +1227,57 @@ class ace_rand_master #(
         $info("Finish Bs");
     endtask
 
+    task recv_acs();
+        forever begin
+            automatic ace_driver_t::ac_beat_t ace_ac_beat;
+            rand_wait(AC_MIN_WAIT_CYCLES, AC_MAX_WAIT_CYCLES);
+            ace_drv.recv_ac(ace_ac_beat);
+            ace_ac_queue.push_back(ace_ac_beat);
+        end
+    endtask
+
+    task send_crs();
+        forever begin
+            automatic logic rand_success;
+            automatic ace_driver_t::ac_beat_t ace_ac_beat;
+            automatic ace_driver_t::cr_beat_t  ace_cr_beat = new;
+            wait (ace_ac_queue.size() > 0);
+            ace_ac_beat         = ace_ac_queue.pop_front();
+            if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
+                ace_cr_beat.cr_resp = 0;
+            end else begin
+                ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
+                ace_cr_beat.cr_resp[1]   = 1'b0;
+                ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
+            end
+            rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
+            if (ace_cr_beat.cr_resp.DataTransfer) begin
+                cd_wait_cnt++;
+            end
+            ace_drv.send_cr(ace_cr_beat);
+        end
+    endtask
+
+    task send_cds();
+        forever begin
+            automatic logic rand_success;
+            automatic ace_driver_t::ac_beat_t ace_ac_beat;
+            automatic ace_driver_t::cd_beat_t ace_cd_beat = new;
+            automatic addr_t    byte_addr;
+            wait (cd_wait_cnt > 0);
+            // random response
+            ace_cd_beat.cd_data = $urandom();
+            ace_cd_beat.cd_last = 1'b0;
+            rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+            ace_drv.send_cd(ace_cd_beat);
+            ace_cd_beat.cd_data = $urandom();
+            ace_cd_beat.cd_last = 1'b1;
+            rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+            ace_drv.send_cd(ace_cd_beat);
+            cd_wait_cnt--;
+        end
+    endtask
+
     // Issue n_reads random read and n_writes random 
     // write transactions to an address range.
     task run(input int n_reads, input int n_writes);
@@ -1233,6 +1296,9 @@ class ace_rand_master #(
             send_aws(aw_done);
             send_ws(aw_done);
             recv_bs(aw_done);
+            recv_acs();
+            send_crs();
+            send_cds();
         join
     endtask
 
