@@ -1291,15 +1291,17 @@ class ace_rand_master #(
             automatic addr_t    byte_addr;
             wait ((cd_wait_cnt > 0) || sim_done);
             if (cd_wait_cnt > 0) begin
-                // random response
-                ace_cd_beat.cd_data = $urandom();
-                ace_cd_beat.cd_last = 1'b0;
-                rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
-                ace_drv.send_cd(ace_cd_beat);
-                ace_cd_beat.cd_data = $urandom();
-                ace_cd_beat.cd_last = 1'b1;
-                rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
-                ace_drv.send_cd(ace_cd_beat);
+                for (int i = 0; i < CACHELINE_WIDTH; i++) begin
+                    // random response
+                    ace_cd_beat.cd_data = $urandom();
+                    if (i == (CACHELINE_WIDTH - 1)) begin
+                        ace_cd_beat.cd_last = 1'b1;
+                    end else begin
+                        ace_cd_beat.cd_last = 1'b0;
+                    end
+                    rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+                    ace_drv.send_cd(ace_cd_beat);
+                end
                 cd_wait_cnt--;
             end
         end
