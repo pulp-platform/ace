@@ -72,12 +72,14 @@ class ace_r_beat #(
 endclass
 
 /// The data transferred on a beat on the AC channel.
+/// Plus an extra signal to determine data transfer
 class ace_ac_beat #(
     parameter AW = 32
 );
-    rand logic [AW-1:0] ac_addr = '0;
+    logic [AW-1:0] ac_addr = '0;
     logic [3:0] ac_snoop        = '0;
     logic [2:0] ac_prot         = '0;
+    logic data_transfer         = '0;
 endclass
 
 /// The data transferred on a beat on the CD channel.
@@ -94,12 +96,14 @@ class ace_cr_beat;
 endclass
 
 class ace_driver #(
-    parameter int  AW = 32  ,
-    parameter int  DW = 32  ,
-    parameter int  IW = 8   ,
-    parameter int  UW = 1   ,
-    parameter time TA = 0ns , // stimuli application time
-    parameter time TT = 0ns   // stimuli test time
+    parameter int  AW    = 32,
+    parameter int  DW    = 32,
+    parameter int  AC_AW = AW,
+    parameter int  CD_DW = DW,
+    parameter int  IW    = 8,
+    parameter int  UW    = 1,
+    parameter time TA    = 0ns, // stimuli application time
+    parameter time TT    = 0ns  // stimuli test time
 );
     virtual ACE_BUS_DV #(
         .AXI_ADDR_WIDTH (AW),
@@ -109,16 +113,16 @@ class ace_driver #(
     ) ace;
 
     virtual SNOOP_BUS_DV #(
-        .SNOOP_ADDR_WIDTH (AW),
-        .SNOOP_DATA_WIDTH (DW)
+        .SNOOP_ADDR_WIDTH (AC_AW),
+        .SNOOP_DATA_WIDTH (CD_DW)
     ) snoop;
 
     typedef ace_ax_beat #(.AW(AW), .IW(IW), .UW(UW)) ax_beat_t;
     typedef axi_w_beat  #(.DW(DW), .UW(UW))          w_beat_t;
     typedef axi_b_beat  #(.IW(IW), .UW(UW))          b_beat_t;
     typedef ace_r_beat  #(.DW(DW), .IW(IW), .UW(UW)) r_beat_t;
-    typedef ace_ac_beat #(.AW(AW)) ac_beat_t;
-    typedef ace_cd_beat #(.DW(DW)) cd_beat_t;
+    typedef ace_ac_beat #(.AW(AC_AW)) ac_beat_t;
+    typedef ace_cd_beat #(.DW(CD_DW)) cd_beat_t;
     typedef ace_cr_beat            cr_beat_t;
 
     function new (
@@ -129,8 +133,8 @@ class ace_driver #(
         .AXI_USER_WIDTH (UW)
       ) ace,
       virtual SNOOP_BUS_DV #(
-        .SNOOP_ADDR_WIDTH (AW),
-        .SNOOP_DATA_WIDTH (DW)
+        .SNOOP_ADDR_WIDTH (AC_AW),
+        .SNOOP_DATA_WIDTH (CD_DW)
       ) snoop
     );
       this.ace   = ace;
@@ -525,7 +529,6 @@ class ace_driver #(
         cycle_start();
         while ((snoop.ac_valid != 1) && !sim_done) begin
             cycle_end(); cycle_start();
-            //$display("Sim done: %0d", sim_done);
         end
         if (!sim_done) begin
             beat          = new;
@@ -704,6 +707,9 @@ class ace_rand_master #(
     parameter int   DW = 32,
     parameter int   IW = 8,
     parameter int   UW = 1,
+    // Snoop interface parameters
+    parameter int   AC_AW = AW, // AC addr width
+    parameter int   CD_DW = DW, // CD data width
     // Stimuli application and test time
     parameter time  TA = 0ps,
     parameter time  TT = 0ps,
@@ -728,33 +734,39 @@ class ace_rand_master #(
     parameter bit   UNIQUE_IDS        = 1'b0, // guarantee that the ID of each transaction is
                                               // unique among all in-flight transactions in the
                                               // same direction
-    parameter int CACHELINE_WIDTH     = 0, // How many words in a cache line
-    parameter int CACHELINE_WORD_SIZE = 0, // How many bytes in one word
+    parameter int   CACHELINE_WIDTH    = 0, // How many bytes in a cache line
     parameter int   AC_MIN_WAIT_CYCLES = 0,
     parameter int   AC_MAX_WAIT_CYCLES = 100,
     parameter int   CR_MIN_WAIT_CYCLES = 0,
     parameter int   CR_MAX_WAIT_CYCLES = 5,
     parameter int   CD_MIN_WAIT_CYCLES = 0,
     parameter int   CD_MAX_WAIT_CYCLES = 20,
+    parameter int   MEM_ADDR_SPACE = 8, // Address space for internal memory
     // Dependent parameters, do not override.
-    parameter int   AXI_STRB_WIDTH = DW/8,
-    parameter int   N_AXI_IDS = 2**IW
+    parameter int   CACHELINE_WORD_SIZE = DW/8, // How many bytes in one word
+    parameter int   AXI_STRB_WIDTH      = DW/8,
+    parameter int   N_AXI_IDS           = 2**IW
 );
 
     typedef ace_driver #(
         .AW(AW), .DW(DW), .IW(IW), .UW(UW), .TA(TA), .TT(TT)
     ) ace_driver_t;
 
-    typedef logic [AW-1:0] addr_t;
-    typedef logic [DW-1:0] data_t;
-    typedef logic [IW-1:0] id_t;
-    typedef logic [7:0]    byte_t;
+    typedef logic [AW-1:0]                addr_t;
+    typedef logic [MEM_ADDR_SPACE-1:0]    mem_addr_t;
+    typedef logic [DW-1:0]                data_t;
+    typedef logic [CD_DW-1:0]             cd_data_t;
+    typedef logic [IW-1:0]                id_t;
+    typedef logic [7:0]                   byte_t;
 
     // Internal "cache" memory
-    byte_t memory_q[addr_t];
+    byte_t memory_q[mem_addr_t];
 
     // Bitmask to check whether cache line boundary is crossed
-    static addr_t CLINE_BOUNDARY_MASK = ~((1 << (CACHELINE_WORD_SIZE + $clog2(CACHELINE_WIDTH))) - 1);
+    static addr_t CLINE_BOUNDARY_MASK = ~((1 << $clog2(CACHELINE_WIDTH * 8)) - 1);
+
+    localparam int CLINE_WIDTH_PER_DW    = CACHELINE_WIDTH / (DW / 8);
+    localparam int CLINE_WIDTH_PER_CD_DW = CACHELINE_WIDTH / (CD_DW / 8);
 
     // Driver
     ace_driver_t   ace_drv;
@@ -764,12 +776,10 @@ class ace_rand_master #(
     // List of allowed burst types
     axi_pkg::burst_t allowed_bursts[$];
 
-    int unsigned cd_wait_cnt;
-
     // Max value for AxSIZE
     localparam unsigned max_size = $clog2(DW);
     // AxLEN for full cache line transaction
-    localparam unsigned cline_len = (CACHELINE_WIDTH * CACHELINE_WORD_SIZE) / (DW / 8);
+    localparam unsigned cline_len = CACHELINE_WIDTH / CACHELINE_WORD_SIZE;
 
     int unsigned r_flight_cnt[N_AXI_IDS-1:0],
                  w_flight_cnt[N_AXI_IDS-1:0],
@@ -777,7 +787,7 @@ class ace_rand_master #(
                  tot_w_flight_cnt;
 
     ace_driver_t::ax_beat_t aw_ace_queue[$], w_queue[$];
-    ace_driver_t::ac_beat_t ace_ac_queue[$];
+    ace_driver_t::ac_beat_t ac_cr_queue[$], ac_cd_queue[$];
 
     typedef struct packed {
         addr_t              addr_begin;
@@ -801,7 +811,6 @@ class ace_rand_master #(
     );
         this.ace_drv = new(ace, snoop);
         this.cnt_sem = new(1);
-        this.cd_wait_cnt = 0;
         this.reset();
         if (AXI_BURST_FIXED) begin
             this.allowed_bursts.push_back(axi_pkg::BURST_FIXED);
@@ -821,6 +830,12 @@ class ace_rand_master #(
         w_flight_cnt = '{default: 0};
         tot_r_flight_cnt = 0;
         tot_w_flight_cnt = 0;
+    endfunction
+
+    function void init_cache_memory();
+        for (int addr = 0; addr < 2**MEM_ADDR_SPACE; addr++) begin
+            memory_q[addr] = $urandom();
+        end
     endfunction
 
     function void add_memory_region(
@@ -1103,7 +1118,7 @@ class ace_rand_master #(
                     $error("FIXED type burst not allowed!");
                 end else if (burst == axi_pkg::BURST_INCR) begin
                     // Assert that transaction does not cross cache line boundary
-                    if (((addr + (2**size * len)) & CLINE_BOUNDARY_MASK) == (addr & CLINE_BOUNDARY_MASK)) begin
+                    if (((addr + ((2**size * len)-1)) & CLINE_BOUNDARY_MASK) == (addr & CLINE_BOUNDARY_MASK)) begin
                         break;
                     end
                 end else begin
@@ -1254,7 +1269,13 @@ class ace_rand_master #(
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
             rand_wait(AC_MIN_WAIT_CYCLES, AC_MAX_WAIT_CYCLES);
             ace_drv.recv_ac(ace_ac_beat, sim_done);
-            ace_ac_queue.push_back(ace_ac_beat);
+            if (!sim_done) begin
+                // Determine randomly already here whether this AC causes datatransfer
+                // Ideally, this would be replaced by looking up the internal cache memory
+                ace_ac_beat.data_transfer = $urandom_range(0,1);
+                ac_cr_queue.push_back(ace_ac_beat);
+                ac_cd_queue.push_back(ace_ac_beat);
+            end
         end
         $info("Finish ACs");
     endtask
@@ -1263,24 +1284,18 @@ class ace_rand_master #(
         while (!sim_done) begin
             automatic logic rand_success;
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
-            automatic ace_driver_t::cr_beat_t  ace_cr_beat = new;
-            wait ((ace_ac_queue.size() > 0) || sim_done);
-            if (ace_ac_queue.size() > 0) begin
-                ace_ac_beat         = ace_ac_queue.pop_front();
-                if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
-                    ace_cr_beat.cr_resp = 0;
-                end else begin
-                    ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
-                    ace_cr_beat.cr_resp[1]   = 1'b0;
-                    ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
-                end
+            automatic ace_driver_t::cr_beat_t ace_cr_beat = new;
+            wait ((ac_cr_queue.size() > 0) || sim_done);
+            if (ac_cr_queue.size() > 0) begin
+                ace_ac_beat         = ac_cr_queue.pop_front();
+                ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
+                ace_cr_beat.cr_resp[1]   = 1'b0;
+                ace_cr_beat.cr_resp[0]   = ace_ac_beat.data_transfer;
                 rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
-                if (ace_cr_beat.cr_resp.DataTransfer) begin
-                    cd_wait_cnt++;
-                end
                 ace_drv.send_cr(ace_cr_beat);
             end
         end
+        $info("CR done");
     endtask
 
     task send_cds(ref logic sim_done);
@@ -1288,23 +1303,34 @@ class ace_rand_master #(
             automatic logic rand_success;
             automatic ace_driver_t::ac_beat_t ace_ac_beat;
             automatic ace_driver_t::cd_beat_t ace_cd_beat = new;
-            automatic addr_t    byte_addr;
-            wait ((cd_wait_cnt > 0) || sim_done);
-            if (cd_wait_cnt > 0) begin
-                for (int i = 0; i < CACHELINE_WIDTH; i++) begin
-                    // random response
-                    ace_cd_beat.cd_data = $urandom();
-                    if (i == (CACHELINE_WIDTH - 1)) begin
-                        ace_cd_beat.cd_last = 1'b1;
-                    end else begin
-                        ace_cd_beat.cd_last = 1'b0;
+            automatic addr_t     byte_addr;
+            automatic mem_addr_t mem_addr;
+            automatic cd_data_t  cd_word;
+            wait ((ac_cd_queue.size() > 0) || sim_done);
+            if (ac_cd_queue.size() > 0) begin
+                ace_ac_beat = ac_cd_queue.pop_front();
+                // If data transfer, send CD data. Otherwise, ignore.
+                if (ace_ac_beat.data_transfer) begin
+                    mem_addr = ace_ac_beat.ac_addr[MEM_ADDR_SPACE-1:0];
+                    for (int i = 0; i < CLINE_WIDTH_PER_CD_DW; i++) begin
+                        for (int j = 0; j < (CD_DW / 8); j++) begin
+                            // Compose CD word that is CD_DW bits wide
+                            cd_word[j*(CD_DW/8) +: 8] = memory_q[mem_addr+(i*(CD_DW/8)+j)];
+                        end
+                        // random response
+                        ace_cd_beat.cd_data = cd_word;
+                        if (i == (CLINE_WIDTH_PER_CD_DW - 1)) begin
+                            ace_cd_beat.cd_last = 1'b1;
+                        end else begin
+                            ace_cd_beat.cd_last = 1'b0;
+                        end
+                        rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
+                        ace_drv.send_cd(ace_cd_beat);
                     end
-                    rand_wait(CD_MIN_WAIT_CYCLES, CD_MAX_WAIT_CYCLES);
-                    ace_drv.send_cd(ace_cd_beat);
                 end
-                cd_wait_cnt--;
             end
         end
+        $info("CD done");
     endtask
 
     task sim_done_task(ref logic first, ref logic second);
