@@ -38,7 +38,9 @@ module ccu_ctrl_wr_snoop #(
     /// Response channel towards snoop crossbar
     input  mst_snoop_resp_t             snoop_resp_i,
     /// Request channel towards snoop crossbar
-    output mst_snoop_req_t              snoop_req_o
+    output mst_snoop_req_t              snoop_req_o,
+    /// AxDOMAIN to be used for the snoop request
+    output axdomain_t                   awdomain_o
 );
 
 logic illegal_trs;
@@ -208,5 +210,9 @@ always_comb begin
         end
     endcase
 end
+
+// AxDOMAIN stream generation
+// Note: this signal should flow along with AC
+assign awdomain_o = slv_req_i.aw.domain;
 
 endmodule

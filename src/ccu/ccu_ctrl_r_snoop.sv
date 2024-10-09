@@ -42,7 +42,9 @@ module ccu_ctrl_r_snoop #(
     /// Response channel towards snoop crossbar
     input  mst_snoop_resp_t             snoop_resp_i,
     /// Request channel towards snoop crossbar
-    output mst_snoop_req_t              snoop_req_o
+    output mst_snoop_req_t              snoop_req_o,
+    /// AxDOMAIN to be used for the snoop request
+    output axdomain_t                   ardomain_o
 );
 
 logic load_ar_holder;
@@ -320,5 +322,9 @@ stream_fork_dynamic #(
     .valid_o(cd_fork_valid),
     .ready_i(cd_fork_ready)
 );
+
+// AxDOMAIN stream generation
+// Note: this signal should flow along with AC
+assign ardomain_o = slv_req_i.ar.domain;
 
 endmodule

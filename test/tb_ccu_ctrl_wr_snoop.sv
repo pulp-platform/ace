@@ -233,7 +233,8 @@ module tb_ccu_ctrl_wr_snoop #(
         .mst_req_o(slaves_req),
         .mst_resp_i(slaves_resp),
         .snoop_resp_i(snoop_resp),
-        .snoop_req_o(snoop_req)
+        .snoop_req_o(snoop_req),
+        .awdomain_o()
     );
 
 endmodule
