@@ -6,7 +6,7 @@ module tb_ccu_ctrl_r_snoop #(
 
 
     localparam int unsigned NoWrites = 0;   // How many writes per master
-    localparam int unsigned NoReads  = 100000;   // How many reads per master
+    localparam int unsigned NoReads  = 1000;   // How many reads per master
 
     // axi configuration
     localparam int unsigned AxiIdWidthMasters =  1;
@@ -16,6 +16,9 @@ module tb_ccu_ctrl_r_snoop #(
     localparam int unsigned AxiDataWidth      =  64;    // Axi Data Width
     localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
     localparam int unsigned AxiUserWidth      =  5;
+
+    // Address space for memory which is initialized
+    localparam int mem_addr_space = 8;
 
     localparam time CyclTime = 10ns;
     localparam time ApplTime =  2ns;
@@ -127,7 +130,7 @@ module tb_ccu_ctrl_r_snoop #(
     `SNOOP_ASSIGN_TO_RESP(snoop_resp, snoop)
 
 
-    ace_test::ace_rand_master #(
+    ace_sim_master::ace_rand_master #(
         .AW (AxiAddrWidth),
         .DW (AxiDataWidth),
         .IW (AxiIdWidthMasters),
@@ -139,7 +142,9 @@ module tb_ccu_ctrl_r_snoop #(
         .TT (TestTime ),
         .AXI_BURST_FIXED (0),
         .AXI_BURST_INCR (0),
-        .AXI_BURST_WRAP (1)
+        .AXI_BURST_WRAP (1),
+        .CACHELINE_WIDTH(32),
+        .MEM_ADDR_SPACE(mem_addr_space)
     ) ace_master;
 
     axi_test::axi_rand_slave #(
@@ -151,13 +156,6 @@ module tb_ccu_ctrl_r_snoop #(
         .TA ( ApplTime ),
         .TT (TestTime )
     ) axi_rand_slave;
-
-    snoop_test::snoop_rand_slave #(
-        .AW(AxiAddrWidth),
-        .DW(AxiDataWidth),
-        .TA ( ApplTime ),
-        .TT (TestTime )
-    ) snoop_slave;
 
     snoop_chan_logger #(
         .TestTime (TestTime),
@@ -181,15 +179,17 @@ module tb_ccu_ctrl_r_snoop #(
     );
 
     initial begin
-        ace_master = new(master_dv);
+        ace_master = new(master_dv, snoop_dv);
         end_of_sim <= 1'b0;
         ace_master.add_memory_region(
             32'h0000_0000, 32'h0000_3000,
             axi_pkg::DEVICE_NONBUFFERABLE);
+        ace_master.init_cache_memory();
         ace_master.reset();
         @(posedge rst_n);
         ace_master.run(NoReads, NoWrites);
         end_of_sim <= 1'b1;
+        $finish;
     end
 
     initial begin
@@ -198,14 +198,6 @@ module tb_ccu_ctrl_r_snoop #(
         @(posedge rst_n);
         axi_rand_slave.run();
     end
-
-    initial begin
-        snoop_slave = new(snoop_dv);
-        snoop_slave.reset();
-        @(posedge rst_n);
-        snoop_slave.run();
-    end
-
 
     ace_pkg::snoop_info_t snoopy_trs;
     logic snoop_trs, illegal;
