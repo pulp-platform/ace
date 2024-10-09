@@ -17,6 +17,9 @@ module tb_ccu_ctrl_wr_snoop #(
     localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
     localparam int unsigned AxiUserWidth      =  5;
 
+    // Address space for memory which is initialized
+    localparam int mem_addr_space = 8;
+
     localparam time CyclTime = 10ns;
     localparam time ApplTime =  2ns;
     localparam time TestTime =  8ns;
@@ -137,8 +140,8 @@ module tb_ccu_ctrl_wr_snoop #(
         .UNIQUE_IDS (1),
         .TA ( ApplTime ),
         .TT (TestTime ),
-        .CACHELINE_WIDTH (4),
-        .CACHELINE_WORD_SIZE (8)
+        .CACHELINE_WIDTH (32),
+        .MEM_ADDR_SPACE (mem_addr_space)
     ) ace_master;
 
     axi_test::axi_rand_slave #(
@@ -178,6 +181,7 @@ module tb_ccu_ctrl_wr_snoop #(
         ace_master.add_memory_region(
             32'h0000_0000, 32'h0000_3000,
             axi_pkg::DEVICE_NONBUFFERABLE);
+        ace_master.init_cache_memory();
         ace_master.reset();
         @(posedge rst_n);
         ace_master.run(NoReads, NoWrites);
