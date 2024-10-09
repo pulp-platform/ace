@@ -734,14 +734,16 @@ class ace_rand_master #(
     parameter bit   UNIQUE_IDS        = 1'b0, // guarantee that the ID of each transaction is
                                               // unique among all in-flight transactions in the
                                               // same direction
-    parameter int   CACHELINE_WIDTH    = 0, // How many bytes in a cache line
     parameter int   AC_MIN_WAIT_CYCLES = 0,
     parameter int   AC_MAX_WAIT_CYCLES = 100,
     parameter int   CR_MIN_WAIT_CYCLES = 0,
     parameter int   CR_MAX_WAIT_CYCLES = 5,
     parameter int   CD_MIN_WAIT_CYCLES = 0,
     parameter int   CD_MAX_WAIT_CYCLES = 20,
-    parameter int   MEM_ADDR_SPACE = 8, // Address space for internal memory
+
+    parameter int   MEM_ADDR_SPACE  = 8, // Address space for internal memory
+    parameter int   CACHELINE_WIDTH = 0, // How many bytes in a cache line
+
     // Dependent parameters, do not override.
     parameter int   CACHELINE_WORD_SIZE = DW/8, // How many bytes in one word
     parameter int   AXI_STRB_WIDTH      = DW/8,
