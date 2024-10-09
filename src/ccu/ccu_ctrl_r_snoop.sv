@@ -53,7 +53,7 @@ logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
-logic arlen_counter_en, arlen_counting, arlen_counter_reset;
+logic arlen_counter_en, arlen_counting, arlen_counter_clear;
 logic cd_ready;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
@@ -76,8 +76,10 @@ localparam unsigned MEM_W_IDX = 1; // W channel of Memory
 typedef enum logic [2:0] { SNOOP_REQ, SNOOP_RESP, READ_CD, WRITE_CD, READ_R, IGNORE_CD } r_fsm_t;
 r_fsm_t fsm_state_d, fsm_state_q;
 
-always_ff @(posedge clk_i) begin
-    if (arlen_counter_reset) begin 
+always_ff @(posedge clk_i, negedge rst_ni) begin
+    if (!rst_ni) begin
+        arlen_counter <= '0;
+    end else if (arlen_counter_clear) begin
         arlen_counter <= '0;
     end else if (arlen_counter_en) begin
         arlen_counter <= arlen_counter + 1'b1;
@@ -123,7 +125,7 @@ always_comb begin
     load_ar_holder       = 1'b0;
     rresp_d[3:2]         = rresp_q[3:2];
     cd_mask_d            = cd_mask_q;
-    arlen_counter_reset  = 1'b0;
+    arlen_counter_clear  = 1'b0;
     aw_valid_d           = aw_valid_q;
     ar_valid_d           = ar_valid_q;
     cd_last_d            = cd_last_q;
@@ -164,7 +166,7 @@ always_comb begin
             cd_mask_d            = '0;
             cd_last_d            = 1'b0;
             r_last_d             = 1'b0;
-            arlen_counter_reset  = 1'b1;
+            arlen_counter_clear  = 1'b1;
             snoop_req_o.ac_valid = slv_req_i.ar_valid;
             snoop_req_o.ac.addr  = slv_req_i.ar.addr;
             snoop_req_o.ac.snoop = snoop_info_i.snoop_trs;
