@@ -883,7 +883,7 @@ class ace_rand_master #(
                     len inside {2, 4, 8, 16};
                 }; assert(rand_success);
             end else begin
-                len = $urandom_range(0, 256);
+                len = $urandom_range(1, 256);
             end
         end
         return len;
