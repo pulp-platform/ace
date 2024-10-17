@@ -25,9 +25,11 @@ class snoop_monitor #(
     endtask
 
     function new (
-        snoop_bus_t snoop
+        snoop_bus_t snoop,
+        mailbox ac_mbx
     );
         this.snoop = snoop;
+        this.ac_mbx = ac_mbx;
     endfunction
 
     task mon_ac;

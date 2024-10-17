@@ -15,6 +15,16 @@ class snoop_sequencer #(
     // Should be created and connected outside
     mailbox ac_mbx, cr_mbx, cd_mbx;
 
+    function new(
+        mailbox ac_mbx,
+        mailbox cr_mbx,
+        mailbox cd_mbx
+    );
+        this.ac_mbx = ac_mbx;
+        this.cr_mbx = cr_mbx;
+        this.cd_mbx = cd_mbx;
+    endfunction
+
     function cd_beat_t gen_rand_cd;
         cd_beat_t beat = new;
         beat.cd_data = $urandom();

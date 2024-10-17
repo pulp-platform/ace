@@ -70,18 +70,14 @@ class ace_agent #(
         this.ace    = ace;
         this.clk_if = clk_if;
 
-        this.ace_drv   = new(this.ace);
-        this.ace_seq   = new(this.clk_if);
-
-
-        // Connect mailboxes for ACE channels
-        this.ace_drv.aw_mbx = this.aw_mbx;
-        this.ace_drv.w_mbx  = this.w_mbx;
-        this.ace_drv.ar_mbx = this.ar_mbx;
-        this.ace_seq.aw_mbx = this.aw_mbx;
-        this.ace_seq.w_mbx  = this.w_mbx;
-        this.ace_seq.ar_mbx = this.ar_mbx;
-
+        this.ace_drv = new(
+            this.ace, this.aw_mbx,
+            this.w_mbx, this.ar_mbx
+        );
+        this.ace_seq = new(
+            this.clk_if, this.aw_mbx,
+            this.w_mbx, this.ar_mbx
+        );
     endfunction
 
     task reset;

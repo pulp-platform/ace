@@ -21,9 +21,14 @@ class snoop_driver #(
     mailbox cr_mbx;
 
     function new (
-        snoop_bus_t snoop
+        snoop_bus_t snoop,
+        mailbox cr_mbx,
+        mailbox cd_mbx
     );
         this.snoop = snoop;
+
+        this.cr_mbx = cr_mbx;
+        this.cd_mbx = cd_mbx;
     endfunction
 
     task cycle_start;

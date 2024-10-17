@@ -23,9 +23,16 @@ class ace_driver #(
     mailbox aw_mbx, ar_mbx, w_mbx;
 
     function new(
-        ace_bus_t ace
+        ace_bus_t ace,
+        mailbox aw_mbx,
+        mailbox w_mbx,
+        mailbox ar_mbx
     );
         this.ace = ace;
+
+        this.aw_mbx = aw_mbx;
+        this.ar_mbx = ar_mbx;
+        this.w_mbx  = w_mbx;
     endfunction
 
     task cycle_start;

@@ -16,9 +16,16 @@ class ace_sequencer #(
     virtual CLK_IF clk_if;
 
     function new(
-        virtual CLK_IF clk_if
+        virtual CLK_IF clk_if,
+        mailbox aw_mbx,
+        mailbox w_mbx,
+        mailbox ar_mbx
     );
         this.clk_if = clk_if;
+
+        this.aw_mbx = aw_mbx;
+        this.ar_mbx = ar_mbx;
+        this.w_mbx  = w_mbx;
     endfunction
 
     task automatic rand_wait(input int unsigned min, max);
