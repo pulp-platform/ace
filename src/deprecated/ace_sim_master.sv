@@ -918,7 +918,7 @@ class ace_rand_master #(
         automatic ar_snoop_e              ar_trs;
         automatic aw_snoop_e              aw_trs;
         
-        logic snoop_trs;
+        logic snoop_trs, accepts_dirty, accepts_shared, accepts_dirty_shared;
 
         cache = axi_pkg::get_arcache(axi_pkg::DEVICE_BUFFERABLE);
         burst = get_rand_burst();
@@ -932,6 +932,11 @@ class ace_rand_master #(
 
         awunique  = 1'b0;
         snoop_trs = 1'b1;
+
+        // Accepted RRESP responses
+        accepts_dirty        = 1'b0;
+        accepts_shared       = 1'b0;
+        accepts_dirty_shared = 1'b0;
 
         if (is_read) begin
             // Read operation
@@ -952,30 +957,38 @@ class ace_rand_master #(
                     bar     = 'b00;
                     size    = gen_rand_size();
                     len     = gen_rand_len(size, snoop_trs, burst);
+                    accepts_shared = 1'b1;
                 end
                 AR_READ_SHARED: begin
                     snoop   = ace_pkg::ReadShared;
                     domain  = 'b01;
                     bar     = 'b00;
                     len     = cline_len;
+                    accepts_dirty        = 1'b1;
+                    accepts_dirty_shared = 1'b1;
+                    accepts_shared       = 1'b1;
                 end
                 AR_READ_CLEAN: begin
                     snoop   = ace_pkg::ReadClean;
                     domain  = 'b01;
                     bar     = 'b00;
                     len     = cline_len;
+                    accepts_shared = 1'b1;
                 end
                 AR_READ_NOT_SHARED_DIRTY: begin
                     snoop   = ace_pkg::ReadNotSharedDirty;
                     domain  = 'b01;
                     bar     = 'b00;
                     len     = cline_len;
+                    accepts_dirty  = 1'b1;
+                    accepts_shared = 1'b1;
                 end
                 AR_READ_UNIQUE: begin
                     snoop   = ace_pkg::ReadUnique;
                     domain  = 'b01;
                     bar     = 'b00;
                     len     = cline_len;
+                    accepts_dirty = 1'b1;
                 end
                 AR_CLEAN_UNIQUE: begin
                     snoop   = ace_pkg::CleanUnique;
@@ -994,6 +1007,7 @@ class ace_rand_master #(
                     domain  = 'b01;
                     bar     = 'b00;
                     len     = cline_len;
+                    accepts_shared = 1'b1;
                 end
                 AR_CLEAN_INVALID: begin
                     snoop   = ace_pkg::CleanInvalid;
@@ -1033,7 +1047,7 @@ class ace_rand_master #(
                     len     = $urandom();
                 end
             endcase
-            end else begin
+        end else begin
             // Write operation
             std::randomize(aw_trs) with
                 { !(aw_trs inside {aw_unsupported_ops}); };
@@ -1382,5 +1396,148 @@ class ace_rand_master #(
     endtask
 
 endclass
+
+// Datatype for storing the data that was transferred in
+// an AXI transaction
+class axi_transaction #(
+    /// AXI4+ATOP address width
+    parameter int unsigned AW = 0,
+    /// AXI4+ATOP data width
+    parameter int unsigned DW = 0,
+);
+    rand bit [AW-1:0] address;
+    rand bit [DW-1:0] data;
+    rand bit          write_en;
+
+    function new();
+        address  = 0;
+        data     = 0;
+        write_en = 0;
+    endfunction
+
+endclass
+
+
+class ace_monitor #(
+    /// AXI4+ATOP ID width
+    parameter int unsigned IW = 0,
+    /// AXI4+ATOP address width
+    parameter int unsigned AW = 0,
+    /// AXI4+ATOP data width
+    parameter int unsigned DW = 0,
+    /// AXI4+ATOP user width
+    parameter int unsigned UW = 0,
+    /// Stimuli test time
+    parameter time TT = 0ns
+);
+
+    typedef axi_transaction #(
+        .AW(AW), .DW(DW)
+    ) axi_txn_t;
+
+    typedef ace_driver #(
+        .AW(AW), .DW(DW), .IW(IW), .UW(UW), .TA(TT), .TT(TT)
+    ) ace_driver_t;
+
+    ace_driver_t ace_drv;
+    axi_txn_t axi_txn;
+    event new_axi_txn_event;
+
+    ace_driver_t::ax_beat_t new_ax_transaction;
+
+    mailbox aw_mbx = new, w_mbx = new, b_mbx = new,
+            ar_mbx = new, r_mbx = new;
+
+    function new(
+        virtual ACE_BUS_DV #(
+            .AXI_ADDR_WIDTH(AW),
+            .AXI_DATA_WIDTH(DW),
+            .AXI_ID_WIDTH(IW),
+            .AXI_USER_WIDTH(UW)
+        ) ace,
+        virtual SNOOP_BUS_DV #(
+            .SNOOP_ADDR_WIDTH (AW),
+            .SNOOP_DATA_WIDTH (DW)
+        ) snoop
+    );
+        this.ace_drv           = new(ace, snoop);
+        this.new_axi_txn_event = new();
+    endfunction
+
+    task monitor;
+        fork
+            // AW
+            forever begin
+                automatic ace_driver_t::ax_beat_t ax;
+                this.ace_drv.mon_aw(ax);
+                aw_mbx.put(ax);
+            end
+            // W
+            forever begin
+                automatic w_beat_t w;
+                this.drv.mon_w(w);
+                w_mbx.put(w);
+            end
+            // B
+            forever begin
+                automatic b_beat_t b;
+                this.drv.mon_b(b);
+                b_mbx.put(b);
+            end
+            // AR
+            forever begin
+                automatic ax_beat_t ax;
+                this.drv.mon_ar(ax);
+                ar_mbx.put(ax);
+            end
+            // R
+            forever begin
+                automatic r_beat_t r;
+                this.drv.mon_r(r);
+                r_mbx.put(r);
+                -> txn_event;
+            end
+        join
+    endtask
+
+endclass
+
+
+class ace_scoreboard #(
+    /// AXI4+ATOP ID width
+    parameter int unsigned IW = 0,
+    /// AXI4+ATOP address width
+    parameter int unsigned AW = 0,
+    /// AXI4+ATOP data width
+    parameter int unsigned DW = 0,
+    /// AXI4+ATOP user width
+    parameter int unsigned UW = 0,
+    /// Stimuli test time
+    parameter time TT = 0ns
+);
+
+    typedef axi_transaction #(
+        .AW(AW), .DW(DW)
+    ) axi_txn_t;
+
+    ref event new_axi_txn_event;
+    ref axi_txn_t axi_txn;
+
+    // Monitor interface
+    virtual ACE_BUS_DV #(
+        .AXI_ADDR_WIDTH ( AW ),
+        .AXI_DATA_WIDTH ( DW ),
+        .AXI_ID_WIDTH   ( IW ),
+        .AXI_USER_WIDTH ( UW )
+    ) ace;
+
+    /// New constructor
+    function new(
+        ref event e,
+        ref axi_txn_t t
+    );
+      this.new_axi_txn_event = e;
+      this.axi_txn           = t;
+    endfunction
 
 endpackage
