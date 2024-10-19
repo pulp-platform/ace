@@ -23,7 +23,13 @@ class cache_top_agent #(
     /// Clock interface type
     parameter type clk_if_t    = logic,
     /// Snoop bus interface type
-    parameter type snoop_bus_t = logic
+    parameter type snoop_bus_t = logic,
+    /// File path for initial memory state
+    parameter string mem_file  = "",
+    /// File path for transactions file
+    parameter string txn_file  = "",
+    /// File path for recording memory states
+    parameter string mem_state_file = ""
 );
     ace_bus_t ace;
     snoop_bus_t snoop;
@@ -43,6 +49,10 @@ class cache_top_agent #(
         .clk_if_t(clk_if_t)
     ) snoop_agent;
 
+    cache_scoreboard #(
+        .AW(AW)
+    ) cache_sb;
+
     function new(
         ace_bus_t ace,
         snoop_bus_t snoop,
@@ -54,6 +64,10 @@ class cache_top_agent #(
 
         this.ace_agent   = new(this.ace, this.clk_if);
         this.snoop_agent = new(this.snoop, this.clk_if);
+        this.cache_sb    = new();
+
+        this.cache_sb.init_mem_from_file(mem_file);
+
     endfunction
 
     task reset;

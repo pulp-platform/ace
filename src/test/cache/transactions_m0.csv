@@ -1,0 +1,2 @@
+read,readnosnoop,0x0
+write,writeunique,0x4
