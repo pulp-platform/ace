@@ -23,7 +23,6 @@ sources:
   - src/snoop_intf.sv
   - src/ace_aw_transaction_decoder.sv
   - src/ace_ar_transaction_decoder.sv
-  - src/ace_to_axi.sv
   # Level 2
   - src/ccu/ace_ccu_lock_reg.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
