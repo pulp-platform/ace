@@ -9,11 +9,8 @@ class cache_scoreboard #(
     typedef logic [7:0]    byte_t;
     typedef logic [2:0]    status_t;
 
-    mailbox read_req;
-    mailbox read_resp;
-
-    byte_t   memory_q[addr_t];
-    status_t status_q[addr_t];
+    byte_t   memory_q[addr_t]; // Cache data
+    status_t status_q[addr_t]; // Cache state
 
     function void init_mem_from_file(string fname);
         int fd, scanret;
