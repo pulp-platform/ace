@@ -6,19 +6,23 @@ import ccu_ctrl_pkg::*;
 // Non-snooping transactions should be handled outside
 module ccu_ctrl_wr_snoop #(
     /// Request channel type towards cached master
-    parameter type slv_req_t         = logic,
+    parameter type slv_req_t          = logic,
     /// Response channel type towards cached master
-    parameter type slv_resp_t        = logic,
+    parameter type slv_resp_t         = logic,
     /// Request channel type towards memory
-    parameter type mst_req_t         = logic,
+    parameter type mst_req_t          = logic,
     /// Response channel type towards memory
-    parameter type mst_resp_t        = logic,
+    parameter type mst_resp_t         = logic,
     // /// AW channel type towards cached master
-    parameter type slv_aw_chan_t     = logic,
+    parameter type slv_aw_chan_t      = logic,
     /// Snoop request type
-    parameter type mst_snoop_req_t   = logic,
+    parameter type mst_snoop_req_t    = logic,
     /// Snoop response type
-    parameter type mst_snoop_resp_t  = logic
+    parameter type mst_snoop_resp_t   = logic,
+    /// Domain masks set for each master
+    parameter type domain_set_t       = logic,
+    /// Domain mask type
+    parameter type domain_mask_t      = logic
 ) (
     /// Clock
     input                               clk_i,
@@ -39,8 +43,10 @@ module ccu_ctrl_wr_snoop #(
     input  mst_snoop_resp_t             snoop_resp_i,
     /// Request channel towards snoop crossbar
     output mst_snoop_req_t              snoop_req_o,
-    /// AxDOMAIN to be used for the snoop request
-    output axdomain_t                   awdomain_o
+    /// Domain masks set for the current AW initiator
+    input  domain_set_t                 domain_set_i,
+    /// Ax mask to be used for the snoop request
+    output domain_mask_t                domain_mask_o
 );
 
 logic illegal_trs;
@@ -211,8 +217,16 @@ always_comb begin
     endcase
 end
 
-// AxDOMAIN stream generation
+// Domain mask generation
 // Note: this signal should flow along with AC
-assign awdomain_o = slv_req_i.aw.domain;
+always_comb begin
+    domain_mask_o = '0;
+    case (slv_req_i.aw.domain)
+      NonShareable:   domain_mask_o = 0;
+      InnerShareable: domain_mask_o = domain_set_i.inner_mask;
+      OuterShareable: domain_mask_o = domain_set_i.outer_mask;
+      System:         domain_mask_o = ~domain_set_i.initiator;
+    endcase
+end
 
 endmodule

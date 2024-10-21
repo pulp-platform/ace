@@ -31,6 +31,9 @@ sources:
   - src/ccu/ace_ccu_snoop_resp.sv
   - src/ccu/ace_ccu_snoop_port.sv
   - src/ccu/ace_ccu_snoop_interconnect.sv
+  - src/ccu/ace_ccu_snoop_path.sv
+  - src/ccu/ace_ccu_master_path.sv
+  - src/ccu/ace_ccu_top.sv
   #- src/ccu_ctrl_pkg.sv
   ## Level 2
   #- src/ace_trs_dec.sv

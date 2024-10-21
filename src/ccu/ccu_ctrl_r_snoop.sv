@@ -19,6 +19,10 @@ module ccu_ctrl_r_snoop #(
     parameter type mst_snoop_req_t   = logic,
     /// Snoop response type
     parameter type mst_snoop_resp_t  = logic,
+    /// Domain masks set for each master
+    parameter type domain_set_t      = logic,
+    /// Domain mask type
+    parameter type domain_mask_t     = logic,
     /// Fixed value for AXLEN for write back
     parameter int unsigned AXLEN = 0,
     /// Fixed value for AXSIZE for write back
@@ -43,8 +47,10 @@ module ccu_ctrl_r_snoop #(
     input  mst_snoop_resp_t             snoop_resp_i,
     /// Request channel towards snoop crossbar
     output mst_snoop_req_t              snoop_req_o,
-    /// AxDOMAIN to be used for the snoop request
-    output axdomain_t                   ardomain_o
+    /// Domain masks set for the current AR initiator
+    input  domain_set_t                 domain_set_i,
+    /// Ax mask to be used for the snoop request
+    output domain_mask_t                domain_mask_o
 );
 
 logic load_ar_holder;
@@ -323,8 +329,17 @@ stream_fork_dynamic #(
     .ready_i(cd_fork_ready)
 );
 
-// AxDOMAIN stream generation
+// Domain mask generation
 // Note: this signal should flow along with AC
-assign ardomain_o = slv_req_i.ar.domain;
+always_comb begin
+    domain_mask_o = '0;
+    case (slv_req_i.ar.domain)
+      NonShareable:   domain_mask_o = 0;
+      InnerShareable: domain_mask_o = domain_set_i.inner_mask;
+      OuterShareable: domain_mask_o = domain_set_i.outer_mask;
+      System:         domain_mask_o = ~domain_set_i.initiator;
+    endcase
+end
+
 
 endmodule
