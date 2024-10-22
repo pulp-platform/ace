@@ -163,7 +163,7 @@ module tb_ccu_ctrl_wr_snoop #(
         .axi_rsp_t(mst_resp_t),
         .ApplDelay ( ApplTime ),
         .AcqDelay (TestTime )
-    ) axi_rand_slave (
+    ) axi_mem (
         .clk_i(clk),
         .rst_ni(rst_n),
         .axi_req_i(main_mem_req),
@@ -183,6 +183,10 @@ module tb_ccu_ctrl_wr_snoop #(
         .mon_r_beat_count_o(),
         .mon_r_last_o()
     );
+
+    initial begin
+        $readmemh("/scratch2/akorsman/ace/scripts/python/main_mem.mem", axi_mem.mem);
+    end
 
     ace_pkg::acsnoop_t snoopy_trs;
 
