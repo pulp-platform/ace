@@ -16,9 +16,6 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     input  logic                     rst_ni,
 
     input  sel_mask_t   [NumInp-1:0] inp_sel_i,
-    input  logic        [NumInp-1:0] inp_sel_valids_i,
-    output logic        [NumInp-1:0] inp_sel_readies_o,
-
     input  snoop_req_t  [NumInp-1:0] inp_req_i,
     output snoop_resp_t [NumInp-1:0] inp_resp_o,
     output snoop_req_t  [NumOup-1:0] oup_req_o,
@@ -53,7 +50,7 @@ cr_chan_t [NumInp-1:0][NumOup-1:0] cr_chans_rev;
 logic     [NumInp-1:0][NumOup-1:0] cd_valids_rev, cd_readies_rev;
 cd_chan_t [NumInp-1:0][NumOup-1:0] cd_chans_rev;
 
-logic     [NumOup-1:0] to_arb_sel_valid, from_arb_sel_ready;
+logic     [NumOup-1:0] to_arb_ac_valids, from_arb_ac_readies;
 logic     [NumOup-1:0] ac_valids, ac_readies;
 ac_chan_t [NumOup-1:0] ac_chans;
 inp_idx_t [NumOup-1:0] ac_idx;
@@ -154,8 +151,8 @@ rr_arb_tree #(
     .rst_ni,
     .flush_i ('0),
     .rr_i    ('0),
-    .req_i   (inp_ac_valids),
-    .gnt_o   (inp_ac_readies),
+    .req_i   (to_arb_ac_valids),
+    .gnt_o   (from_arb_ac_readies),
     .data_i  (inp_ac_chans),
     .req_o   (arb_ac_valid),
     .gnt_i   (arb_ac_ready),
@@ -163,13 +160,7 @@ rr_arb_tree #(
     .idx_o   (arb_ac_idx)
 );
 
-assign ac_sel             = inp_sel_i[arb_ac_idx];
-assign ac_sel_valid       = to_arb_sel_valid[arb_ac_idx];
-always_comb begin
-    from_arb_sel_ready = '0;
-    if (ac_sel_ready)
-        from_arb_sel_ready[arb_ac_idx] = 1'b1;
-end
+assign ac_sel = inp_sel_i[arb_ac_idx];
 
 stream_fork_dynamic #(
 .N_OUP (NumOup)
@@ -179,8 +170,8 @@ stream_fork_dynamic #(
     .valid_i     (arb_ac_valid),
     .ready_o     (arb_ac_ready),
     .sel_i       (ac_sel),
-    .sel_valid_i (ac_sel_valid),
-    .sel_ready_o (ac_sel_ready),
+    .sel_valid_i (arb_ac_valid),
+    .sel_ready_o ( ),
     .valid_o     (ac_valids),
     .ready_i     (ac_readies)
 );
@@ -272,10 +263,10 @@ for (genvar i = 0; i < NumInp; i++) begin : gen_inp
     ) i_sel_fork (
         .clk_i,
         .rst_ni,
-        .valid_i     (inp_sel_valids_i[i]),
-        .ready_o     (inp_sel_readies_o[i]),
-        .valid_o     ({to_arb_sel_valid[i], to_fifo_sel_valid}),
-        .ready_i     ({from_arb_sel_ready[i], from_fifo_sel_ready})
+        .valid_i     (inp_ac_valids[i]),
+        .ready_o     (inp_ac_readies[i]),
+        .valid_o     ({to_arb_ac_valids[i], to_fifo_sel_valid}),
+        .ready_i     ({from_arb_ac_readies[i], from_fifo_sel_ready})
     );
 
     stream_fifo_optimal_wrap #(
