@@ -2,7 +2,7 @@
 *** INCLUDED IN ace_test_pkg ***
 `endif
 
-virtual class ace_sequencer $(
+virtual class ace_sequencer #(
     parameter AW              = 32,
     parameter DW              = 32,
     parameter IW              = 8,
@@ -28,12 +28,9 @@ virtual class ace_sequencer $(
 
     function new(
         virtual CLK_IF clk_if,
-        mailbox aw_mbx_o,
-        mailbox w_mbx_o,
-        mailbox ar_mbx_o,
-        mailbox aw_mbx_i = new,
-        mailbox w_mbx_i = new,
-        mailbox ar_mbx_i = new
+        mailbox #(aw_beat_t) aw_mbx_o,
+        mailbox #(w_beat_t)  w_mbx_o,
+        mailbox #(ar_beat_t) ar_mbx_o
     );
         this.clk_if = clk_if;
 
@@ -41,9 +38,6 @@ virtual class ace_sequencer $(
         this.ar_mbx_o = ar_mbx_o;
         this.w_mbx_o  = w_mbx_o;
 
-        this.aw_mbx_i = aw_mbx_i;
-        this.ar_mbx_i = ar_mbx_i;
-        this.w_mbx_i = w_mbx_i;
     endfunction
 
     task automatic rand_wait(input int unsigned min, max);
@@ -65,7 +59,7 @@ class ace_rand_sequencer #(
     parameter type aw_beat_t  = logic,
     parameter type ar_beat_t  = logic,
     parameter type w_beat_t   = logic
-) extends ace_sequencer(
+) extends ace_sequencer #(
     .AW(AW), .DW(DW), .IW(IW), .UW(UW),
     .aw_beat_t(aw_beat_t),
     .ar_beat_t(ar_beat_t),
@@ -114,7 +108,7 @@ class ace_rand_sequencer #(
         repeat (10) begin
             rand_wait(2, 20);
             aw_txn = create_aw();
-            aw_mbx.put(aw_txn);
+            aw_mbx_o.put(aw_txn);
         end
     endtask
 
@@ -125,7 +119,7 @@ class ace_rand_sequencer #(
                 rand_wait(2, 20);
                 w_txn = create_w();
                 if (i == 3) w_txn.last = '1;
-                w_mbx.put(w_txn);
+                w_mbx_o.put(w_txn);
             end
         end
     endtask
@@ -135,7 +129,7 @@ class ace_rand_sequencer #(
         repeat (10) begin
             rand_wait(2, 20);
             ar_txn = create_ar();
-            ar_mbx.put(ar_txn);
+            ar_mbx_o.put(ar_txn);
         end
     endtask
 
@@ -158,12 +152,27 @@ class ace_mbox_sequencer #(
     parameter type ar_beat_t  = logic,
     parameter type w_beat_t   = logic,
     parameter RAND_WAIT       = 1
-) extends ace_sequencer(
+) extends ace_sequencer #(
     .AW(AW), .DW(DW), .IW(IW), .UW(UW),
     .aw_beat_t(aw_beat_t),
     .ar_beat_t(ar_beat_t),
     .w_beat_t(w_beat_t)
 );
+
+    function new(
+        virtual CLK_IF clk_if,
+        mailbox #(aw_beat_t) aw_mbx_o,
+        mailbox #(w_beat_t)  w_mbx_o,
+        mailbox #(ar_beat_t) ar_mbx_o,
+        mailbox #(aw_beat_t) aw_mbx_i,
+        mailbox #(w_beat_t)  w_mbx_i,
+        mailbox #(ar_beat_t) ar_mbx_i
+    );
+        super.new(clk_if, aw_mbx_o, w_mbx_o, ar_mbx_o);
+        this.aw_mbx_i = aw_mbx_i;
+        this.ar_mbx_i = ar_mbx_i;
+        this.w_mbx_i = w_mbx_i;
+    endfunction
 
     task wait_for_aws;
         aw_beat_t aw_beat;
