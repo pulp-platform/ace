@@ -35,11 +35,43 @@ class cache_top_agent #(
     snoop_bus_t snoop;
     clk_if_t clk_if;
 
+    typedef ace_test_pkg::ace_aw_beat #(
+        .AW(AW), .IW(IW), .UW(UW)
+    ) aw_beat_t;
+
+    typedef ace_test_pkg::ace_ar_beat #(
+        .AW(AW), .IW(IW), .UW(UW)
+    ) ar_beat_t;
+
+    typedef ace_test_pkg::ace_r_beat #(
+        .DW(DW), .IW(IW), .UW(UW)
+    ) r_beat_t;
+
+    typedef ace_test_pkg::ace_w_beat #(
+        .DW(DW), .UW(UW)
+    ) w_beat_t;
+
+    typedef ace_test_pkg::ace_b_beat #(
+        .IW(IW), .UW(UW)
+    ) b_beat_t;
+
+    mailbox #(cache_req)  cache_req_mbx = new;
+    mailbox #(cache_resp) cache_resp_mbx = new;
+    mailbox #(aw_beat_t)  aw_mbx = new;
+    mailbox #(w_beat_t)   w_mbx = new;
+    mailbox #(ar_beat_t)  ar_mbx = new;
+
+
     ace_test_pkg::ace_agent #(
         .AW(AW), .DW(DW), .IW(IW), .UW(UW),
         .TA(TA), .TT(TT),
         .ace_bus_t(ace_bus_t),
-        .clk_if_t(clk_if_t)
+        .clk_if_t(clk_if_t),
+        .aw_beat_t(aw_beat_t),
+        .w_beat_t(w_beat_t),
+        .ar_beat_t(ar_beat_t),
+        .r_beat_t(r_beat_t),
+        .b_beat_t(b_beat_t)
     ) ace_agent;
 
     snoop_test_pkg::snoop_agent #(
@@ -53,6 +85,14 @@ class cache_top_agent #(
         .AW(AW)
     ) cache_sb;
 
+    cache_sequencer #(
+        .AW(AW),
+        .txn_file("/scratch2/akorsman/ace/scripts/python/txns.csv"),
+        .aw_beat_t(aw_beat_t),
+        .w_beat_t(w_beat_t),
+        .ar_beat_t(ar_beat_t)
+    ) cache_seq;
+
     function new(
         ace_bus_t ace,
         snoop_bus_t snoop,
@@ -62,9 +102,11 @@ class cache_top_agent #(
         this.snoop  = snoop;
         this.clk_if = clk_if;
 
-        this.ace_agent   = new(this.ace, this.clk_if);
+        this.ace_agent   = new(this.ace, this.clk_if, this.aw_mbx, this.w_mbx, this.ar_mbx);
         this.snoop_agent = new(this.snoop, this.clk_if);
         this.cache_sb    = new();
+        this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx,
+                                this.aw_mbx, this.ar_mbx, this.w_mbx);
 
         this.cache_sb.init_mem_from_file(mem_file);
 
@@ -81,6 +123,7 @@ class cache_top_agent #(
         fork
             this.ace_agent.run();
             this.snoop_agent.run();
+            this.cache_seq.run();
         join
     endtask
 
