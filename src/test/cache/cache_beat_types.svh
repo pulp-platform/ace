@@ -4,17 +4,17 @@
 
 /// Datatype to orchestrate cache read and write requests
 class cache_req;
-    unsigned int addr;
-    unsigned int data_q[$];
-    unsigned int len;
-    unsigned int size;
-    boolean read;
-    boolean write;
+    int unsigned addr;
+    int unsigned data_q[$];
+    int unsigned len;
+    int unsigned size;
+    bit          read;
+    bit          write;
 endclass
 
 /// Datatype to orchestrate cache lookups between
 /// cache sequencer and cache scoreboard
-class cache_lookup_resp;
-    unsigned int data_q[$];
-    boolean      hit;
+class cache_resp;
+    int unsigned data_q[$];
+    bit          hit;
 endclass
