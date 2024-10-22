@@ -10,8 +10,8 @@ def gen_rand_mem(
     for _ in range(0, final_addr // 4):
       rand_vals = 4*[""]
       for j in range(0, 4):
-        rand_vals[j] = hex(randrange(2**8))
-      mem_file.write("{:4} {:4} {:4} {:4}\n".format(
+        rand_vals[j] = randrange(2**8)
+      mem_file.write("{:2x} {:2x} {:2x} {:2x}\n".format(
         rand_vals[0], rand_vals[1], rand_vals[2], rand_vals[3]
       ))
 
