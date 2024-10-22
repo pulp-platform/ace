@@ -17,31 +17,21 @@ class ace_agent #(
     /// ACE bus interface type
     parameter type ace_bus_t = logic,
     /// Clock interface type
-    parameter type clk_if_t  = logic
+    parameter type clk_if_t  = logic,
+    parameter type aw_beat_t = logic,
+    parameter type w_beat_t  = logic,
+    parameter type ar_beat_t = logic,
+    parameter type r_beat_t  = logic,
+    parameter type b_beat_t  = logic
 );
-    typedef ace_aw_beat #(
-        .AW(AW), .IW(IW), .UW(UW)
-    ) aw_beat_t;
 
-    typedef ace_ar_beat #(
-        .AW(AW), .IW(IW), .UW(UW)
-    ) ar_beat_t;
+    mailbox #(aw_beat_t) i_aw_mbx = new;
+    mailbox #(w_beat_t) i_w_mbx  = new;
+    mailbox #(ar_beat_t) i_ar_mbx = new;
 
-    typedef ace_r_beat #(
-        .DW(DW), .IW(IW), .UW(UW)
-    ) r_beat_t;
-
-    typedef ace_w_beat #(
-        .DW(DW), .UW(UW)
-    ) w_beat_t;
-
-    typedef ace_b_beat #(
-        .IW(IW), .UW(UW)
-    ) b_beat_t;
-
-    mailbox aw_mbx = new;
-    mailbox w_mbx  = new;
-    mailbox ar_mbx = new;
+    mailbox #(aw_beat_t) aw_mbx;
+    mailbox #(w_beat_t)  w_mbx;
+    mailbox #(ar_beat_t) ar_mbx;
 
     ace_bus_t  ace;
     clk_if_t clk_if;
@@ -56,7 +46,7 @@ class ace_agent #(
         .b_beat_t(b_beat_t)
     ) ace_drv;
 
-    ace_sequencer #(
+    ace_mbox_sequencer #(
         .AW(AW), .IW(IW), .UW(UW), .DW(DW),
         .aw_beat_t(aw_beat_t),
         .ar_beat_t(ar_beat_t),
@@ -65,19 +55,29 @@ class ace_agent #(
 
     function new(
         ace_bus_t   ace,
-        clk_if_t    clk_if
+        clk_if_t    clk_if,
+        mailbox #(aw_beat_t) aw_mbx,
+        mailbox #(w_beat_t)  w_mbx,
+        mailbox #(ar_beat_t) ar_mbx
     );
         this.ace    = ace;
         this.clk_if = clk_if;
 
+        this.aw_mbx = aw_mbx;
+        this.w_mbx  = w_mbx;
+        this.ar_mbx = ar_mbx;
+
         this.ace_drv = new(
-            this.ace, this.aw_mbx,
-            this.w_mbx, this.ar_mbx
+            this.ace, this.i_aw_mbx,
+            this.i_w_mbx, this.i_ar_mbx
         );
         this.ace_seq = new(
-            this.clk_if, this.aw_mbx,
-            this.w_mbx, this.ar_mbx
+            this.clk_if, this.i_aw_mbx,
+            this.i_w_mbx, this.i_ar_mbx,
+            this.aw_mbx, this.w_mbx,
+            this.ar_mbx
         );
+
     endfunction
 
     task reset;
