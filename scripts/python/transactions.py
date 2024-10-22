@@ -111,6 +111,7 @@ class CacheTransaction:
 class CacheTransactionSequence:
   def __init__(self):
     self.sequence = []
+    self.separator = " "
 
   def generate_rand_sequence(self, n_transactions):
     for _ in range(n_transactions):
@@ -127,7 +128,7 @@ class CacheTransactionSequence:
           txn.prot, txn.qos, txn.region, txn.user,
           txn.bar, txn.domain, txn.atop, txn.awunique
         ]
-        file.write((",".join(str(x) for x in row)) + "\n")
+        file.write((self.separator.join(str(x) for x in row)) + "\n")
 
 
 if __name__ == "__main__":
