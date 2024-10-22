@@ -20,13 +20,15 @@ class ace_driver #(
 
     ace_bus_t ace;
 
-    mailbox aw_mbx, ar_mbx, w_mbx;
+    mailbox #(aw_beat_t) aw_mbx;
+    mailbox #(w_beat_t)  w_mbx;
+    mailbox #(ar_beat_t) ar_mbx;
 
     function new(
         ace_bus_t ace,
-        mailbox aw_mbx,
-        mailbox w_mbx,
-        mailbox ar_mbx
+        mailbox #(aw_beat_t) aw_mbx,
+        mailbox #(w_beat_t)  w_mbx,
+        mailbox #(ar_beat_t) ar_mbx
     );
         this.ace = ace;
 
