@@ -156,9 +156,10 @@
 //
 // This defines `snoop_req_t` and `snoop_resp_t` request/response structs as well as `snoop_ac_chan_t`,
 // `snoop_cd_chan_t` and `snoop_cr_chan_t` channel structs.
-  `define SNOOP_TYPEDEF_ALL(__name, __addr_t, __data_t)                  \
+  `define SNOOP_TYPEDEF_ALL(__name, __addr_t, __data_t)               \
   `SNOOP_TYPEDEF_AC_CHAN_T(__name``_aw_chan_t, __addr_t)              \
   `SNOOP_TYPEDEF_CR_CHAN_T(__name``_cr_chan_t)                        \
+  `SNOOP_TYPEDEF_CD_CHAN_T(__name``_cd_chan_t, __data_t)              \
   `SNOOP_TYPEDEF_REQ_T(__name``_req_t, __name``_ac_chan_t)            \
   `SNOOP_TYPEDEF_RESP_T(__name``_resp_t, __name``_cd_chan_t, __name``_cr_chan_t)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
