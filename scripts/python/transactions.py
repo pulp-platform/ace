@@ -1,5 +1,6 @@
-from random import choice, randrange
+from random import choice, randrange, random
 from enum import Enum
+from math import log2
 
 class ReadSnoopType(Enum):
   READNOSNOOP = 0
@@ -32,85 +33,106 @@ class BurstType(Enum):
   INCR = 1
   WRAP = 2
 
-class TransactionType(Enum):
-  READ = 0
-  WRITE = 1
+class CacheReqOp(Enum):
+  REQ_LOAD = 0
+  REQ_STORE = 1
+  CMO_FLUSH_NLINE = 20
+
+class WritePolicyHint(Enum):
+  WR_POLICY_WB = 2
+  WR_POLICY_WT = 4
+
+class MemoryRange:
+  def __init__(
+      self,
+      cached: bool,
+      start_addr: int,
+      end_addr: int
+  ):
+    # Whether memory range is cached
+    self.cached = cached
+    # Start address of the range (inclusive)
+    self.start_addr = start_addr
+    # End address of the range (non-inclusive)
+    self.end_addr = end_addr
 
 class CacheTransaction:
-  def __init__(self):
-    self.txn_type = TransactionType.READ
+  def __init__(
+      self,
+      addr_width=32,
+      data_width=32
+    ):
     self.addr = 0
-    self.snoop = 0
-    self.id = 0
-    self.len = 0
+    self.data = 0
     self.size = 0
-    self.burst = BurstType.INCR
-    self.lock = 0 
-    self.cache = 0
-    self.prot = 0
-    self.qos = 0
-    self.region = 0
-    self.user = 0
-    self.bar = 0
-    self.domain = 0
-    self.atop = 0
-    self.snoop = ReadSnoopType.READNOSNOOP
-    self.awunique = 0
+    self.op = CacheReqOp.REQ_LOAD
+    self.uncacheable = 0
+    self.wr_policy_hint = WritePolicyHint.WR_POLICY_WB
 
-    self.addr_min = 0
-    self.addr_max = 0x1000_0000
+    self.mem_ranges = []
 
-  def get_rand_txn(self):
-    return choice(list(TransactionType))
+    self.aw = addr_width
+    self.dw = data_width
 
-  def get_rand_addr(self, min, max, step=4):
-    return randrange(min, max, step)
+    self.data_min = 0
+    self.data_max = (1 << self.dw) - 1
 
-  def get_rand_snoop(self, txn_type):
-    if txn_type == TransactionType.READ:
-      return choice(list(ReadSnoopType))
-    elif txn_type == TransactionType.WRITE:
-      return choice(list(WriteSnoopType))
-    else:
-      raise KeyError("Incorrect transaction type")
+    self.gen_memory_ranges()
 
-  def get_rand_len(self, addr, size):
-    # TODO Calculate that address doesn't cross cache boundary
-    return 1
+  def gen_memory_ranges(self):
+    mem_range = MemoryRange(
+      cached=True, start_addr=0, end_addr=0x1000_0000)
+    self.mem_ranges.append(mem_range)
+    mem_range = MemoryRange(
+      cached=False, start_addr=0x1000_0000, end_addr=0x2000_0000)
+    self.mem_ranges.append(mem_range)
+
+  def get_rand_mem_range(self, noncached_odds=0.1):
+    # Separate memory ranges into cached and non-cached ones
+    # So that we can generate relatively more cached requestes 
+    cached = []
+    noncached = []
+    for memrange in self.mem_ranges:
+      if memrange.cached:
+        cached.append(memrange)
+      else:
+        noncached.append(memrange)
+    if random() <= noncached_odds:
+      return choice(noncached)
+    return choice(cached)
+
+  def get_rand_op(self):
+    return choice(list(CacheReqOp))
+
+  def get_rand_addr(self, mem_range: MemoryRange):
+    return randrange(mem_range.start_addr, mem_range.end_addr)
+
+  def get_rand_wr_policy_hint(self):
+    return choice(list(WritePolicyHint))
 
   def get_rand_size(self):
-    # TODO
-    return 6
+    return int(log2(self.dw))
 
-  def get_rand_burst(self):
-    #return choice(list(BurstType))
-    return BurstType.INCR
+  def get_rand_data(self):
+    return randrange(self.data_min, self.data_max)
 
-  def get_rand_domain(self):
-    # TODO
+  def get_rand_uncacheable(self, uncacheable_odds=0.1):
+    if random() <= uncacheable_odds:
+      return 1
     return 0
 
   def randomize(self):
-    self.txn_type = self.get_rand_txn()
-    self.addr = self.get_rand_addr(self.addr_min, self.addr_max)
-    self.snoop = self.get_rand_snoop(self.txn_type)
-    self.size = self.get_rand_size() 
-    self.len = self.get_rand_len(self.addr, self.size)
-    self.burst = self.get_rand_burst()
-    self.lock = 0
-    self.cache = 0
-    self.prot = 0
-    self.qos = 0
-    self.region = 0
-    self.user = 0
-    self.bar = 0
-    self.domain = self.get_rand_domain()
-    self.atop = 0
-    self.awunique = 0
+    self.op   = self.get_rand_op()
+    mem_range = self.get_rand_mem_range()
+    self.addr = self.get_rand_addr(mem_range)
+    self.data = self.get_rand_data()
+    self.size = self.get_rand_size()
+    self.uncacheable = int(not mem_range.cached)
+    self.wr_policy_hint = self.get_rand_wr_policy_hint()
 
 class CacheTransactionSequence:
   def __init__(self):
-    self.sequence = []
+    self.sequence : list[CacheTransaction] = []
     self.separator = " "
 
   def generate_rand_sequence(self, n_transactions):
@@ -123,10 +145,8 @@ class CacheTransactionSequence:
     with open(filename, "w") as file:
       for txn in self.sequence:
         row = [
-          txn.txn_type.name, txn.snoop.value, hex(txn.addr), txn.id, txn.len,
-          txn.size, txn.burst.value, txn.lock, txn.cache,
-          txn.prot, txn.qos, txn.region, txn.user,
-          txn.bar, txn.domain, txn.atop, txn.awunique
+          txn.op.name, hex(txn.addr), hex(txn.data),
+          txn.size, txn.uncacheable, txn.wr_policy_hint.value
         ]
         file.write((self.separator.join(str(x) for x in row)) + "\n")
 
