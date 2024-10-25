@@ -35,6 +35,13 @@ class mem_sequencer #(
     endfunction
 
     function automatic ace_pkg::arsnoop_t calc_read_snoop_op(mem_req req);
+        case ({req.op, req.uncacheable})
+            {REQ_LOAD, 1}: return ace_pkg::ReadNoSnoop;
+            {REQ_LOAD, 0}: return ace_pkg::ReadShared;
+            {CMO_FLUSH_NLINE, 0}: return ace_pkg::CleanInvalid;
+            {CMO_FLUSH_NLINE, 1}: return ace_pkg::CleanInvalid;
+            default: $fatal("Unsupported type for calc_read_snoop_op!");
+        endcase
         if (req.uncacheable) begin
             return ace_pkg::ReadNoSnoop;
         end else begin
@@ -66,6 +73,8 @@ class mem_sequencer #(
             send_aw_beat(req);
             send_w_beats(req);
         end else if (req.op == REQ_LOAD) begin
+            send_ar_beat(req);
+        end else if (req.op == CMO_FLUSH_NLINE) begin
             send_ar_beat(req);
         end
     endtask
