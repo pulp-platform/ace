@@ -9,9 +9,10 @@ localparam int REQ_STORE       = 5'b00001;
 localparam int CMO_FLUSH_NLINE = 5'b10100;
 
 // Cache Memory operations
-localparam int MEM_READ   = 2'b00;
-localparam int MEM_WRITE  = 2'b01;
-localparam int MEM_ATOMIC = 2'b10;
+localparam int MEM_READ       = 3'b000;
+localparam int MEM_WRITE      = 3'b001;
+localparam int MEM_ATOMIC     = 3'b010;
+localparam int MEM_WRITE_BACK = 3'b011;
 
 localparam int WR_POLICY_WB   = 3'b010;
 localparam int WR_POLICY_WT   = 3'b100;
@@ -42,4 +43,6 @@ endclass
 
 class mem_resp;
     int unsigned data_q[$];
+    bit is_shared;
+    bit pass_dirty;
 endclass
