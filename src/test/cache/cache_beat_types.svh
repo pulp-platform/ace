@@ -9,10 +9,9 @@ localparam int REQ_STORE       = 5'b00001;
 localparam int CMO_FLUSH_NLINE = 5'b10100;
 
 // Cache Memory operations
-localparam int MEM_READ       = 3'b000;
-localparam int MEM_WRITE      = 3'b001;
-localparam int MEM_ATOMIC     = 3'b010;
-localparam int MEM_WRITE_BACK = 3'b011;
+localparam int MEM_READ        = 3'b000;
+localparam int MEM_WRITE       = 3'b001;
+localparam int MEM_ATOMIC      = 3'b010;
 
 localparam int WR_POLICY_WB   = 3'b010;
 localparam int WR_POLICY_WT   = 3'b100;
@@ -34,11 +33,14 @@ class cache_resp;
 endclass
 
 class mem_req;
-    int unsigned addr;
-    int unsigned len;
-    int unsigned size;
-    int unsigned op;
-    int unsigned data_q[$];
+    int unsigned       addr;
+    int unsigned       len;
+    int unsigned       size;
+    int unsigned       op;
+    int unsigned       data_q[$];
+    int unsigned       cacheable;
+    ace_pkg::arsnoop_t read_snoop_op;
+    ace_pkg::awsnoop_t write_snoop_op;
 endclass
 
 class mem_resp;

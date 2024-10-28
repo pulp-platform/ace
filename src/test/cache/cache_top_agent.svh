@@ -24,8 +24,12 @@ class cache_top_agent #(
     parameter type clk_if_t    = logic,
     /// Snoop bus interface type
     parameter type snoop_bus_t = logic,
-    /// File path for initial memory state
-    parameter string mem_file  = "",
+    /// File path for initial data memory state
+    parameter string data_mem_file  = "",
+    /// File path for initial tag memory state
+    parameter string tag_mem_file  = "",
+    /// File path for cacheline status bit
+    parameter string status_mem_file  = "",
     /// File path for transactions file
     parameter string txn_file  = "",
     /// File path for recording memory states
@@ -57,6 +61,8 @@ class cache_top_agent #(
 
     mailbox #(cache_req)  cache_req_mbx = new;
     mailbox #(cache_resp) cache_resp_mbx = new;
+    mailbox #(mem_req)    mem_req_mbx = new;
+    mailbox #(mem_resp)   mem_resp_mbx = new;
     mailbox #(aw_beat_t)  aw_mbx = new;
     mailbox #(w_beat_t)   w_mbx = new;
     mailbox #(ar_beat_t)  ar_mbx = new;
@@ -82,16 +88,24 @@ class cache_top_agent #(
     ) snoop_agent;
 
     cache_scoreboard #(
-        .AW(AW)
+        .AW(AW),
+        .DW(DW),
+        .WORD_WIDTH(DW),
+        .CACHELINE_WORDS(4),
+        .WAYS(2),
+        .SETS(1024)
     ) cache_sb;
 
     cache_sequencer #(
         .AW(AW),
-        .txn_file("/scratch2/akorsman/ace/scripts/python/txns.csv"),
-        .aw_beat_t(aw_beat_t),
-        .w_beat_t(w_beat_t),
-        .ar_beat_t(ar_beat_t)
+        .txn_file("/scratch2/akorsman/ace/scripts/python/txns.csv")
     ) cache_seq;
+
+    mem_sequencer #(
+        .aw_beat_t(aw_beat_t),
+        .ar_beat_t(ar_beat_t),
+        .w_beat_t(w_beat_t)
+    ) mem_seq;
 
     function new(
         ace_bus_t ace,
@@ -104,11 +118,14 @@ class cache_top_agent #(
 
         this.ace_agent   = new(this.ace, this.clk_if, this.aw_mbx, this.w_mbx, this.ar_mbx);
         this.snoop_agent = new(this.snoop, this.clk_if);
-        this.cache_sb    = new();
-        this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx,
-                                this.aw_mbx, this.ar_mbx, this.w_mbx);
+        this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
+                               this.mem_req_mbx, this.mem_resp_mbx);
+        this.cache_seq   = new(this.cache_req_mbx);
+        this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
+                               this.aw_mbx, this.ar_mbx, this.w_mbx);
 
-        this.cache_sb.init_mem_from_file(mem_file);
+        this.cache_sb.init_mem_from_file(
+            data_mem_file, tag_mem_file, status_mem_file);
 
     endfunction
 

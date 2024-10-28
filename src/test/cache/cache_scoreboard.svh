@@ -4,9 +4,13 @@
 class cache_scoreboard #(
     parameter int AW = 32,
     parameter int DW = 32,
+    // Width of one cache word
     parameter int WORD_WIDTH,
+    // How many words per cache line
     parameter int CACHELINE_WORDS,
+    // How many ways per set
     parameter int WAYS,
+    // How many sets
     parameter int SETS
 );
 
@@ -23,7 +27,6 @@ class cache_scoreboard #(
     typedef logic [TAG_BITS-1:0]        tag_t;
     typedef logic [AW-1:0]              addr_t;
     typedef logic [7:0]                 byte_t;
-    typedef logic [CACHELINE_BYTES-1:0] cacheline_t;
     typedef logic [2:0]                 status_t;
 
     typedef struct {
@@ -34,8 +37,8 @@ class cache_scoreboard #(
         int unsigned addr;
     } tag_resp_t;
     
-    byte_t   data_q[SETS][CACHELINE_BYTES][WAYS];   // Cache data
-    status_t status_q[SETS][CACHELINE_BYTES][WAYS]; // Cache state
+    byte_t   data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
+    status_t status_q[SETS][WAYS];                  // Cache state
     tag_t    tag_q[SETS][WAYS];                     // Cache tag
     // Semaphore to ensure only one process accesses the cache at a time
     semaphore cache_lookup_sem; 
@@ -49,7 +52,7 @@ class cache_scoreboard #(
         mailbox #(cache_req)  cache_req_mbx,
         mailbox #(cache_resp) cache_resp_mbx,
         mailbox #(mem_req)    mem_req_mbx,
-        mailbox #(mem_resp)   mem_resp_mbx,
+        mailbox #(mem_resp)   mem_resp_mbx
     );
         this.cache_req_mbx  = cache_req_mbx;
         this.cache_resp_mbx = cache_resp_mbx;
@@ -59,26 +62,56 @@ class cache_scoreboard #(
         this.cache_lookup_sem = new(1);
     endfunction
 
-    function void init_mem_from_file(string fname);
-        int fd, scanret;
-        addr_t addr;
-        byte_t rvalue;
-        status_t rstatus;
-        fd = $fopen(fname, "r");
-        addr = '0;
-        if (fd) begin
-            while (!$feof(fd)) begin
-                scanret = $fscanf(fd, "%x,%x", rvalue, rstatus);
-                memory_q[addr] = rvalue;
-                status_q[addr] = rstatus;
-                addr++;
+    function void init_data_mem_from_file(
+        string fname
+    );
+        byte_t data_temp[SETS*WAYS*CACHELINE_BYTES];
+        $readmemb(fname, data_temp);
+        for (int set = 0; set < SETS; set++) begin
+            for (int way = 0; way < WAYS; way++) begin
+                for (int byte_idx; byte_idx < CACHELINE_BYTES; byte_idx++) begin
+                    data_q[set][way][byte_idx] =
+                        data_temp[set*SETS+way*WAYS+byte_idx];
+                end
             end
-        end else begin
-            $fatal("Could not open file %s", fname);
         end
-        $fclose(fd);
     endfunction
 
+    function void init_tag_mem_from_file(
+        string fname
+    );
+        tag_t tag_temp[SETS*WAYS];
+        $readmemb(fname, tag_temp);
+        for (int set = 0; set < SETS; set++) begin
+            for (int way = 0; way < WAYS; way++) begin
+                tag_q[set][way] =
+                    tag_temp[set*SETS + way];
+            end
+        end
+    endfunction
+
+    function void init_status_from_file(
+        string fname
+    );
+        status_t status_temp[SETS*WAYS];
+        $readmemb(fname, status_temp);
+        for (int set = 0; set < SETS; set++) begin
+            for (int way = 0; way < WAYS; way++) begin
+                status_q[set][way] =
+                    status_temp[set*SETS + way];
+            end
+        end
+    endfunction
+
+    function void init_mem_from_file(
+        string data_fname,
+        string tag_fname,
+        string status_fname
+    );
+        init_data_mem_from_file(data_fname);
+        init_tag_mem_from_file(tag_fname);
+        init_status_from_file(status_fname);
+    endfunction
 
     function tag_resp_t read_and_compare_tag(addr_t addr);
         tag_resp_t resp;
@@ -88,9 +121,11 @@ class cache_scoreboard #(
         int way;
         int not_valid_way = '0;
         int i;
-        int unsigned addr;
         int unsigned idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
         tag_t tag        = addr[AW-1:AW-TAG_BITS];
+        // Replacement policy = highest index with invalid status
+        // otherwise, the highest way
+        // TODO: implement LRU
         for (way = 0; way < WAYS; way++) begin
             lu_tag = tag_q[idx][way];
             status = status_q[idx][way];
@@ -111,45 +146,46 @@ class cache_scoreboard #(
         end else begin
             resp.way = not_valid_way;
         end
-        resp.addr = {lu_tag, idx, BLOCK_OFFSET_BITS{1'b0}};
+        resp.addr = {lu_tag, idx, {BLOCK_OFFSET_BITS{1'b0}}};
         return resp;
     endfunction
 
-    function automatic cache_resp cache_read(tag_resp_t info);
-        int unsigned n_bytes = (req.len + 1) * (2**req.size);
+    function automatic cache_resp cache_read(tag_resp_t info, cache_req req);
+        int unsigned n_bytes = axi_pkg::num_bytes(req.size);
         int line_crossings = 0;
         cache_resp resp = new;
+        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
+        resp.data = 0;
         for (int i = 0; i < n_bytes; i++) begin
-            // Wrap around cacheline if it goes cross line boundary
-            int real_i = i - CACHELINE_BYTES*line_crossings;
-            if (real_i >= (CACHELINE_BYTES - 1)) line_crossings++;
-            req.data.push_back(data_q[info.idx][real_i][info.way]);
+            resp.data = (resp.data << 8) | data_q[info.idx][info.way][byte_idx];
+            byte_idx++;
         end
         return resp;
     endfunction
 
-    function automatic void cache_write(tag_resp_t info, cache_req req);
+    function automatic cache_resp cache_write(tag_resp_t info, cache_req req);
         int unsigned n_bytes = axi_pkg::num_bytes(req.size);
         cache_resp resp = new;
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
         for (int i = 0; i < n_bytes; i++) begin
-            byte_idx = byte_idx + i;
-            data_q[info.idx][byte_idx][info.way] = (req.data & ('hFF << 8*i)) >> 8*i;
+            data_q[info.idx][info.way][byte_idx] = (req.data & ('hFF << 8*i)) >> 8*i;
+            byte_idx++;
         end
         status_q[info.idx][info.way][DIRTY_IDX] = 'b1;
-        return;
+        return resp;
     endfunction
 
     function automatic mem_req gen_write_back(tag_resp_t info);
         mem_req mem_req;
-        mem_req.size = clog2(BYTES_PER_WORD);
-        mem_req.len  = CACHELINE_WORDS - 1;
-        mem_req.addr = info.addr;
-        mem_req.op   = MEM_WRITE_BACK;
+        mem_req.size           = $clog2(BYTES_PER_WORD);
+        mem_req.len            = CACHELINE_WORDS - 1;
+        mem_req.addr           = info.addr;
+        mem_req.op             = MEM_WRITE;
+        mem_req.write_snoop_op = ace_pkg::WriteBack;
         for (int i = 0; i < CACHELINE_WORDS; i++) begin
             int unsigned word = 0;
             for (int j = 0; j < BYTES_PER_WORD; j++) begin
-                word = (word << 8) & data_q[info.idx][i*BYTES_PER_WORD+j][info.way];
+                word = (word << 8) & data_q[info.idx][info.way][i*BYTES_PER_WORD+j];
             end
             mem_req.data_q.push_back(word);
         end
@@ -158,21 +194,24 @@ class cache_scoreboard #(
 
     function automatic mem_req gen_read_allocate(cache_req req);
         mem_req mem_req;
-        mem_req.size = $clog2(BYTES_PER_WORD);
-        mem_req.len  = CACHELINE_WORDS - 1;
-        mem_req.addr = req.addr;
-        mem_req.op   = REQ_LOAD;
+        mem_req.size          = $clog2(BYTES_PER_WORD);
+        mem_req.len           = CACHELINE_WORDS - 1;
+        mem_req.addr          = req.addr;
+        mem_req.op            = REQ_LOAD;
+        mem_req.read_snoop_op = ace_pkg::ReadShared;
         return mem_req;
     endfunction
 
     function automatic void allocate(mem_req req, mem_resp resp, tag_resp_t info);
         int unsigned n_bytes = axi_pkg::num_bytes(req.size);
-        cache_resp resp = new;
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
         for (int i = 0; i < req.len; i++) begin
+            // data_word is of size indicated by req.size
+            int unsigned data_word = resp.data_q.pop_front();
             for (int j = 0; j < n_bytes; j++) begin
-                byte_idx = byte_idx + n_bytes*i + j;
-                data_q[info.idx][byte_idx][info.way] = (resp.data & ('hFF << 8*real_i)) >> 8*real_i;
+                data_q[info.idx][info.way][byte_idx] =
+                    (data_word & (8'hFF << 8*j)) >> 8*j;
+                byte_idx++;
             end
         end
         status_q[info.idx][info.way][DIRTY_IDX] = resp.pass_dirty;
@@ -183,16 +222,22 @@ class cache_scoreboard #(
     task automatic cache_fsm(input cache_req req, output cache_resp resp);
         tag_resp_t tag_lu;
         mem_req mem_req;
+        mem_resp mem_resp;
+        mem_req.cacheable = !req.uncacheable;
         cache_lookup_sem.get(1);
         tag_lu = read_and_compare_tag(req.addr);
+        // TODO: uncached transactions don't check for tag
         if (tag_lu.hit) begin
-            if (req.read) begin
-                resp = cache_read(tag_lu);
-            end else if (req.write) begin
+            if (req.op == REQ_LOAD) begin
+                resp = cache_read(tag_lu, req);
+            end else if (req.op == REQ_STORE) begin
                 resp = cache_write(tag_lu, req);
+            end else begin
+                $fatal("Unsupported op");
             end
         end else begin
-            if (tag_lu.status.dirty && tag_lu.status.valid) begin
+            if (tag_lu.status[DIRTY_IDX] &&
+                tag_lu.status[VALID_IDX]) begin
                 // Generate write-back request
                 mem_req = gen_write_back(tag_lu);
                 // Send request and wait for response
@@ -207,22 +252,28 @@ class cache_scoreboard #(
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
             // Handle the initial cache request
-            if (req.read) begin
-                resp = cache_read(tag_lu);
-            end else begin
+            if (req.op == REQ_LOAD) begin
+                resp = cache_read(tag_lu, req);
+            end else if (req.op == REQ_STORE) begin
                 resp = cache_write(tag_lu, req);
+            end else begin
+                $fatal("Unsupported op");
             end
         end
         cache_resp_mbx.put(resp);
         cache_lookup_sem.put(1);
     endtask
 
-    task cache_req;
+    task gen_cache_req;
         cache_req req;
         cache_resp resp;
         cache_req_mbx.get(req);
-        resp = cache_fsm(req.addr);
+        cache_fsm(req, resp);
         cache_resp_mbx.put(resp);
+    endtask
+
+    task run;
+        forever gen_cache_req();
     endtask
 
 endclass

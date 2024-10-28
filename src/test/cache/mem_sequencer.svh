@@ -26,31 +26,8 @@ class mem_sequencer #(
         this.w_mbx_o      = w_mbx_o;
     endfunction
 
-    function automatic ace_pkg::awsnoop_t calc_write_snoop_op(mem_req req);
-        if (req.uncacheable) begin
-            return ace_pkg::WriteNoSnoop;
-        end else begin
-            return ace_pkg::WriteBack;
-        end
-    endfunction
-
-    function automatic ace_pkg::arsnoop_t calc_read_snoop_op(mem_req req);
-        case ({req.op, req.uncacheable})
-            {REQ_LOAD, 1}: return ace_pkg::ReadNoSnoop;
-            {REQ_LOAD, 0}: return ace_pkg::ReadShared;
-            {CMO_FLUSH_NLINE, 0}: return ace_pkg::CleanInvalid;
-            {CMO_FLUSH_NLINE, 1}: return ace_pkg::CleanInvalid;
-            default: $fatal("Unsupported type for calc_read_snoop_op!");
-        endcase
-        if (req.uncacheable) begin
-            return ace_pkg::ReadNoSnoop;
-        end else begin
-            return ace_pkg::ReadShared;
-        end
-    endfunction
-
     function automatic axi_pkg::cache_t calc_cache(mem_req req);
-        if (req.uncacheable) begin
+        if (!req.cacheable) begin
             return '0;
         end else begin
             return axi_pkg::CACHE_BUFFERABLE | 
@@ -58,8 +35,8 @@ class mem_sequencer #(
         end
     endfunction
 
-    function automatic ace_pkg::domain_t calc_domain(mem_req req);
-        if (req.uncacheable) begin
+    function automatic ace_pkg::axdomain_t calc_domain(mem_req req);
+        if (!req.cacheable) begin
             return ace_pkg::System;
         end else begin
             return ace_pkg::InnerShareable;
@@ -69,13 +46,13 @@ class mem_sequencer #(
     task recv_mem_req;
         mem_req req;
         mem_req_mbx.get(req);
-        if (req.op == REQ_STORE) begin
+        if (req.op == MEM_WRITE) begin
             send_aw_beat(req);
             send_w_beats(req);
-        end else if (req.op == REQ_LOAD) begin
+        end else if (req.op == MEM_READ) begin
             send_ar_beat(req);
-        end else if (req.op == CMO_FLUSH_NLINE) begin
-            send_ar_beat(req);
+        end else begin
+            $fatal("Unsupported op!");
         end
     endtask
 
@@ -84,7 +61,7 @@ class mem_sequencer #(
         aw_beat.addr   = req.addr;
         aw_beat.len    = req.len;
         aw_beat.size   = req.size;
-        aw_beat.snoop  = calc_write_snoop_op(req);
+        aw_beat.snoop  = req.write_snoop_op;
         aw_beat.burst  = axi_pkg::BURST_WRAP;
         aw_beat.domain = calc_domain(req);
         aw_beat.cache  = calc_cache(req);
@@ -107,7 +84,7 @@ class mem_sequencer #(
         ar_beat.addr = req.addr;
         ar_beat.len = req.len;
         ar_beat.size = req.size;
-        ar_beat.snoop = calc_read_snoop_op(req);
+        ar_beat.snoop = req.read_snoop_op;
         ar_beat.burst = axi_pkg::BURST_WRAP;
         ar_beat.domain = calc_domain(req);
         ar_beat.cache = calc_cache(req);

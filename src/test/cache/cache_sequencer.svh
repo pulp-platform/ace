@@ -3,7 +3,7 @@
 `endif
 class cache_sequencer #(
     parameter int AW = 32,
-    parameter string txn_file = "",
+    parameter string txn_file = ""
 );
 
     mailbox #(cache_req)  cache_req_mbx;
@@ -11,7 +11,7 @@ class cache_sequencer #(
     byte delimiter = " ";
 
     function new(
-        mailbox #(cache_req)  cache_req_mbx,
+        mailbox #(cache_req)  cache_req_mbx
     );
         this.cache_req_mbx  = cache_req_mbx;
     endfunction
@@ -29,7 +29,7 @@ class cache_sequencer #(
         op     = get_next_word(line);
         req.op = parse_op(op);
         req.addr           = get_next_word(line).atohex();
-        req.data           = get_next_word(line).atohext();
+        req.data           = get_next_word(line).atohex();
         req.size           = get_next_word(line).atoi();
         req.uncacheable    = get_next_word(line).atoi();
         req.wr_policy_hint = get_next_word(line).atoi();
@@ -61,7 +61,6 @@ class cache_sequencer #(
     task gen_txns_from_file;
         int fd;
         string line;
-        st_beat_t ret_st;
         cache_req cache_req;
         fd = $fopen(txn_file, "r");
         if (fd) begin

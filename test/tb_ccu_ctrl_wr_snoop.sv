@@ -185,7 +185,7 @@ module tb_ccu_ctrl_wr_snoop #(
     );
 
     initial begin
-        $readmemh("/scratch2/akorsman/ace/scripts/python/main_mem.mem", axi_mem.mem);
+        $readmemb("/scratch2/akorsman/ace/scripts/python/main_mem.mem", axi_mem.mem);
     end
 
     ace_pkg::acsnoop_t snoopy_trs;
