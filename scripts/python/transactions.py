@@ -1,6 +1,8 @@
 from random import choice, randrange, random
 from enum import Enum
 from math import log2
+from common import MemoryRange
+from typing import List
 
 class ReadSnoopType(Enum):
   READNOSNOOP = 0
@@ -42,34 +44,20 @@ class WritePolicyHint(Enum):
   WR_POLICY_WB = 2
   WR_POLICY_WT = 4
 
-class MemoryRange:
-  def __init__(
-      self,
-      cached: bool,
-      start_addr: int,
-      end_addr: int
-  ):
-    # Whether memory range is cached
-    self.cached = cached
-    # Start address of the range (inclusive)
-    self.start_addr = start_addr
-    # End address of the range (non-inclusive)
-    self.end_addr = end_addr
-
 class CacheTransaction:
   def __init__(
       self,
-      addr_width=32,
-      data_width=32
+      addr_width: int,
+      data_width: int,
+      mem_ranges: List[MemoryRange]
     ):
     self.addr = 0
     self.data = 0
     self.size = 0
     self.op = CacheReqOp.REQ_LOAD
     self.uncacheable = 0
-    self.wr_policy_hint = WritePolicyHint.WR_POLICY_WB
-
-    self.mem_ranges = []
+    self.wr_poliy_hint = WritePolicyHint.WR_POLICY_WB
+    self.mem_ranges = mem_ranges
 
     self.aw = addr_width
     self.dw = data_width
@@ -77,17 +65,7 @@ class CacheTransaction:
     self.data_min = 0
     self.data_max = (1 << self.dw) - 1
 
-    self.gen_memory_ranges()
-
-  def gen_memory_ranges(self):
-    mem_range = MemoryRange(
-      cached=True, start_addr=0, end_addr=0x1000_0000)
-    self.mem_ranges.append(mem_range)
-    mem_range = MemoryRange(
-      cached=False, start_addr=0x1000_0000, end_addr=0x2000_0000)
-    self.mem_ranges.append(mem_range)
-
-  def get_rand_mem_range(self, noncached_odds=0.1):
+  def get_rand_mem_range(self, noncached_odds=0.2):
     # Separate memory ranges into cached and non-cached ones
     # So that we can generate relatively more cached requestes 
     cached = []
@@ -97,7 +75,7 @@ class CacheTransaction:
         cached.append(memrange)
       else:
         noncached.append(memrange)
-    if random() <= noncached_odds:
+    if random() < noncached_odds:
       return choice(noncached)
     return choice(cached)
 
@@ -113,8 +91,11 @@ class CacheTransaction:
   def get_rand_size(self):
     return int(log2(self.dw))
 
-  def get_rand_data(self):
-    return randrange(self.data_min, self.data_max)
+  def get_rand_data(self, op: CacheReqOp):
+    if op in [CacheReqOp.REQ_STORE]:
+      return randrange(self.data_min, self.data_max)
+    else:
+      return 0
 
   def get_rand_uncacheable(self, uncacheable_odds=0.1):
     if random() <= uncacheable_odds:
@@ -125,19 +106,28 @@ class CacheTransaction:
     self.op   = self.get_rand_op()
     mem_range = self.get_rand_mem_range()
     self.addr = self.get_rand_addr(mem_range)
-    self.data = self.get_rand_data()
+    self.data = self.get_rand_data(self.op)
     self.size = self.get_rand_size()
     self.uncacheable = int(not mem_range.cached)
     self.wr_policy_hint = self.get_rand_wr_policy_hint()
 
 class CacheTransactionSequence:
-  def __init__(self):
+  def __init__(
+    self,
+    addr_width,
+    data_width,
+    mem_ranges: List[MemoryRange]
+    ):
+    self.aw = addr_width
+    self.dw = data_width
+    self.mem_ranges = mem_ranges
     self.sequence : list[CacheTransaction] = []
     self.separator = " "
 
   def generate_rand_sequence(self, n_transactions):
     for _ in range(n_transactions):
-      txn = CacheTransaction()
+      txn = CacheTransaction(
+        self.aw, self.dw, self.mem_ranges)
       txn.randomize()
       self.sequence.append(txn)
 
