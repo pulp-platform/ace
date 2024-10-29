@@ -12,7 +12,7 @@ class MemoryState:
     for mem_range in self.mem_ranges:
       mem_range.init_mem()
 
-  def save_rand_mem(
+  def save_mem(
     self,
     file="main_mem.mem",
     ):
