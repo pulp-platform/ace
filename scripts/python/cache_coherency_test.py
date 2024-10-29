@@ -18,6 +18,8 @@ class CacheCoherencyTest:
     self.sets = 1024
     self.n_caches = n_caches
     self.n_transactions = n_transactions
+    self.cacheline_bytes = \
+      self.cacheline_words * self.word_width // 8
     self.caches = n_caches*[
       CacheState(
         addr_width=self.aw,
@@ -86,6 +88,7 @@ class CacheCoherencyTest:
   def init_caches(self):
     for cache in self.caches:
       cache.init_cache()
+    self.caches[0].set_entry(0x20, self.cacheline_bytes*[0xF], [True, False, False])
 
   def save_caches(self):
     for i, cache in enumerate(self.caches):
@@ -94,8 +97,6 @@ class CacheCoherencyTest:
         tag_file=f"tag_mem_{i}.mem",
         state_file=f"state_{i}.mem"
       )
-
-
 
 
 if __name__ == "__main__":
