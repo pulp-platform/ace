@@ -2,65 +2,99 @@
 `include "ace/assign.svh"
 
 module tb_ccu_ctrl_r_snoop #(
+    parameter int unsigned AddrWidth = 0,
+    parameter int unsigned DataWidth = 0,
+    parameter int unsigned WordWidth = 0,
+    parameter int unsigned CachelineWords = 0,
+    parameter int unsigned Ways = 0,
+    parameter int unsigned Sets = 0,
+    parameter int unsigned TbNumMst = 0,
+    parameter string       MemDir = ""
 );
-
-
-    localparam int unsigned NoWrites = 0;   // How many writes per master
-    localparam int unsigned NoReads  = 1000;   // How many reads per master
-
-    // axi configuration
-    localparam int unsigned AxiIdWidthMasters =  1;
-    localparam int unsigned AxiIdUsed         =  1; // Has to be <= AxiIdWidthMasters
-    localparam int unsigned AxiIdWidthSlaves  =  1;
-    localparam int unsigned AxiAddrWidth      =  32;    // Axi Address Width
-    localparam int unsigned AxiDataWidth      =  64;    // Axi Data Width
-    localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
-    localparam int unsigned AxiUserWidth      =  5;
-
-    // Address space for memory which is initialized
-    localparam int mem_addr_space = 8;
-
+    // Random ace_intf no Transactions
+    localparam int unsigned NoWrites = 80;   // How many writes per ace_intf
+    localparam int unsigned NoReads  = 0;   // How many reads per ace_intf
+    // timing parameters
     localparam time CyclTime = 10ns;
     localparam time ApplTime =  2ns;
     localparam time TestTime =  8ns;
 
-    // in the bench can change this variables which are set here freely
-    localparam ccu_pkg::ccu_cfg_t ccu_cfg = '{
-        NoSlvPorts:         1,
-        MaxMstTrans:        10,
-        MaxSlvTrans:        6,
-        FallThrough:        1'b1,
-        LatencyMode:        ccu_pkg::NO_LATENCY,
-        AxiIdWidthSlvPorts: AxiIdWidthMasters,
-        AxiIdUsedSlvPorts:  AxiIdUsed,
-        UniqueIds:          1,
-        AxiAddrWidth:       AxiAddrWidth,
-        AxiDataWidth:       AxiDataWidth
-    };
+    // axi configuration
+    localparam int unsigned AxiIdWidthMasters =  4;
+    localparam int unsigned AxiIdUsed         =  3;
+    localparam int unsigned AxiIdWidthSlaves  =  AxiIdWidthMasters + $clog2(TbNumMst)+$clog2(TbNumMst+1);
+    localparam int unsigned AxiAddrWidth      =  AddrWidth;
+    localparam int unsigned AxiDataWidth      =  DataWidth;
+    localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
+    localparam int unsigned AxiUserWidth      =  5;
+    localparam int unsigned WriteBackLen      = CachelineWords - 1;
+    localparam int unsigned WriteBackSize     = $clog2(DataWidth / 8);
 
-    logic clk, rst_n;
-    logic end_of_sim;
-
-    typedef logic [AxiAddrWidth-1:0] addr_t;
     typedef logic [AxiIdWidthMasters-1:0] id_t;
-    typedef logic [AxiUserWidth-1:0] user_t;
-    typedef logic [AxiDataWidth-1:0] data_t;
-    typedef logic [AxiDataWidth/8 -1:0] strb_t;
+    typedef logic [AxiIdWidthSlaves-1:0]  id_slv_t;
+    typedef logic [AxiAddrWidth-1:0]      addr_t;
+    typedef logic [AxiDataWidth-1:0]      data_t;
+    typedef logic [AxiStrbWidth-1:0]      strb_t;
+    typedef logic [AxiUserWidth-1:0]      user_t;
 
     `ACE_TYPEDEF_AW_CHAN_T(slave_aw_chan_t, addr_t, id_t, user_t)
+    `AXI_TYPEDEF_AW_CHAN_T(master_aw_chan_t, addr_t, id_t, user_t)
     `AXI_TYPEDEF_W_CHAN_T(slave_w_chan_t, data_t, strb_t, user_t)
     `AXI_TYPEDEF_B_CHAN_T(slave_b_chan_t, id_t, user_t)
     `ACE_TYPEDEF_AR_CHAN_T(slave_ar_chan_t, addr_t, id_t, user_t)
+    `AXI_TYPEDEF_AR_CHAN_T(master_ar_chan_t, addr_t, id_t, user_t)
     `ACE_TYPEDEF_R_CHAN_T(slave_r_chan_t, data_t, id_t, user_t)
-    `ACE_TYPEDEF_REQ_T(mst_req_t, slave_aw_chan_t, slave_w_chan_t, slave_ar_chan_t)
+    `AXI_TYPEDEF_R_CHAN_T(master_r_chan_t, data_t, id_t, user_t)
     `ACE_TYPEDEF_REQ_T(slv_req_t, slave_aw_chan_t, slave_w_chan_t, slave_ar_chan_t)
-    `ACE_TYPEDEF_RESP_T(mst_resp_t, slave_b_chan_t, slave_r_chan_t)
+    `AXI_TYPEDEF_REQ_T(mst_req_t, master_aw_chan_t, slave_w_chan_t, master_ar_chan_t)
     `ACE_TYPEDEF_RESP_T(slv_resp_t, slave_b_chan_t, slave_r_chan_t)
+    `AXI_TYPEDEF_RESP_T(mst_resp_t, slave_b_chan_t, master_r_chan_t)
     `SNOOP_TYPEDEF_AC_CHAN_T(snoop_ac_t, addr_t)
     `SNOOP_TYPEDEF_CD_CHAN_T(snoop_cd_t, data_t)
     `SNOOP_TYPEDEF_CR_CHAN_T(snoop_cr_t)
     `SNOOP_TYPEDEF_REQ_T(snoop_req_t, snoop_ac_t)
     `SNOOP_TYPEDEF_RESP_T(snoop_resp_t, snoop_cd_t, snoop_cr_t)
+
+    logic clk, rst_n;
+
+    string data_mem_file_template = {MemDir, "/data_mem_%0d.mem"};
+    string tag_mem_file_template = {MemDir, "/tag_mem_%0d.mem"};
+    string status_file_template = {MemDir, "/state_%0d.mem"};
+    string txn_file_template = {MemDir, "/txns_%0d.txt"};
+
+    ACE_BUS_DV #(
+        .AXI_ADDR_WIDTH (AxiAddrWidth),
+        .AXI_DATA_WIDTH (AxiDataWidth),
+        .AXI_ID_WIDTH   (AxiIdWidthMasters),
+        .AXI_USER_WIDTH (AxiIdWidthMasters)
+    ) ace_intf [TbNumMst] (clk);
+
+    SNOOP_BUS_DV #(
+        .SNOOP_ADDR_WIDTH (AxiAddrWidth),
+        .SNOOP_DATA_WIDTH (AxiDataWidth)
+    ) snoop_intf [TbNumMst](clk);
+
+    CLK_IF clk_if (clk);
+
+    typedef virtual ACE_BUS_DV #(
+        .AXI_ADDR_WIDTH (AxiAddrWidth),
+        .AXI_DATA_WIDTH (AxiDataWidth),
+        .AXI_ID_WIDTH   (AxiIdWidthMasters),
+        .AXI_USER_WIDTH (AxiIdWidthMasters)
+    ) ace_bus_v_t;
+
+    typedef virtual SNOOP_BUS_DV #(
+        .SNOOP_ADDR_WIDTH (AxiAddrWidth),
+        .SNOOP_DATA_WIDTH (AxiDataWidth)
+    ) snoop_bus_v_t;
+
+    typedef virtual CLK_IF clk_if_v_t;
+
+    // Connections:
+    // cache_top_agent -> ACE -> DUT -> ACE -> AXI -> axi_sim_mem
+    // DUT outputs ACE, but it connects to an AXI interface
+    // This is fine because each subfield is connected separately
+    // ace.aw = axi.aw would not work because the structs have different widths
 
     //-----------------------------------
     // Clock generator
@@ -73,134 +107,121 @@ module tb_ccu_ctrl_r_snoop #(
         .rst_no (rst_n)
     );
 
-    ACE_BUS #(
-        .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
-        .AXI_DATA_WIDTH ( AxiDataWidth      ),
-        .AXI_ID_WIDTH   ( AxiIdWidthMasters ),
-        .AXI_USER_WIDTH ( AxiUserWidth      )
-    ) master ();
-    ACE_BUS_DV #(
-        .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
-        .AXI_DATA_WIDTH ( AxiDataWidth      ),
-        .AXI_ID_WIDTH   ( AxiIdWidthMasters ),
-        .AXI_USER_WIDTH ( AxiUserWidth      )
-    ) master_dv (clk);
 
-    mst_req_t  masters_req;
-    mst_resp_t masters_resp;
+    cache_test_pkg::cache_top_agent #(
+        .AW(AxiAddrWidth),
+        .DW(AxiDataWidth),
+        .AC_AW(AxiAddrWidth),
+        .CD_DW(AxiDataWidth),
+        .IW(AxiIdWidthMasters),
+        .UW(AxiUserWidth),
+        .TA(ApplTime),
+        .TT(TestTime),
+        .CACHELINE_WORDS(CachelineWords),
+        .WORD_WIDTH(WordWidth),
+        .WAYS(Ways),
+        .SETS(Sets),
+        .ace_bus_t(ace_bus_v_t),
+        .snoop_bus_t(snoop_bus_v_t),
+        .clk_if_t(clk_if_v_t)
+    ) ace_master [TbNumMst];
 
-    `ACE_ASSIGN (master, master_dv)
-    `ACE_ASSIGN_TO_REQ(masters_req, master)
-    `ACE_ASSIGN_FROM_RESP(master, masters_resp)
+    slv_req_t  [TbNumMst] masters_req;
+    slv_resp_t [TbNumMst] masters_resp;
 
-    AXI_BUS #(
-        .AXI_ADDR_WIDTH ( AxiAddrWidth     ),
-        .AXI_DATA_WIDTH ( AxiDataWidth     ),
-        .AXI_ID_WIDTH   ( AxiIdWidthSlaves ),
-        .AXI_USER_WIDTH ( AxiUserWidth     )
-    ) slave ();
+    for (genvar i = 0; i < TbNumMst; i++) begin : gen_conn_dv_masters
+        `ACE_ASSIGN_TO_REQ(masters_req[i], ace_intf[i])
+        `ACE_ASSIGN_FROM_RESP(ace_intf[i], masters_resp[i])
+    end
+
     AXI_BUS_DV #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth     ),
         .AXI_DATA_WIDTH ( AxiDataWidth     ),
         .AXI_ID_WIDTH   ( AxiIdWidthSlaves ),
         .AXI_USER_WIDTH ( AxiUserWidth     )
-    ) slave_dv(clk);
+    ) axi_intf (clk);
 
-    slv_req_t   slaves_req;
-    slv_resp_t  slaves_resp;
+    slv_req_t slaves_req;
+    slv_resp_t slaves_resp;
+    
+    mst_req_t main_mem_req;
+    mst_resp_t main_mem_resp;
 
-    `AXI_ASSIGN(slave_dv, slave)
-    `AXI_ASSIGN_FROM_REQ(slave, slaves_req)
-    `AXI_ASSIGN_TO_RESP(slaves_resp, slave)
+    `AXI_ASSIGN_FROM_REQ(axi_intf, slaves_req)
+    `AXI_ASSIGN_TO_RESP(slaves_resp, axi_intf)
 
-    SNOOP_BUS #(
-        .SNOOP_ADDR_WIDTH ( AxiAddrWidth      ),
-        .SNOOP_DATA_WIDTH ( AxiDataWidth      )
-    ) snoop ();
-    SNOOP_BUS_DV #(
-        .SNOOP_ADDR_WIDTH ( AxiAddrWidth      ),
-        .SNOOP_DATA_WIDTH ( AxiDataWidth      )
-    ) snoop_dv (clk);
+    `AXI_ASSIGN_TO_REQ(main_mem_req, axi_intf)
+    `AXI_ASSIGN_FROM_RESP(axi_intf, main_mem_resp)
 
-    snoop_req_t  snoop_req;
-    snoop_resp_t snoop_resp;
+    snoop_req_t  [TbNumMst] snoop_req;
+    snoop_resp_t [TbNumMst] snoop_resp;
 
-    `SNOOP_ASSIGN(snoop_dv, snoop)
-    `SNOOP_ASSIGN_FROM_REQ(snoop, snoop_req)
-    `SNOOP_ASSIGN_TO_RESP(snoop_resp, snoop)
+    for (genvar i = 0; i < TbNumMst; i++) begin : gen_conn_dv_snoop
+        `SNOOP_ASSIGN_FROM_REQ(snoop_intf[i], snoop_req[i])
+        `SNOOP_ASSIGN_TO_RESP(snoop_resp[i], snoop_intf[i])
+    end
 
+    for (genvar i = 0; i < TbNumMst; i++) begin : gen_rand_master
+        initial begin
+            string data_mem_file, tag_mem_file, status_file, txn_file;
+            $sformat(data_mem_file, data_mem_file_template, i);
+            $sformat(tag_mem_file, tag_mem_file_template, i);
+            $sformat(status_file, status_file_template, i);
+            $sformat(txn_file, txn_file_template, i);
+            ace_master[i] = new(
+                ace_intf[i],
+                snoop_intf[i],
+                clk_if,
+                data_mem_file,
+                tag_mem_file,
+                status_file,
+                txn_file
+            );
+            ace_master[i].reset();
+            @(posedge rst_n);
+            ace_master[i].run();
+        end
+    end
 
-    ace_sim_master::ace_rand_master #(
-        .AW (AxiAddrWidth),
-        .DW (AxiDataWidth),
-        .IW (AxiIdWidthMasters),
-        .UW (AxiUserWidth),
-        .MAX_READ_TXNS (20),
-        .MAX_WRITE_TXNS (20),
-        .UNIQUE_IDS (1),
-        .TA ( ApplTime ),
-        .TT (TestTime ),
-        .AXI_BURST_FIXED (0),
-        .AXI_BURST_INCR (0),
-        .AXI_BURST_WRAP (1),
-        .CACHELINE_WIDTH(32),
-        .MEM_ADDR_SPACE(mem_addr_space)
-    ) ace_master;
-
-    axi_test::axi_rand_slave #(
+    axi_sim_mem #(
         // AXI interface parameters
-        .AW ( AxiAddrWidth     ),
-        .DW ( AxiDataWidth     ),
-        .IW ( AxiIdWidthSlaves ),
-        .UW ( AxiUserWidth     ),
-        .TA ( ApplTime ),
-        .TT (TestTime )
-    ) axi_rand_slave;
-
-    snoop_chan_logger #(
-        .TestTime (TestTime),
-        .LoggerName ( "snoop_logger" ),
-        .ac_chan_t (snoop_ac_t),
-        .cr_chan_t (snoop_cr_t),
-        .cd_chan_t (snoop_cd_t)
-    ) snoop_chan_logger (
-        .clk_i (clk),
-        .rst_ni (rst_n),
-        .end_sim_i (end_of_sim),
-        .ac_chan_i (snoop_req.ac),
-        .ac_valid_i (snoop_req.ac_valid),
-        .ac_ready_i (snoop_resp.ac_ready),
-        .cr_chan_i (snoop_resp.cr_resp),
-        .cr_valid_i (snoop_resp.cr_valid),
-        .cr_ready_i (snoop_req.cr_ready),
-        .cd_chan_i (snoop_resp.cd),
-        .cd_valid_i (snoop_resp.cd_valid),
-        .cd_ready_i ( snoop_req.cd_ready)
+        .AddrWidth ( AxiAddrWidth     ),
+        .DataWidth ( AxiDataWidth     ),
+        .IdWidth ( AxiIdWidthSlaves ),
+        .UserWidth ( AxiUserWidth     ),
+        .NumPorts (1),
+        .axi_req_t(mst_req_t),
+        .axi_rsp_t(mst_resp_t),
+        .ApplDelay ( ApplTime ),
+        .AcqDelay (TestTime )
+    ) axi_mem (
+        .clk_i(clk),
+        .rst_ni(rst_n),
+        .axi_req_i(main_mem_req),
+        .axi_rsp_o(main_mem_resp),
+        .mon_w_valid_o(),
+        .mon_w_addr_o(),
+        .mon_w_data_o(),
+        .mon_w_id_o(),
+        .mon_w_user_o(),
+        .mon_w_beat_count_o(),
+        .mon_w_last_o(),
+        .mon_r_valid_o(),
+        .mon_r_addr_o(),
+        .mon_r_data_o(),
+        .mon_r_id_o(),
+        .mon_r_user_o(),
+        .mon_r_beat_count_o(),
+        .mon_r_last_o()
     );
 
     initial begin
-        ace_master = new(master_dv, snoop_dv);
-        end_of_sim <= 1'b0;
-        ace_master.add_memory_region(
-            32'h0000_0000, 32'h0000_3000,
-            axi_pkg::DEVICE_NONBUFFERABLE);
-        ace_master.init_cache_memory();
-        ace_master.reset();
-        @(posedge rst_n);
-        ace_master.run(NoReads, NoWrites);
-        end_of_sim <= 1'b1;
-        $finish;
-    end
-
-    initial begin
-        axi_rand_slave = new(slave_dv);
-        axi_rand_slave.reset();
-        @(posedge rst_n);
-        axi_rand_slave.run();
+        $readmemh({MemDir, "/main_mem.mem"}, axi_mem.mem);
     end
 
     ace_pkg::snoop_info_t snoopy_trs;
-    logic snoop_trs, illegal;
+
+    // DUT
 
     ace_ar_transaction_decoder #(
         .ar_chan_t(slave_ar_chan_t)
@@ -213,23 +234,23 @@ module tb_ccu_ctrl_r_snoop #(
     ccu_ctrl_r_snoop #(
         .slv_req_t(slv_req_t),
         .slv_resp_t(slv_resp_t),
-        .mst_req_t(mst_req_t),
-        .mst_resp_t(mst_resp_t),
+        .mst_req_t(slv_req_t),
+        .mst_resp_t(slv_resp_t),
         .slv_ar_chan_t(slave_ar_chan_t),
         .mst_snoop_req_t(snoop_req_t),
         .mst_snoop_resp_t(snoop_resp_t),
-        .AXLEN(2),
-        .AXSIZE(2'b11)
+        .AXLEN(WriteBackLen),
+        .AXSIZE(WriteBackSize)
     ) DUT (
         .clk_i(clk),
         .rst_ni(rst_n),
         .snoop_info_i(snoopy_trs),
-        .slv_req_i(masters_req),
-        .slv_resp_o(masters_resp),
+        .slv_req_i(masters_req[0]),
+        .slv_resp_o(masters_resp[0]),
         .mst_req_o(slaves_req),
         .mst_resp_i(slaves_resp),
-        .snoop_resp_i(snoop_resp),
-        .snoop_req_o(snoop_req)
+        .snoop_resp_i(snoop_resp[0]),
+        .snoop_req_o(snoop_req[0])
     );
 
 endmodule
