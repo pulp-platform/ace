@@ -23,17 +23,7 @@ class cache_top_agent #(
     /// Clock interface type
     parameter type clk_if_t    = logic,
     /// Snoop bus interface type
-    parameter type snoop_bus_t = logic,
-    /// File path for initial data memory state
-    parameter string data_mem_file  = "",
-    /// File path for initial tag memory state
-    parameter string tag_mem_file  = "",
-    /// File path for cacheline status bit
-    parameter string status_mem_file  = "",
-    /// File path for transactions file
-    parameter string txn_file  = "",
-    /// File path for recording memory states
-    parameter string mem_state_file = ""
+    parameter type snoop_bus_t = logic
 );
     ace_bus_t ace;
     snoop_bus_t snoop;
@@ -59,13 +49,13 @@ class cache_top_agent #(
         .IW(IW), .UW(UW)
     ) b_beat_t;
 
-    mailbox #(cache_req)  cache_req_mbx = new;
-    mailbox #(cache_resp) cache_resp_mbx = new;
-    mailbox #(mem_req)    mem_req_mbx = new;
-    mailbox #(mem_resp)   mem_resp_mbx = new;
-    mailbox #(aw_beat_t)  aw_mbx = new;
-    mailbox #(w_beat_t)   w_mbx = new;
-    mailbox #(ar_beat_t)  ar_mbx = new;
+    mailbox #(cache_req)  cache_req_mbx = new();
+    mailbox #(cache_resp) cache_resp_mbx = new();
+    mailbox #(mem_req)    mem_req_mbx = new();
+    mailbox #(mem_resp)   mem_resp_mbx = new();
+    mailbox #(aw_beat_t)  aw_mbx = new();
+    mailbox #(w_beat_t)   w_mbx = new();
+    mailbox #(ar_beat_t)  ar_mbx = new();
 
 
     ace_test_pkg::ace_agent #(
@@ -97,8 +87,7 @@ class cache_top_agent #(
     ) cache_sb;
 
     cache_sequencer #(
-        .AW(AW),
-        .txn_file("/scratch2/akorsman/ace/scripts/python/txns.csv")
+        .AW(AW)
     ) cache_seq;
 
     mem_sequencer #(
@@ -110,7 +99,11 @@ class cache_top_agent #(
     function new(
         ace_bus_t ace,
         snoop_bus_t snoop,
-        clk_if_t clk_if
+        clk_if_t clk_if,
+        string data_mem_file,
+        string tag_mem_file,
+        string status_file,
+        string txn_file
     );
         this.ace    = ace;
         this.snoop  = snoop;
@@ -120,13 +113,15 @@ class cache_top_agent #(
         this.snoop_agent = new(this.snoop, this.clk_if);
         this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx);
-        this.cache_seq   = new(this.cache_req_mbx);
+        this.cache_seq   = new(this.cache_req_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
                                this.aw_mbx, this.ar_mbx, this.w_mbx);
 
         this.cache_sb.init_mem_from_file(
-            data_mem_file, tag_mem_file, status_mem_file);
-
+            data_mem_file,
+            tag_mem_file,
+            status_file
+        );
     endfunction
 
     task reset;
@@ -141,6 +136,8 @@ class cache_top_agent #(
             this.ace_agent.run();
             this.snoop_agent.run();
             this.cache_seq.run();
+            this.cache_sb.run();
+            this.mem_seq.run();
         join
     endtask
 
