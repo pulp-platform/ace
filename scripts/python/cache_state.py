@@ -2,8 +2,8 @@ from common import MemoryRange
 from typing import List
 from math import log2
 from random import random, randint, choices
-import numpy as np
 from enum import Enum
+import numpy as np
 
 class StateBits(Enum):
   VALID_IDX = 0
@@ -81,19 +81,25 @@ class CacheState:
 
     self.index_mask = ((1 << self.index_bits) - 1) << self.block_offset_bits
 
-    self.cache_status = self.sets * [self.ways * [3 * [None]]]
-    self.cache_data = self.sets * [self.ways * [self.cacheline_bytes * [None]]]
-    self.cache_tag  = self.sets * [self.ways * [None]]
+    self.cache_status = None
+    self.cache_data   = None
+    self.cache_tag    = None
 
   def init_cache(self):
+    # multi-dimensional lists must be initialized in steps
+    # to ensure that unique copies are created, instead of
+    # references to one
+    self.cache_status = self.sets * [None]
+    self.cache_tag = self.sets * [None]
+    self.cache_data = self.sets * [None]
     for set in range(self.sets):
+      self.cache_status[set] = self.ways * [None]
+      self.cache_tag[set] = self.ways * [None]
+      self.cache_data[set] = self.ways * [None]
       for way in range(self.ways):
-        self.cache_status[set][way][StateBits.VALID_IDX.value] = False
-        self.cache_status[set][way][StateBits.SHARED_IDX.value] = False
-        self.cache_status[set][way][StateBits.DIRTY_IDX.value] = False
+        self.cache_status[set][way] = 3 * [False]
         self.cache_tag[set][way] = 0
-        for byte in range(self.cacheline_bytes):
-          self.cache_data[set][way][byte] = 0
+        self.cache_data[set][way] = self.cacheline_bytes * [0]
 
   def get_index(self, addr):
     return (addr & self.index_mask) >> self.block_offset_bits
@@ -112,7 +118,7 @@ class CacheState:
   def set_entry(
       self,
       addr: int,
-      data: np.ndarray,
+      data: List[int],
       status: List[bool]
     ):
     """Write cacheline corresponding to addr with data and status.
@@ -125,37 +131,51 @@ class CacheState:
     for byte_idx in range(self.cacheline_bytes):
       self.cache_data[set_idx][way_idx][byte_idx] = \
         data[byte_idx]
-    self.cache_status[set_idx][way_idx] = status
+    self.cache_status[set_idx][way_idx][0] = status[0]
+    self.cache_status[set_idx][way_idx][1] = status[1]
+    self.cache_status[set_idx][way_idx][2] = status[2]
 
   def save_data(
     self,
     file
   ):
-    with open(file, "wb") as data_file:
+    with open(file, "w") as data_file:
       for set in range(self.sets):
         for way in range(self.ways):
-          b_data = bytearray(self.cache_data[set][way])
-          data_file.write(b_data)
+          if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
+            fmt = [f"@{set:x}"]
+            for byte in self.cache_data[set][way]:
+              fmt += [f"{byte:x}"]
+            data_file.write(" ".join(fmt) + "\n")
 
   # TODO: ensure width
   def save_tag(
     self,
     file
   ):
-    with open(file, "wb") as tag_file:
+    with open(file, "w") as tag_file:
       for set in range(self.sets):
-        b_data = bytearray(self.cache_tag[set])
-        tag_file.write(b_data)
+        for way in range(self.ways):
+          if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
+            fmt = [f"@{set:x}"]
+            fmt += [f"{self.cache_tag[set][way]:x}"]
+            tag_file.write(" ".join(fmt) + "\n")
+
+  def status_arr_to_int(self, bool_arr):
+    bin_str = ''.join(['1' if x else '0' for x in bool_arr])
+    return int(bin_str, 2)
 
   def save_status(
     self,
     file
   ):
-    with open(file, "wb") as state_file:
+    with open(file, "w") as state_file:
       for set in range(self.sets):
         for way in range(self.ways):
-          b_data = bytearray(self.cache_status[set][way])
-          state_file.write(b_data)
+          if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
+            fmt = [f"@{set:x}"]
+            fmt += [f"{self.status_arr_to_int(self.cache_status[set][way]):b}"]
+            state_file.write(" ".join(fmt) + "\n")
 
   def save_state(
       self,
