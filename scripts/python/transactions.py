@@ -38,7 +38,7 @@ class BurstType(Enum):
 class CacheReqOp(Enum):
   REQ_LOAD = 0
   REQ_STORE = 1
-  CMO_FLUSH_NLINE = 20
+  CMO_FLUSH_NLINE = 2
 
 class WritePolicyHint(Enum):
   WR_POLICY_WB = 2
@@ -80,7 +80,10 @@ class CacheTransaction:
     return choice(cached)
 
   def get_rand_op(self):
-    return choice(list(CacheReqOp))
+    allowed_ops = [
+      CacheReqOp.REQ_LOAD
+    ]
+    return choice(allowed_ops)
 
   def get_rand_addr(self, mem_range: MemoryRange):
     return randrange(mem_range.start_addr, mem_range.end_addr)
@@ -132,13 +135,18 @@ class CacheTransactionSequence:
       self.sequence.append(txn)
 
   def generate_file(self, filename):
+    first = True
     with open(filename, "w") as file:
       for txn in self.sequence:
+        if not first:
+          file.write("\n")
+        else:
+          first = False
         row = [
           txn.op.name, hex(txn.addr), hex(txn.data),
           txn.size, txn.uncacheable, txn.wr_policy_hint.value
         ]
-        file.write((self.separator.join(str(x) for x in row)) + "\n")
+        file.write((self.separator.join(str(x) for x in row)))
 
 
 if __name__ == "__main__":
