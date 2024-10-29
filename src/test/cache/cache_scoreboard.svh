@@ -65,42 +65,26 @@ class cache_scoreboard #(
     function void init_data_mem_from_file(
         string fname
     );
-        byte_t data_temp[SETS*WAYS*CACHELINE_BYTES];
-        $readmemb(fname, data_temp);
-        for (int set = 0; set < SETS; set++) begin
-            for (int way = 0; way < WAYS; way++) begin
-                for (int byte_idx; byte_idx < CACHELINE_BYTES; byte_idx++) begin
-                    data_q[set][way][byte_idx] =
-                        data_temp[set*SETS+way*WAYS+byte_idx];
-                end
-            end
-        end
+        $readmemh(fname, data_q);
     endfunction
 
     function void init_tag_mem_from_file(
         string fname
     );
-        tag_t tag_temp[SETS*WAYS];
-        $readmemb(fname, tag_temp);
-        for (int set = 0; set < SETS; set++) begin
-            for (int way = 0; way < WAYS; way++) begin
-                tag_q[set][way] =
-                    tag_temp[set*SETS + way];
-            end
-        end
+        $readmemh(fname, tag_q);
     endfunction
 
     function void init_status_from_file(
         string fname
     );
-        status_t status_temp[SETS*WAYS];
-        $readmemb(fname, status_temp);
+        // Initialize all to zeros
         for (int set = 0; set < SETS; set++) begin
             for (int way = 0; way < WAYS; way++) begin
-                status_q[set][way] =
-                    status_temp[set*SETS + way];
+                status_q[set][way] = '0;
             end
         end
+        // Read initial values from file
+        $readmemb(fname, status_q);
     endfunction
 
     function void init_mem_from_file(
@@ -193,7 +177,7 @@ class cache_scoreboard #(
     endfunction
 
     function automatic mem_req gen_read_allocate(cache_req req);
-        mem_req mem_req;
+        mem_req mem_req = new;
         mem_req.size          = $clog2(BYTES_PER_WORD);
         mem_req.len           = CACHELINE_WORDS - 1;
         mem_req.addr          = req.addr;
@@ -221,7 +205,7 @@ class cache_scoreboard #(
 
     task automatic cache_fsm(input cache_req req, output cache_resp resp);
         tag_resp_t tag_lu;
-        mem_req mem_req;
+        mem_req mem_req = new;
         mem_resp mem_resp;
         mem_req.cacheable = !req.uncacheable;
         cache_lookup_sem.get(1);
@@ -248,6 +232,7 @@ class cache_scoreboard #(
             mem_req = gen_read_allocate(req);
             // Send request and wait for response
             mem_req_mbx.put(mem_req);
+            $display("sent mem req");
             mem_resp_mbx.get(mem_resp);
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
@@ -266,8 +251,9 @@ class cache_scoreboard #(
 
     task gen_cache_req;
         cache_req req;
-        cache_resp resp;
+        cache_resp resp = new;
         cache_req_mbx.get(req);
+        $info("cache req received");
         cache_fsm(req, resp);
         cache_resp_mbx.put(resp);
     endtask
