@@ -18,6 +18,14 @@ class cache_top_agent #(
     parameter time TA = 0ns,
     /// Stimuli test time
     parameter time TT = 0ns,
+    /// How many words in a cache line
+    parameter CACHELINE_WORDS  = 4,
+    /// Width of a cacheline word
+    parameter WORD_WIDTH       = 32,
+    /// How many ways in the cache
+    parameter WAYS             = 4,
+    /// How many sets in the cache
+    parameter SETS             = 1024,
     /// ACE bus interface type
     parameter type ace_bus_t   = logic,
     /// Clock interface type
@@ -80,10 +88,10 @@ class cache_top_agent #(
     cache_scoreboard #(
         .AW(AW),
         .DW(DW),
-        .WORD_WIDTH(DW),
-        .CACHELINE_WORDS(4),
-        .WAYS(2),
-        .SETS(1024)
+        .WORD_WIDTH(WORD_WIDTH),
+        .CACHELINE_WORDS(CACHELINE_WORDS),
+        .WAYS(WAYS),
+        .SETS(SETS)
     ) cache_sb;
 
     cache_sequencer #(
