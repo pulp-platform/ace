@@ -30,6 +30,7 @@ SEEDS=(0)
 # echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
 call_vsim() {
     for seed in ${SEEDS[@]}; do
+        #echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
         if [ -f ${ROOT}/scripts/$1.do ]; then
             $VSIM -do ${ROOT}/scripts/$1.do -sv_seed $seed "$@" | tee vsim.log 2>&1
         else
@@ -74,6 +75,17 @@ exec_test() {
                     done
                 done
             done
+            ;;
+        ccu_ctrl_r_snoop)
+            call_vsim tb_ccu_ctrl_r_snoop -t 1ns -coverage -voptargs="+acc" \
+            -gAddrWidth=$ADDR_WIDTH \
+            -gDataWidth=$DATA_WIDTH \
+            -gWordWidth=$WORD_WIDTH \
+            -gCachelineWords=$CACHELINE_WORDS \
+            -gWays=$WAYS \
+            -gSets=$SETS \
+            -gTbNumMst=$NMASTERS \
+            -gMemDir=$MEM_DIR
             ;;
         *)
             call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc"

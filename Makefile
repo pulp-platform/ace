@@ -24,6 +24,27 @@ TBS         ?= ace_ccu_top \
 
 SIM_TARGETS := $(addsuffix .log,$(addprefix sim-,$(TBS)))
 
+# Simulation parameters
+ADDR_WIDTH 			?= 32
+DATA_WIDTH 			?= 64
+WORD_WIDTH 			?= 64
+CACHELINE_WORDS ?= 4
+WAYS 						?= 4
+SETS 						?= 1024
+NMASTERS 				?= 1
+NTRANSACTIONS 	?= 100
+
+MEM_DIR = $(PWD)/build/mem
+
+export ADDR_WIDTH
+export DATA_WIDTH
+export WORD_WIDTH
+export CACHELINE_WORDS
+export WAYS
+export SETS
+export NMASTERS
+export NTRANSACTIONS
+export MEM_DIR
 
 .SHELL: bash
 
@@ -50,6 +71,21 @@ sim_all: $(SIM_TARGETS)
 
 build:
 	mkdir -p $@
+
+build/mem: build
+	mkdir -p $@
+
+init_mem: build/mem
+	python3 scripts/python/cache_coherency_test.py \
+	--addr_width ${ADDR_WIDTH} \
+	--data_width ${DATA_WIDTH} \
+	--word_width ${WORD_WIDTH} \
+	--cacheline_words ${CACHELINE_WORDS} \
+	--ways ${WAYS} \
+	--sets ${SETS} \
+	--n_caches ${NMASTERS} \
+	--n_transactions ${NTRANSACTIONS} \
+	--target_dir $(PWD)/build/mem
 
 
 elab.log: Bender.yml | build
