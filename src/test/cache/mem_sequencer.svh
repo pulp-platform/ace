@@ -45,19 +45,23 @@ class mem_sequencer #(
 
     task recv_mem_req;
         mem_req req;
+        $display("receiving");
         mem_req_mbx.get(req);
+        $display("received");
         if (req.op == MEM_WRITE) begin
             send_aw_beat(req);
             send_w_beats(req);
         end else if (req.op == MEM_READ) begin
+            $display("here1");
             send_ar_beat(req);
+            $display("here2");
         end else begin
             $fatal("Unsupported op!");
         end
     endtask
 
     task send_aw_beat(input mem_req req);
-        aw_beat_t aw_beat;
+        aw_beat_t aw_beat = new;
         aw_beat.addr   = req.addr;
         aw_beat.len    = req.len;
         aw_beat.size   = req.size;
@@ -70,7 +74,7 @@ class mem_sequencer #(
 
     task send_w_beats(input mem_req req);
         while (req.data_q.size() > 0) begin
-            w_beat_t w_beat;
+            w_beat_t w_beat = new;
             w_beat.data = req.data_q.pop_front();
             w_beat.strb = '1;
             w_beat.user = '0;
@@ -80,7 +84,7 @@ class mem_sequencer #(
     endtask
 
     task send_ar_beat(input mem_req req);
-        ar_beat_t ar_beat;
+        ar_beat_t ar_beat = new;
         ar_beat.addr = req.addr;
         ar_beat.len = req.len;
         ar_beat.size = req.size;
