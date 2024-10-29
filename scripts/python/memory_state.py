@@ -16,13 +16,14 @@ class MemoryState:
     self,
     file="main_mem.mem",
     ):
-    with open(file, "wb") as mem_file:
+    with open(file, "w") as mem_file:
+      mem_file.write("@0\n")
       for mem_range in self.mem_ranges:
         for addr in range(mem_range.start_addr, mem_range.end_addr, 4):
-          b_data = bytearray([
+          fmt = "{:2x} {:2x} {:2x} {:2x}\n".format(
             mem_range.mem_data[addr - mem_range.start_addr],
             mem_range.mem_data[addr - mem_range.start_addr + 1],
             mem_range.mem_data[addr - mem_range.start_addr + 2],
-            mem_range.mem_data[addr - mem_range.start_addr + 3],
-          ])
-          mem_file.write(b_data)
+            mem_range.mem_data[addr - mem_range.start_addr + 3]
+          )
+          mem_file.write(fmt)
