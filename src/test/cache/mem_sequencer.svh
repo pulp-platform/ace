@@ -4,12 +4,14 @@
 class mem_sequencer #(
     parameter type aw_beat_t = logic,
     parameter type ar_beat_t = logic,
-    parameter type w_beat_t = logic
+    parameter type r_beat_t  = logic,
+    parameter type w_beat_t  = logic
 );
     mailbox #(mem_req)    mem_req_mbx;
     mailbox #(mem_resp)   mem_resp_mbx;
     mailbox #(aw_beat_t)  aw_mbx_o;
     mailbox #(ar_beat_t)  ar_mbx_o;
+    mailbox #(r_beat_t)   r_mbx_o;
     mailbox #(w_beat_t)   w_mbx_o;
 
     function new(
@@ -17,12 +19,14 @@ class mem_sequencer #(
         mailbox #(mem_resp)   mem_resp_mbx,
         mailbox #(aw_beat_t)  aw_mbx_o,
         mailbox #(ar_beat_t)  ar_mbx_o,
+        mailbox #(r_beat_t)   r_mbx_o,
         mailbox #(w_beat_t)   w_mbx_o
     );
         this.mem_req_mbx  = mem_req_mbx;
         this.mem_resp_mbx = mem_resp_mbx;
         this.aw_mbx_o     = aw_mbx_o;
         this.ar_mbx_o     = ar_mbx_o;
+        this.r_mbx_o      = r_mbx_o;
         this.w_mbx_o      = w_mbx_o;
     endfunction
 
@@ -75,7 +79,9 @@ class mem_sequencer #(
     task send_w_beats(input mem_req req);
         while (req.data_q.size() > 0) begin
             w_beat_t w_beat = new;
-            w_beat.data = req.data_q.pop_front();
+            for (int i = 0; i < (w_beat.DW / 8); i++) begin
+                w_beat.data[i +: 8] = req.data_q.pop_front();
+            end
             w_beat.strb = '1;
             w_beat.user = '0;
             w_beat.last = (req.data_q.size() == 1);
@@ -95,12 +101,33 @@ class mem_sequencer #(
         ar_mbx_o.put(ar_beat);
     endtask
 
+    task recv_r_beats;
+        r_beat_t r_beat;
+        mem_resp resp = new;
+        do begin
+            r_mbx_o.get(r_beat);
+            for (int i = 0; i < (r_beat.DW / 8); i++) begin
+                resp.data_q.push_back(r_beat.data[i +: 8]);
+            end
+            resp.is_shared  = r_beat.resp[3];
+            resp.pass_dirty = r_beat.resp[2];
+        end while (!r_beat.last);
+        mem_resp_mbx.put(resp);
+    endtask
+
     task recv_mem_reqs;
         forever recv_mem_req();
     endtask
 
+    task send_mem_resps;
+        forever recv_r_beats();
+    endtask
+
     task run;
-        recv_mem_reqs();
+        fork
+            recv_mem_reqs();
+            send_mem_resps();
+        join
     endtask
 
 endclass
