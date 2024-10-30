@@ -14,7 +14,7 @@ class snoop_monitor #(
 
     // Mailbox for AC transactions
     // Should be created and connected outside
-    mailbox ac_mbx;
+    mailbox #(ac_beat_t) ac_mbx;
 
     task cycle_start;
         #TT;
@@ -26,7 +26,7 @@ class snoop_monitor #(
 
     function new (
         snoop_bus_t snoop,
-        mailbox ac_mbx
+        mailbox #(ac_beat_t) ac_mbx
     );
         this.snoop = snoop;
         this.ac_mbx = ac_mbx;
