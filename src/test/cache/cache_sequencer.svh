@@ -2,7 +2,8 @@
 *** INCLUDED IN cache_test_pkg ***
 `endif
 class cache_sequencer #(
-    parameter int AW = 32
+    parameter int AW = 32,
+    parameter int DW = 32
 );
 
     mailbox #(cache_req)  cache_req_mbx;
@@ -27,12 +28,17 @@ class cache_sequencer #(
 
     function automatic cache_req parse_txn(string line);
         cache_req req = new;
+        logic [DW-1:0] word;
         string op;
+        int size;
         op     = get_next_word(line);
         req.op = parse_op(op);
         req.addr           = get_next_word(line).atohex();
-        req.data           = get_next_word(line).atohex();
-        req.size           = get_next_word(line).atoi();
+        word               = get_next_word(line).atohex();
+        for (int i = 0; i < (DW / 8); i++) begin
+            req.data_q.push_back(word[i +: 8]);
+        end
+        size           = get_next_word(line).atoi();
         req.uncacheable    = get_next_word(line).atoi();
         req.wr_policy_hint = get_next_word(line).atoi();
         return req;
