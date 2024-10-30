@@ -59,9 +59,8 @@ class ace_driver #(
                 ar_mbx.get(ar_txn);
                 send_ar(ar_txn);
             end
-            forever begin
-                recv_b();
-            end
+            forever recv_r();
+            forever recv_b();
         join
     endtask
 
@@ -207,6 +206,18 @@ class ace_driver #(
         ace.w_last  <= #TA '0;
         ace.w_user  <= #TA '0;
         ace.w_valid <= #TA 0;
+    endtask
+
+    task recv_r;
+        ace.r_ready <= #TA 1;
+        cycle_start();
+        while (!(ace.r_valid && ace.r_last)) begin 
+            cycle_end(); cycle_start(); 
+        end
+        ace.r_ready <= #TA 0;
+        ace.rack    <= #TA 1;
+        cycle_start();
+        ace.rack    <= #TA 0;
     endtask
 
     /// Wait for a beat on the B channel.
