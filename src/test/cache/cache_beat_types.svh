@@ -19,8 +19,7 @@ localparam int WR_POLICY_WT   = 3'b100;
 /// Datatype to orchestrate cache read and write requests
 class cache_req;
     int unsigned addr;
-    int unsigned data;
-    int unsigned size;
+    logic [7:0]  data_q[$];
     int unsigned op;
     bit          uncacheable;
     bit          wr_policy_hint;
@@ -29,7 +28,7 @@ endclass
 /// Datatype to orchestrate cache lookups between
 /// cache sequencer and cache scoreboard
 class cache_resp;
-    int unsigned data;
+    logic [7:0]       data_q[$];
 endclass
 
 class mem_req;
@@ -37,14 +36,14 @@ class mem_req;
     int unsigned       len;
     int unsigned       size;
     int unsigned       op;
-    int unsigned       data_q[$];
+    logic [7:0]        data_q[$];
     int unsigned       cacheable;
     ace_pkg::arsnoop_t read_snoop_op;
     ace_pkg::awsnoop_t write_snoop_op;
 endclass
 
 class mem_resp;
-    int unsigned data_q[$];
-    bit is_shared;
-    bit pass_dirty;
+    logic [7:0] data_q[$];
+    bit         is_shared;
+    bit         pass_dirty;
 endclass
