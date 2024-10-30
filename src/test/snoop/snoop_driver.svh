@@ -17,13 +17,13 @@ class snoop_driver #(
 
     // Mailboxes for CD and CR transcations
     // Should be created and connected outside
-    mailbox cd_mbx;
-    mailbox cr_mbx;
+    mailbox #(cd_beat_t) cd_mbx;
+    mailbox #(cr_beat_t) cr_mbx;
 
     function new (
         snoop_bus_t snoop,
-        mailbox cr_mbx,
-        mailbox cd_mbx
+        mailbox #(cr_beat_t) cr_mbx,
+        mailbox #(cd_beat_t) cd_mbx
     );
         this.snoop = snoop;
 
@@ -49,13 +49,13 @@ class snoop_driver #(
     endtask
 
     task rec_cd_txns;
-        cd_beat_t beat = new;
+        cd_beat_t beat;
         cd_mbx.get(beat);
         send_cd(beat);
     endtask
 
     task rec_cr_txns;
-        cr_beat_t beat = new;
+        cr_beat_t beat;
         cr_mbx.get(beat);
         send_cr(beat);
     endtask
