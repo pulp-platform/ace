@@ -2,23 +2,25 @@
 *** INCLUDED IN cache_test_pkg ***
 `endif
 class cache_scoreboard #(
+    /// Address space
     parameter int AW = 32,
+    /// Width of the memory bus
     parameter int DW = 32,
-    // Width of one cache word
+    /// Width of one cache word
     parameter int WORD_WIDTH,
-    // How many words per cache line
+    /// How many words per cache line
     parameter int CACHELINE_WORDS,
-    // How many ways per set
+    /// How many ways per set
     parameter int WAYS,
-    // How many sets
+    /// How many sets
     parameter int SETS
 );
 
-    localparam int BYTES_PER_WORD = DW / 8;
-    localparam int CACHELINE_BYTES = CACHELINE_WORDS * WORD_WIDTH / 8;
+    localparam int BYTES_PER_WORD    = DW / 8;
+    localparam int CACHELINE_BYTES   = CACHELINE_WORDS * WORD_WIDTH / 8;
     localparam int BLOCK_OFFSET_BITS = $clog2(CACHELINE_BYTES);
-    localparam int INDEX_BITS = $clog2(SETS);
-    localparam int TAG_BITS = AW - BLOCK_OFFSET_BITS - INDEX_BITS;
+    localparam int INDEX_BITS        = $clog2(SETS);
+    localparam int TAG_BITS          = AW - BLOCK_OFFSET_BITS - INDEX_BITS;
 
     localparam int VALID_IDX = 0;
     localparam int SHARD_IDX = 1;
@@ -29,34 +31,43 @@ class cache_scoreboard #(
     typedef logic [7:0]                 byte_t;
     typedef logic [2:0]                 status_t;
 
+    // Data structure obtained from tag lookup
     typedef struct {
         logic hit;
         status_t status;
         int way;
         int idx;
+        int tag;
         int unsigned addr;
     } tag_resp_t;
     
     byte_t   data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
     status_t status_q[SETS][WAYS];                  // Cache state
     tag_t    tag_q[SETS][WAYS];                     // Cache tag
+
     // Semaphore to ensure only one process accesses the cache at a time
+    // The two processes are cache requests and snoop requests
+    // TODO: figure the critical point where using this is necessary
+    // ATM it is not used
     semaphore cache_lookup_sem; 
 
-    mailbox #(cache_req)  cache_req_mbx;
-    mailbox #(cache_resp) cache_resp_mbx;
+    // Mailboxes for cache requests
+    mailbox #(cache_req)        cache_req_mbx;
+    mailbox #(cache_resp)       cache_resp_mbx;
+    // Mailboxes for snoop requests
     mailbox #(cache_snoop_req)  snoop_req_mbx;
     mailbox #(cache_snoop_resp) snoop_resp_mbx;
-    mailbox #(mem_req)    mem_req_mbx;
-    mailbox #(mem_resp)   mem_resp_mbx;
+    // Mailboxes for memory requests
+    mailbox #(mem_req)          mem_req_mbx;
+    mailbox #(mem_resp)         mem_resp_mbx;
 
     function new(
-        mailbox #(cache_req)  cache_req_mbx,
-        mailbox #(cache_resp) cache_resp_mbx,
+        mailbox #(cache_req)        cache_req_mbx,
+        mailbox #(cache_resp)       cache_resp_mbx,
         mailbox #(cache_snoop_req)  snoop_req_mbx,
         mailbox #(cache_snoop_resp) snoop_resp_mbx,
-        mailbox #(mem_req)    mem_req_mbx,
-        mailbox #(mem_resp)   mem_resp_mbx
+        mailbox #(mem_req)          mem_req_mbx,
+        mailbox #(mem_resp)         mem_resp_mbx
     );
         this.cache_req_mbx  = cache_req_mbx;
         this.cache_resp_mbx = cache_resp_mbx;
@@ -104,6 +115,7 @@ class cache_scoreboard #(
     endfunction
 
     function tag_resp_t read_and_compare_tag(addr_t addr);
+        addr_t zero_addr = '0;
         tag_resp_t resp;
         tag_t lu_tag;
         status_t status;
@@ -113,6 +125,7 @@ class cache_scoreboard #(
         int i;
         int unsigned idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
         tag_t tag        = addr[AW-1:AW-TAG_BITS];
+        addr = zero_addr & addr;
         // Replacement policy = highest index with invalid status
         // otherwise, the highest way
         // TODO: implement LRU
@@ -136,6 +149,8 @@ class cache_scoreboard #(
         end else begin
             resp.way = not_valid_way;
         end
+        resp.status = status;
+        resp.tag = tag;
         resp.addr = {lu_tag, idx, {BLOCK_OFFSET_BITS{1'b0}}};
         return resp;
     endfunction
@@ -163,10 +178,8 @@ class cache_scoreboard #(
         return resp;
     endfunction
 
-    function automatic cache_resp cache_set_state(tag_resp_t info, status_t state);
-        cache_resp resp = new;
+    function automatic void cache_set_state(tag_resp_t info, status_t state);
         status_q[info.idx][info.way] = state;
-        return resp;
     endfunction
 
     function automatic mem_req gen_write_back(tag_resp_t info);
@@ -198,13 +211,14 @@ class cache_scoreboard #(
     function automatic void allocate(mem_req req, mem_resp resp, tag_resp_t info);
         int unsigned n_bytes = axi_pkg::num_bytes(req.size);
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
-        for (int i = 0; i < req.len; i++) begin
+        for (int i = 0; i < (req.len + 1); i++) begin
             for (int j = 0; j < n_bytes; j++) begin
                 data_q[info.idx][info.way][byte_idx] =
                     resp.data_q.pop_front();
                 byte_idx++;
             end
         end
+        tag_q[info.idx][info.way]               = info.tag;
         status_q[info.idx][info.way][DIRTY_IDX] = resp.pass_dirty;
         status_q[info.idx][info.way][SHARD_IDX] = resp.is_shared;
         status_q[info.idx][info.way][VALID_IDX] = 'b1;
@@ -289,6 +303,11 @@ class cache_scoreboard #(
                 end
                 default: $fatal(1, "Unsupported snoop op!");
             endcase
+        end else begin
+            resp.snoop_resp.WasUnique    = 1'b0;
+            resp.snoop_resp.DataTransfer = 1'b0;
+            resp.snoop_resp.IsShared     = 1'b0;
+            resp.snoop_resp.PassDirty    = 1'b0;
         end
     endtask
 
@@ -299,7 +318,6 @@ class cache_scoreboard #(
         mem_req.cacheable = !req.uncacheable;
         //cache_lookup_sem.get(1);
         tag_lu = read_and_compare_tag(req.addr);
-        // TODO: uncached transactions don't check for tag
         if (tag_lu.hit) begin
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
@@ -321,7 +339,6 @@ class cache_scoreboard #(
             mem_req = gen_read_allocate(req);
             // Send request and wait for response
             mem_req_mbx.put(mem_req);
-            $display("sent mem req");
             mem_resp_mbx.get(mem_resp);
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
@@ -342,7 +359,6 @@ class cache_scoreboard #(
         cache_req req;
         cache_resp resp = new;
         cache_req_mbx.get(req);
-        $info("cache req received");
         cache_fsm(req, resp);
         cache_resp_mbx.put(resp);
     endtask
