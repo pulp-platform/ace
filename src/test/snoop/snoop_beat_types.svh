@@ -20,15 +20,17 @@ class ace_cd_beat #(
     parameter DW = 32
 );
     rand logic [DW-1:0] cd_data = '0;
-    logic               cd_last;
+    logic               cd_last = '0;
 endclass
 
+// Snoop request to a cache
 class cache_snoop_req;
-    int unsigned       addr;
-    ace_pkg::acsnoop_t snoop_op;
+    int unsigned       addr     = 0;
+    ace_pkg::acsnoop_t snoop_op = '0;
 endclass
 
+// Snoop response from a cache
 class cache_snoop_resp;
     logic [7:0]       data_q[$];
-    ace_pkg::crresp_t snoop_resp;
+    ace_pkg::crresp_t snoop_resp = '0;
 endclass
