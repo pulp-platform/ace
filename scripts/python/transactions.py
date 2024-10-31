@@ -86,7 +86,7 @@ class CacheTransaction:
     return choice(allowed_ops)
 
   def get_rand_addr(self, mem_range: MemoryRange):
-    return randrange(mem_range.start_addr, mem_range.end_addr, 4)
+    return randrange(mem_range.start_addr, mem_range.end_addr, self.dw//8)
 
   def get_rand_wr_policy_hint(self):
     return choice(list(WritePolicyHint))
