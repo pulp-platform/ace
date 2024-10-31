@@ -249,8 +249,9 @@ module tb_ccu_ctrl_r_snoop #(
         .slv_resp_o(masters_resp[0]),
         .mst_req_o(slaves_req),
         .mst_resp_i(slaves_resp),
-        .snoop_resp_i(snoop_resp[0]),
-        .snoop_req_o(snoop_req[0])
+        .snoop_resp_i(snoop_resp),
+        .snoop_req_o(snoop_req),
+        .ardomain_o()
     );
 
 endmodule
