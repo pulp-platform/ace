@@ -18,11 +18,11 @@ localparam int WR_POLICY_WT   = 3'b100;
 
 /// Datatype to orchestrate cache read and write requests
 class cache_req;
-    int unsigned addr;
+    int unsigned addr           = 0;
     logic [7:0]  data_q[$];
-    int unsigned op;
-    bit          uncacheable;
-    bit          wr_policy_hint;
+    int unsigned op             = REQ_LOAD;
+    bit          uncacheable    = 0;
+    int unsigned wr_policy_hint = WR_POLICY_WB;
 endclass
 
 /// Datatype to orchestrate cache lookups between
@@ -32,18 +32,18 @@ class cache_resp;
 endclass
 
 class mem_req;
-    int unsigned       addr;
-    int unsigned       len;
-    int unsigned       size;
-    int unsigned       op;
+    int unsigned       addr           = 0;
+    int unsigned       len            = 0;
+    int unsigned       size           = 0;
+    int unsigned       op             = MEM_LOAD;
     logic [7:0]        data_q[$];
-    int unsigned       cacheable;
-    ace_pkg::arsnoop_t read_snoop_op;
-    ace_pkg::awsnoop_t write_snoop_op;
+    int unsigned       cacheable      = 0;
+    ace_pkg::arsnoop_t read_snoop_op  = ace_pkg::ReadShared;
+    ace_pkg::awsnoop_t write_snoop_op = ace_pkg::WriteBack;
 endclass
 
 class mem_resp;
     logic [7:0] data_q[$];
-    bit         is_shared;
-    bit         pass_dirty;
+    bit         is_shared  = 0;
+    bit         pass_dirty = 0;
 endclass
