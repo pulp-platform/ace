@@ -49,16 +49,12 @@ class mem_sequencer #(
 
     task recv_mem_req;
         mem_req req;
-        $display("receiving");
         mem_req_mbx.get(req);
-        $display("received");
         if (req.op == MEM_WRITE) begin
             send_aw_beat(req);
             send_w_beats(req);
         end else if (req.op == MEM_READ) begin
-            $display("here1");
             send_ar_beat(req);
-            $display("here2");
         end else begin
             $fatal("Unsupported op!");
         end
@@ -80,7 +76,7 @@ class mem_sequencer #(
         while (req.data_q.size() > 0) begin
             w_beat_t w_beat = new;
             for (int i = 0; i < (w_beat.DW / 8); i++) begin
-                w_beat.data[i +: 8] = req.data_q.pop_front();
+                w_beat.data[i*8 +: 8] = req.data_q.pop_front();
             end
             w_beat.strb = '1;
             w_beat.user = '0;
@@ -107,7 +103,7 @@ class mem_sequencer #(
         do begin
             r_mbx_o.get(r_beat);
             for (int i = 0; i < (r_beat.DW / 8); i++) begin
-                resp.data_q.push_back(r_beat.data[i +: 8]);
+                resp.data_q.push_back(r_beat.data[i*8 +: 8]);
             end
             resp.is_shared  = r_beat.resp[3];
             resp.pass_dirty = r_beat.resp[2];
