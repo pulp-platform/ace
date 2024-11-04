@@ -220,8 +220,8 @@ module ace_ccu_master_path import ace_pkg::*;
     );
 
     for (genvar j = 1; j < NoMemPortsPerGroup; j++) begin : gen_ace_to_axi
-      `ACE_TO_AXI_ASSIGN_REQ(axi_memory_reqs[NoMemPortsPerGroup*i+j], ace_memory_reqs[j])
-      `AXI_TO_ACE_ASSIGN_RESP(ace_memory_resps[j], axi_memory_resps[NoMemPortsPerGroup*i+j])
+      `ACE_TO_AXI_ASSIGN_REQ(axi_memory_reqs[NoMemPortsPerGroup*i+j], ace_memory_reqs[j-1])
+      `AXI_TO_ACE_ASSIGN_RESP(ace_memory_resps[j-1], axi_memory_resps[NoMemPortsPerGroup*i+j])
     end
   end
 
