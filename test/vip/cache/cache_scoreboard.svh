@@ -211,15 +211,15 @@ class cache_scoreboard #(
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
         for (int i = 0; i < (req.len + 1); i++) begin
             for (int j = 0; j < n_bytes; j++) begin
-                data_q[info.idx][info.way][byte_idx] =
+                data_q[info.idx][info.repl_way][byte_idx] =
                     resp.data_q.pop_front();
                 byte_idx++;
             end
         end
-        tag_q[info.idx][info.way]               = info.tag;
-        status_q[info.idx][info.way][DIRTY_IDX] = resp.pass_dirty;
-        status_q[info.idx][info.way][SHARD_IDX] = resp.is_shared;
-        status_q[info.idx][info.way][VALID_IDX] = 'b1;
+        tag_q[info.idx][info.repl_way]               = info.tag;
+        status_q[info.idx][info.repl_way][DIRTY_IDX] = resp.pass_dirty;
+        status_q[info.idx][info.repl_way][SHARD_IDX] = resp.is_shared;
+        status_q[info.idx][info.repl_way][VALID_IDX] = 'b1;
     endfunction;
 
     task automatic snoop(input cache_snoop_req req, output cache_snoop_resp resp);
