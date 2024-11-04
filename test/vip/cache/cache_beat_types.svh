@@ -35,7 +35,7 @@ class mem_req;
     int unsigned       addr           = 0;
     int unsigned       len            = 0;
     int unsigned       size           = 0;
-    int unsigned       op             = MEM_LOAD;
+    int unsigned       op             = MEM_READ;
     logic [7:0]        data_q[$];
     int unsigned       cacheable      = 0;
     ace_pkg::arsnoop_t read_snoop_op  = ace_pkg::ReadShared;
