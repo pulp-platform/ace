@@ -80,7 +80,7 @@ class mem_sequencer #(
             end
             w_beat.strb = '1;
             w_beat.user = '0;
-            w_beat.last = (req.data_q.size() == 1);
+            w_beat.last = (req.data_q.size() == 0);
             w_mbx_o.put(w_beat);
         end
     endtask
