@@ -57,17 +57,20 @@ class cache_top_agent #(
         .IW(IW), .UW(UW)
     ) b_beat_t;
 
-    mailbox #(cache_req)  cache_req_mbx = new();
-    mailbox #(cache_resp) cache_resp_mbx = new();
-    mailbox #(mem_req)    mem_req_mbx = new();
-    mailbox #(mem_resp)   mem_resp_mbx = new();
-    mailbox #(aw_beat_t)  aw_mbx = new();
-    mailbox #(w_beat_t)   w_mbx = new();
-    mailbox #(ar_beat_t)  ar_mbx = new();
-    mailbox #(r_beat_t)   r_mbx  = new();
-    mailbox #(cache_snoop_req)  snoop_req_mbx = new();
+    mailbox #(cache_req)  cache_req_mbx        = new();
+    mailbox #(cache_resp) cache_resp_mbx       = new();
+    mailbox #(mem_req)    mem_req_mbx          = new();
+    mailbox #(mem_resp)   mem_resp_mbx         = new();
+    mailbox #(aw_beat_t)  aw_mbx               = new();
+    mailbox #(w_beat_t)   w_mbx                = new();
+    mailbox #(ar_beat_t)  ar_mbx               = new();
+    mailbox #(r_beat_t)   r_mbx                = new();
+    mailbox #(cache_snoop_req)  snoop_req_mbx  = new();
     mailbox #(cache_snoop_resp) snoop_resp_mbx = new();
 
+    logic cache_seq_done = 1'b0;
+
+    int unsigned os_cache_reqs = 0;
 
     ace_test_pkg::ace_agent #(
         .AW(AW), .DW(DW), .IW(IW), .UW(UW),
@@ -129,7 +132,7 @@ class cache_top_agent #(
         this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
                                this.snoop_req_mbx, this.snoop_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx);
-        this.cache_seq   = new(this.cache_req_mbx, txn_file);
+        this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
                                this.aw_mbx, this.ar_mbx, this.r_mbx,
                                this.w_mbx);
@@ -155,7 +158,7 @@ class cache_top_agent #(
             this.cache_seq.run();
             this.cache_sb.run();
             this.mem_seq.run();
-        join
+        join_any
     endtask
 
 endclass

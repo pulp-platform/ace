@@ -211,6 +211,10 @@ module tb_ace_ccu_top #(
             ace_master[i].reset();
             @(posedge rst_n);
             ace_master[i].run();
+            @(posedge clk);
+            @(posedge clk);
+            @(posedge clk);
+            $finish();
         end
     end
 
