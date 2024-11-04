@@ -31,10 +31,9 @@ WORD_WIDTH 			?= 64
 CACHELINE_WORDS ?= 4
 WAYS 						?= 4
 SETS 						?= 1024
-NMASTERS 				?= 1
+NMASTERS 				?= 2
 NTRANSACTIONS 	?= 100
-
-MEM_DIR = $(PWD)/build/mem
+MEM_DIR 				?= $(PWD)/build/mem
 
 export ADDR_WIDTH
 export DATA_WIDTH
@@ -85,7 +84,7 @@ init_mem: build/mem
 	--sets ${SETS} \
 	--n_caches ${NMASTERS} \
 	--n_transactions ${NTRANSACTIONS} \
-	--target_dir $(PWD)/build/mem
+	--target_dir $(MEM_DIR)
 
 
 elab.log: Bender.yml | build
