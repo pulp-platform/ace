@@ -1,5 +1,7 @@
 log -r *
 
+log -class cache_test_pkg::cache_scoreboard::cache_scoreboard__1
+
 do snoop_types.do
 
 # Figure out number of masters from number of ACE interfaces

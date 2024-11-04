@@ -47,7 +47,7 @@ exec_test() {
     fi
     case "$1" in
         ace_ccu_top)
-            call_vsim tb_ace_ccu_top -t 1ns -coverage -voptargs="+acc" \
+            call_vsim tb_ace_ccu_top -t 1ns -classdebug -coverage -voptargs="+acc" \
             -gAddrWidth=$ADDR_WIDTH \
             -gDataWidth=$DATA_WIDTH \
             -gWordWidth=$WORD_WIDTH \
