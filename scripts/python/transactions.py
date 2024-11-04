@@ -81,7 +81,8 @@ class CacheTransaction:
 
   def get_rand_op(self):
     allowed_ops = [
-      CacheReqOp.REQ_LOAD
+      CacheReqOp.REQ_LOAD,
+      CacheReqOp.REQ_STORE
     ]
     return choice(allowed_ops)
 
