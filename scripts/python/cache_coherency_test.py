@@ -51,13 +51,15 @@ class CacheCoherencyTest:
     self.mem_state.save_mem(
       file=os.path.join(self.target_dir, "main_mem.mem"))
 
-    self.transactions = self.n_caches*[
-      CacheTransactionSequence(
-      self.aw, self.dw, self.mem_ranges
+    self.transactions = []
+    for _ in range(self.n_caches):
+      self.transactions.append(
+        CacheTransactionSequence(
+        self.aw, self.dw, self.mem_ranges
+        )
       )
-    ]
-
     self.gen_transactions()
+
     self.init_caches()
     self.save_caches()
 
