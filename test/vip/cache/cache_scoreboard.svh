@@ -183,7 +183,7 @@ class cache_scoreboard #(
     endfunction
 
     function automatic mem_req gen_write_back(tag_resp_t info);
-        mem_req mem_req;
+        mem_req mem_req = new;
         mem_req.size           = $clog2(BYTES_PER_WORD);
         mem_req.len            = CACHELINE_WORDS - 1;
         mem_req.addr           = info.addr;
