@@ -40,7 +40,7 @@ module ace_ccu_top import ace_pkg::*;
   output snoop_req_t  [NoSlvPorts-1:0] snoop_req_o,
   input  snoop_resp_t [NoSlvPorts-1:0] snoop_resp_i,
   output mst_req_t                     mst_req_o,
-  input  slv_resp_t                    mst_resp_i
+  input  mst_resp_t                    mst_resp_i
 );
 
   // Local parameters
@@ -78,7 +78,9 @@ module ace_ccu_top import ace_pkg::*;
     .snoop_cr_t        (snoop_cr_t  ),
     .snoop_cd_t        (snoop_cd_t  ),
     .snoop_req_t       (snoop_req_t ),
-    .snoop_resp_t      (snoop_resp_t)
+    .snoop_resp_t      (snoop_resp_t),
+    .domain_set_t      (domain_set_t),
+    .domain_mask_t     (domain_mask_t)
   ) i_master_path (
     .clk_i             (clk_i),
     .rst_ni            (rst_ni),
@@ -125,12 +127,12 @@ module ace_ccu_top_intf #(
   parameter type         domain_mask_t     = `DOMAIN_MASK_T(NO_SLV_PORTS),
   parameter type         domain_set_t      = `DOMAIN_SET_T
 ) (
-  input logic        clk_i,
-  input logic        rst_ni,
-  input domain_set_t domain_set_i,
-  ACE_BUS.Slave      slv_ports   [NO_SLV_PORTS-1:0],
-  SNOOP_BUS.Master   snoop_ports [NO_SLV_PORTS-1:0],
-  AXI_BUS.Master     mst_port
+  input logic                           clk_i,
+  input logic                           rst_ni,
+  input domain_set_t [NO_SLV_PORTS-1:0] domain_set_i,
+  ACE_BUS.Slave                         slv_ports   [NO_SLV_PORTS-1:0],
+  SNOOP_BUS.Master                      snoop_ports [NO_SLV_PORTS-1:0],
+  AXI_BUS.Master                        mst_port
 );
 
   localparam NO_GROUPS = NO_SLV_PORTS/NO_SLV_PER_GROUPS;

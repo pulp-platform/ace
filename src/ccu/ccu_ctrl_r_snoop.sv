@@ -335,8 +335,8 @@ always_comb begin
     domain_mask_o = '0;
     case (slv_req_i.ar.domain)
       NonShareable:   domain_mask_o = 0;
-      InnerShareable: domain_mask_o = domain_set_i.inner_mask;
-      OuterShareable: domain_mask_o = domain_set_i.outer_mask;
+      InnerShareable: domain_mask_o = domain_set_i.inner;
+      OuterShareable: domain_mask_o = domain_set_i.outer;
       System:         domain_mask_o = ~domain_set_i.initiator;
     endcase
 end

@@ -45,7 +45,7 @@ module ace_ccu_master_path import ace_pkg::*;
   output axdomain_t   [NoSnoopPorts-1:0] snoop_masks_o,
   input  snoop_resp_t [NoSnoopPorts-1:0] snoop_resp_i,
   output mst_req_t                       mst_req_o,
-  input  slv_resp_t                      mst_resp_i
+  input  mst_resp_t                      mst_resp_i
 );
 
   typedef logic [AxiAddrWidth -1:0]  addr_t;
@@ -115,7 +115,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .r_chan_t    (slv_r_chan_t),
       .axi_req_t   (slv_req_t),
       .axi_resp_t  (slv_resp_t),
-      .NoMstPorts  (32'd0),
+      .NoMstPorts  (32'd2),
       .MaxTrans    (32'd8),
       .AxiLookBits (32'd3),
       .UniqueIds   (1'b0),
@@ -352,7 +352,7 @@ module ace_ccu_master_path import ace_pkg::*;
     .rst_ni      (rst_ni),
     .test_i      (1'b0),
     .slv_reqs_i  (axi_memory_reqs),
-    .slv_resps_o (axi_memory_resp),
+    .slv_resps_o (axi_memory_resps),
     .mst_req_o   (mst_req_o),
     .mst_resp_i  (mst_resp_i)
   );

@@ -82,7 +82,9 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .mst_req_t           (req_t),
         .mst_resp_t          (resp_t),
         .mst_snoop_req_t     (snoop_req_t),
-        .mst_snoop_resp_t    (snoop_resp_t)
+        .mst_snoop_resp_t    (snoop_resp_t),
+        .domain_set_t        (domain_set_t),
+        .domain_mask_t       (domain_mask_t)
     ) i_ccu_ctrl_wr_snoop (
         .clk_i         (clk_i),
         .rst_ni        (rst_ni),
@@ -90,7 +92,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_resp_o    (slv_write_resp),
         .snoop_trs_i   (write_acsnoop),
         .mst_req_o     (mst_reqs_o     [0]),
-        .mst_resp_i    (mst_reqs_o     [0]),
+        .mst_resp_i    (mst_resps_i    [0]),
         .snoop_req_o   (snoop_reqs_o   [0]),
         .snoop_resp_i  (snoop_resps_i  [0]),
         .domain_set_i  (domain_set_i[write_rule_idx]),
@@ -126,6 +128,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .mst_resp_t          (resp_t),
         .mst_snoop_req_t     (snoop_req_t),
         .mst_snoop_resp_t    (snoop_resp_t),
+        .domain_set_t        (domain_set_t),
+        .domain_mask_t       (domain_mask_t),
         .AXLEN               (WB_AXLEN),
         .AXSIZE              (WB_AXSIZE)
     ) i_ccu_ctrl_r_snoop (
@@ -135,7 +139,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_resp_o    (slv_read_resp),
         .snoop_info_i  (read_snoop_info),
         .mst_req_o     (mst_reqs_o     [1]),
-        .mst_resp_i    (mst_reqs_o     [1]),
+        .mst_resp_i    (mst_resps_i    [1]),
         .snoop_req_o   (snoop_reqs_o   [1]),
         .snoop_resp_i  (snoop_resps_i  [1]),
         .domain_set_i  (domain_set_i[read_rule_idx]),
