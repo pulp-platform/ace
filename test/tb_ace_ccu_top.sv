@@ -99,6 +99,8 @@ module tb_ace_ccu_top #(
     string status_file_template   = {MemDir, "/state_%0d.mem"};
     // Cache transactions
     string txn_file_template      = {MemDir, "/txns_%0d.txt"};
+    // Initial main memory state
+    string init_main_mem          = {MemDir, "/main_mem.mem"};
 
     ACE_BUS_DV #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
@@ -240,6 +242,10 @@ module tb_ace_ccu_top #(
         .mon_r_beat_count_o(),
         .mon_r_last_o()
     );
+
+    initial begin
+        $readmemh(init_main_mem, axi_mem.i_sim_mem.mem);
+    end
 
     ace_ccu_top_intf #(
         .AXI_ADDR_WIDTH       (AxiAddrWidth),

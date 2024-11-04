@@ -36,6 +36,7 @@ class cache_scoreboard #(
         logic hit;
         status_t status;
         int way;
+        int repl_way;
         int idx;
         int tag;
         int unsigned addr;
@@ -121,7 +122,7 @@ class cache_scoreboard #(
         status_t status;
         logic hit = '0;
         int way;
-        int not_valid_way = '0;
+        int not_valid_way = 0;
         int i;
         int unsigned idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
         tag_t tag        = addr[AW-1:AW-TAG_BITS];
@@ -142,13 +143,10 @@ class cache_scoreboard #(
                 break;
             end
         end
-        resp.hit  = hit;
-        resp.idx  = idx;
-        if (hit) begin
-            resp.way  = way;
-        end else begin
-            resp.way = not_valid_way;
-        end
+        resp.hit = hit;
+        resp.idx = idx;
+        resp.way = way;
+        resp.repl_way = not_valid_way;
         resp.status = status;
         resp.tag = tag;
         resp.addr = {lu_tag, idx, {BLOCK_OFFSET_BITS{1'b0}}};
