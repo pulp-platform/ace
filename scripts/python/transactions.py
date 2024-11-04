@@ -65,7 +65,7 @@ class CacheTransaction:
     self.data_min = 0
     self.data_max = (1 << self.dw) - 1
 
-  def get_rand_mem_range(self, noncached_odds=0.2):
+  def get_rand_mem_range(self, noncached_odds=0.0):
     # Separate memory ranges into cached and non-cached ones
     # So that we can generate relatively more cached requestes 
     cached = []
@@ -100,11 +100,6 @@ class CacheTransaction:
       return randrange(self.data_min, self.data_max)
     else:
       return 0
-
-  def get_rand_uncacheable(self, uncacheable_odds=0.1):
-    if random() <= uncacheable_odds:
-      return 1
-    return 0
 
   def randomize(self):
     self.op   = self.get_rand_op()
