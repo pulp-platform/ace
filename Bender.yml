@@ -4,7 +4,7 @@ package:
     # Alphabetically ordered by last name (maintainers first)
 
 dependencies:
-  axi:          { git: "https://github.com/pulp-platform/axi.git", version: 0.39.4 }
+  axi:          { git: "https://github.com/Roenski/axi.git", rev: 8683baafe168fee8f3e7b15d8ea093fbab004e45 }
   common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: cc0ff76 }
 
 export_include_dirs:
@@ -64,9 +64,9 @@ sources:
   - target: test
     files:
       # Level 0
-      - src/test/ace_test_pkg.sv
-      - src/test/snoop_test_pkg.sv
+      - test/vip/ace_test_pkg.sv
+      - test/vip/snoop_test_pkg.sv
       # Level 1
-      - src/test/cache_test_pkg.sv
+      - test/vip/cache_test_pkg.sv
       # Level 2
-      - test/tb_ccu_ctrl_wr_snoop.sv
+      - test/tb_ace_ccu_top.sv
