@@ -189,13 +189,18 @@ class CacheCoherencyTest:
 
     logger.info("Starting coherency check")
 
-    def print_info(level, addr=None, cache_idx=None, state=None):
+    def print_info(level, addr=None, cache_idx=None, state=None,
+                   set=None, way=None):
       if addr is not None:
         logger.log(level, msg=f"Address: {addr}")
       if cache_idx is not None:
         logger.log(level, msg=f"Cache: {cache_idx}")
       if state is not None:
         logger.log(level, msg=f"State: {state}")
+      if set is not None:
+        logger.log(level, msg=f"Set: {state}")
+      if way is not None:
+        logger.log(level, msg=f"Way: {way}")
 
     for mem_range in self.mem_ranges:
       if not mem_range.cached:
@@ -215,12 +220,13 @@ class CacheCoherencyTest:
         # Monitor whether a modified copy exists
         # Monitor whether an owner is found
         for i, cache in enumerate(self.caches):
-          hit, data, state = cache.get_addr(addr)
+          hit, data, state, set, way = cache.get_addr(addr)
           moesi = CachelineState(CachelineStateEnum.INVALID)
           if hit:
             moesi.from_state_bits(state)
             if data != cacheline:
-              modified = True
+              if moesi.state != CachelineStateEnum.INVALID:
+                modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
                 print_info(logging.ERROR, addr=addr, cache_idx=i, state=state)
@@ -231,21 +237,21 @@ class CacheCoherencyTest:
 
         if modified and not owner_found:
           logger.error("A modified cache line without owner was found!")
-          print_info(logging.ERROR, addr=addr)
+          print_info(logging.ERROR, addr=addr, set=set)
 
         # Compare cacheline states
         for i in range(len(states)):
           for j in range(len(states)):
             if i == j:
               continue
-            res = states[i].check_compatibility(states[j])
+            res = states[i].check_compatibility(states[j].state)
             if not res:
               logger.error("Two cache lines in incompatible states!")
               print_info(
                 logging.ERROR,
                 addr=addr,
                 cache_idx=(i, j),
-                state=(states[i].name, states[j].name)
+                state=(states[i].state.name, states[j].state.name)
               )
 
 

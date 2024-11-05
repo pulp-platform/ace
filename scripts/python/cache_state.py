@@ -130,10 +130,11 @@ class CacheState:
   def get_tag(self, addr):
     return (addr & self.tag_mask) >> (self.block_offset_bits + self.index_bits)
 
-  def get_addr(self, addr) -> Tuple[bool, List[int]]:
-    """Returns: (hit, data)"""
+  def get_addr(self, addr):
+    """Returns: (hit, data, state, set, way)"""
     set = self.get_index(addr)
     hit = False
+    final_way = 0
     data = []
     state = []
     tag_bits = self.get_tag(addr)
@@ -142,7 +143,9 @@ class CacheState:
         hit = True
         data = self.cache_data[set][way]
         state = self.cache_status[set][way]
-    return hit, data, state
+        final_way = way
+        break
+    return hit, data, state, set, final_way
 
   def get_free_way(self, set):
     """Get first free (non-valid) way in a set."""
