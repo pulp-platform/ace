@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 from math import log2
 from enum import Enum
 
@@ -15,8 +15,23 @@ class CachelineStateEnum(Enum):
   INVALID = 4
 
 class CachelineState:
-  def __init__(self, state: CachelineStateEnum):
+  def __init__(self, state: CachelineStateEnum = CachelineStateEnum.MODIFIED):
     self.state = state
+
+  def from_state_bits(self, state_bits: List[StateBits]):
+    if state_bits[StateBits.VALID_IDX.value] == 0:
+      self.state = CachelineStateEnum.INVALID
+    elif (state_bits[StateBits.SHARED_IDX.value] and
+          state_bits[StateBits.DIRTY_IDX.value]):
+      self.state = CachelineStateEnum.OWNED
+    elif state_bits[StateBits.SHARED_IDX.value]:
+      self.state = CachelineStateEnum.SHARED
+    elif state_bits[StateBits.DIRTY_IDX.value]:
+      self.state = CachelineStateEnum.MODIFIED
+    elif state_bits[StateBits.VALID_IDX.value]:
+      self.state = CachelineStateEnum.EXCLUSIVE
+    else:
+      raise Exception("Unexpected state")
   
   def get_state_bits(self):
     state_bits = [False, False, False]
@@ -33,6 +48,30 @@ class CachelineState:
       state_bits[StateBits.VALID_IDX.value] = True
       state_bits[StateBits.SHARED_IDX.value] = True
     return state_bits
+
+  def check_compatibility(self, other: CachelineStateEnum):
+    if self.state == CachelineStateEnum.MODIFIED:
+      if other == CachelineStateEnum.INVALID:
+        return True
+      return False
+    elif self.state == CachelineStateEnum.OWNED:
+      if other in [CachelineStateEnum.INVALID,
+                   CachelineStateEnum.SHARED]:
+        return True
+      return False
+    elif self.state == CachelineStateEnum.EXCLUSIVE:
+      if other == CachelineStateEnum.INVALID:
+        return True
+      return False
+    elif self.state == CachelineStateEnum.SHARED:
+      if other in [CachelineStateEnum.EXCLUSIVE,
+                   CachelineStateEnum.MODIFIED]:
+        return False
+      return True
+    elif self.state == CachelineStateEnum.INVALID:
+      return True
+    else:
+      raise Exception("Unexpected state")
 
 class CacheSetFullException(Exception):
   pass
@@ -63,6 +102,7 @@ class CacheState:
       self.aw - self.block_offset_bits - self.index_bits
 
     self.index_mask = ((1 << self.index_bits) - 1) << self.block_offset_bits
+    self.tag_mask = ((1 << self.tag_bits) - 1) << (self.block_offset_bits + self.index_bits)
 
     self.cache_status = None
     self.cache_data   = None
@@ -86,6 +126,23 @@ class CacheState:
 
   def get_index(self, addr):
     return (addr & self.index_mask) >> self.block_offset_bits
+
+  def get_tag(self, addr):
+    return (addr & self.tag_mask) >> (self.block_offset_bits + self.index_bits)
+
+  def get_addr(self, addr) -> Tuple[bool, List[int]]:
+    """Returns: (hit, data)"""
+    set = self.get_index(addr)
+    hit = False
+    data = []
+    state = []
+    tag_bits = self.get_tag(addr)
+    for way in range(self.ways):
+      if self.cache_tag[set][way] == tag_bits:
+        hit = True
+        data = self.cache_data[set][way]
+        state = self.cache_status[set][way]
+    return hit, data, state
 
   def get_free_way(self, set):
     """Get first free (non-valid) way in a set."""
@@ -114,6 +171,7 @@ class CacheState:
     for byte_idx in range(self.cacheline_bytes):
       self.cache_data[set_idx][way_idx][byte_idx] = \
         data[byte_idx]
+    # TODO: SET TAG
     self.cache_status[set_idx][way_idx][0] = status[0]
     self.cache_status[set_idx][way_idx][1] = status[1]
     self.cache_status[set_idx][way_idx][2] = status[2]

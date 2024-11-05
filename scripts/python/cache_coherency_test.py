@@ -1,11 +1,18 @@
 from cache_state import \
   CacheState, CachelineState, \
-  CachelineStateEnum, CacheSetFullException
+  CachelineStateEnum, CacheSetFullException, \
+  StateBits
+from typing import List
 from memory_state import MemoryState
 from common import MemoryRange
 from transactions import CacheTransactionSequence
 from random import random, randint, choice, sample
 import os
+import logging
+logger = logging.getLogger(__name__)
+
+class CoherencyError(AssertionError):
+  pass
 
 class CacheCoherencyTest:
   def __init__(
@@ -21,6 +28,8 @@ class CacheCoherencyTest:
       target_dir: str,
       **kwargs
       ):
+
+    logging.basicConfig(filename='cache_python.log', filemode='w', level=logging.INFO)
 
     self.aw = addr_width
     self.dw = data_width
@@ -66,6 +75,7 @@ class CacheCoherencyTest:
 
     self.init_caches(n_inited_lines=100)
     self.save_caches()
+    self.check_coherency()
 
   def gen_memory_ranges(self):
     mem_range = MemoryRange(
@@ -164,6 +174,83 @@ class CacheCoherencyTest:
           )
         except CacheSetFullException:
           pass
+
+  def reconstruct_state(self):
+    # Reconstruct state into Python datatypes
+    ...
+
+  def check_coherency(self):
+    """Check that caches and main memory are coherent.
+    Test cases:
+      - Modified cache line must not be in Exclusive state
+      - Modified cache line must have it somewhere in either Owned or Modified state
+      - Cache line states must be compatible (e.g. Modified && Shared is not allowed)
+      """
+
+    logger.info("Starting coherency check")
+
+    def print_info(level, addr=None, cache_idx=None, state=None):
+      if addr is not None:
+        logger.log(level, msg=f"Address: {addr}")
+      if cache_idx is not None:
+        logger.log(level, msg=f"Cache: {cache_idx}")
+      if state is not None:
+        logger.log(level, msg=f"State: {state}")
+
+    for mem_range in self.mem_ranges:
+      if not mem_range.cached:
+        continue
+      for addr in range(
+                mem_range.start_addr,
+                mem_range.end_addr,
+                self.cacheline_bytes):
+        cacheline = mem_range.get_data(addr, self.cacheline_bytes)
+        states: List[CachelineState] = []
+        modified = False
+        owner_found = False
+
+        # Check all caches whether they hold a copy
+        # Compute moesi state
+        # Check that modified copy is not in Exclusive state
+        # Monitor whether a modified copy exists
+        # Monitor whether an owner is found
+        for i, cache in enumerate(self.caches):
+          hit, data, state = cache.get_addr(addr)
+          moesi = CachelineState(CachelineStateEnum.INVALID)
+          if hit:
+            moesi.from_state_bits(state)
+            if data != cacheline:
+              modified = True
+              if moesi.state == CachelineStateEnum.EXCLUSIVE:
+                logger.error("A modified cache line in Exclusive state")
+                print_info(logging.ERROR, addr=addr, cache_idx=i, state=state)
+              if moesi.state in \
+                [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
+                owner_found = True
+          states.append(moesi)
+
+        if modified and not owner_found:
+          logger.error("A modified cache line without owner was found!")
+          print_info(logging.ERROR, addr=addr)
+
+        # Compare cacheline states
+        for i in range(len(states)):
+          for j in range(len(states)):
+            if i == j:
+              continue
+            res = states[i].check_compatibility(states[j])
+            if not res:
+              logger.error("Two cache lines in incompatible states!")
+              print_info(
+                logging.ERROR,
+                addr=addr,
+                cache_idx=(i, j),
+                state=(states[i].name, states[j].name)
+              )
+
+
+
+
 
   def save_caches(self):
     for i, cache in enumerate(self.caches):

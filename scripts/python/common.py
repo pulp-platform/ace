@@ -26,6 +26,7 @@ class MemoryRange:
     return randrange(self.start_addr, self.end_addr, step)
 
   def get_data(self, addr, len):
+    """Return an array of length len, consisting of bytes"""
     data = []
     start_idx = addr - self.start_addr
     end_idx = start_idx + len

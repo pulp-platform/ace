@@ -83,12 +83,14 @@ class cache_scoreboard #(
     function void init_data_mem_from_file(
         string fname
     );
+        $info("reading data");
         $readmemh(fname, data_q);
     endfunction
 
     function void init_tag_mem_from_file(
         string fname
     );
+        $info("reading tag");
         $readmemh(fname, tag_q);
     endfunction
 
@@ -102,7 +104,10 @@ class cache_scoreboard #(
             end
         end
         // Read initial values from file
+        $info("Reading from %s", fname);
         $readmemb(fname, status_q);
+        $info(status_q[5][0]);
+        $info(status_q[72][0]);
     endfunction
 
     function void init_mem_from_file(
