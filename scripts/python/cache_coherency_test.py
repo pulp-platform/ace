@@ -118,6 +118,7 @@ class CacheCoherencyTest:
     data = []
     for _ in range(self.cacheline_bytes):
       data.append(randint(0, 255))
+    return data
 
   def get_rand_mem_range(self, type="both") -> MemoryRange:
     rand_pool = []
@@ -151,7 +152,7 @@ class CacheCoherencyTest:
       owner = -1
       if dirty:
         # Randomly select the owner
-        owner = sample(mst_idxs, 1)
+        owner = sample(mst_idxs, 1)[0]
       for mst_idx in mst_idxs:
         write_data = data
         if mst_idx == owner:
