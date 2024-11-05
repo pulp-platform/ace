@@ -15,7 +15,7 @@ class CachelineStateEnum(Enum):
   INVALID = 4
 
 class CachelineState:
-  def __init__(self, state: CachelineStateEnum = CachelineStateEnum.MODIFIED):
+  def __init__(self, state: CachelineStateEnum = CachelineStateEnum.INVALID):
     self.state = state
 
   def from_state_bits(self, state_bits: List[StateBits]):
@@ -136,13 +136,13 @@ class CacheState:
     hit = False
     final_way = 0
     data = []
-    state = []
+    state = CachelineState()
     tag_bits = self.get_tag(addr)
     for way in range(self.ways):
       if self.cache_tag[set][way] == tag_bits:
-        hit = True
+        hit = self.cache_status[set][way][StateBits.VALID_IDX.value]
         data = self.cache_data[set][way]
-        state = self.cache_status[set][way]
+        state.from_state_bits(self.cache_status[set][way])
         final_way = way
         break
     return hit, data, state, set, final_way
@@ -175,6 +175,7 @@ class CacheState:
       self.cache_data[set_idx][way_idx][byte_idx] = \
         data[byte_idx]
     # TODO: SET TAG
+    self.cache_tag[set_idx][way_idx] = self.get_tag(addr)
     self.cache_status[set_idx][way_idx][0] = status[0]
     self.cache_status[set_idx][way_idx][1] = status[1]
     self.cache_status[set_idx][way_idx][2] = status[2]

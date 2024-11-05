@@ -198,7 +198,7 @@ class CacheCoherencyTest:
       if state is not None:
         logger.log(level, msg=f"State: {state}")
       if set is not None:
-        logger.log(level, msg=f"Set: {state}")
+        logger.log(level, msg=f"Set: {set}")
       if way is not None:
         logger.log(level, msg=f"Way: {way}")
 
@@ -221,15 +221,16 @@ class CacheCoherencyTest:
         # Monitor whether an owner is found
         for i, cache in enumerate(self.caches):
           hit, data, state, set, way = cache.get_addr(addr)
-          moesi = CachelineState(CachelineStateEnum.INVALID)
+          moesi: CachelineState = state
           if hit:
-            moesi.from_state_bits(state)
+            logger.info("Cacheline found")
+            print_info(logging.INFO, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
             if data != cacheline:
               if moesi.state != CachelineStateEnum.INVALID:
                 modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
-                print_info(logging.ERROR, addr=addr, cache_idx=i, state=state)
+                print_info(logging.ERROR, addr=addr, cache_idx=i, state=state.name)
               if moesi.state in \
                 [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
                 owner_found = True
@@ -246,12 +247,16 @@ class CacheCoherencyTest:
               continue
             res = states[i].check_compatibility(states[j].state)
             if not res:
+              a_hit, _, a_state, a_set, a_way = self.caches[i].get_addr(addr)
+              b_hit, _, b_state, b_set, b_way = self.caches[j].get_addr(addr)
               logger.error("Two cache lines in incompatible states!")
               print_info(
                 logging.ERROR,
                 addr=addr,
                 cache_idx=(i, j),
-                state=(states[i].state.name, states[j].state.name)
+                state=(states[i].state.name, states[j].state.name),
+                set=(a_set, b_set),
+                way=(a_way, b_way)
               )
 
 
