@@ -1,102 +1,112 @@
 module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     parameter int unsigned  NumInp       = 0,
     parameter int unsigned  NumOup       = 0,
+    parameter int unsigned  NumLup       = 0,
     parameter bit           BufferReq    = 1,
     parameter bit           BufferResp   = 1,
+    parameter int unsigned  AddrBase     = 0,
+    parameter int unsigned  AddrLength   = 0,
+    parameter bit           ConfCheck    = 1,
     parameter type          ac_chan_t    = logic,
     parameter type          cr_chan_t    = logic,
     parameter type          cd_chan_t    = logic,
     parameter type          snoop_req_t  = logic,
     parameter type          snoop_resp_t = logic,
 
-    localparam type         sel_mask_t = logic [NumOup-1:0]
+    localparam type         oup_sel_t    = logic [NumOup-1:0],
+    localparam type         lup_addr_t   = logic [AddrLength-1:0]
 ) (
 
     input  logic                     clk_i,
     input  logic                     rst_ni,
 
-    input  sel_mask_t   [NumInp-1:0] inp_sel_i,
+    input  oup_sel_t    [NumInp-1:0] inp_sel_i,
     input  snoop_req_t  [NumInp-1:0] inp_req_i,
     output snoop_resp_t [NumInp-1:0] inp_resp_o,
     output snoop_req_t  [NumOup-1:0] oup_req_o,
-    input  snoop_resp_t [NumOup-1:0] oup_resp_i
+    input  snoop_resp_t [NumOup-1:0] oup_resp_i,
+
+    output logic                     lup_valid_o,
+    input  logic                     lup_ready_i,
+    output lup_addr_t                lup_addr_o,
+    input  logic                     lup_valid_i,
+    output logic                     lup_ready_o,
+    output logic                     lup_clr_o
 );
 
-typedef logic [$clog2(NumInp)-1:0] inp_idx_t;
-typedef logic [$clog2(NumOup)-1:0] oup_idx_t;
+    typedef logic [$clog2(NumInp)-1:0] inp_idx_t;
 
-logic     [NumInp-1:0] inp_ac_valids, inp_ac_readies;
-ac_chan_t [NumInp-1:0] inp_ac_chans;
-logic     [NumInp-1:0] inp_cr_valids, inp_cr_readies;
-cr_chan_t [NumInp-1:0] inp_cr_chans;
-logic     [NumInp-1:0] inp_cd_valids, inp_cd_readies;
-cd_chan_t [NumInp-1:0] inp_cd_chans;
+    typedef struct packed {
+        oup_sel_t sel;
+        inp_idx_t idx;
+    } ctrl_t;
+
+    logic     [NumInp-1:0] inp_ac_valids, inp_ac_readies;
+    ac_chan_t [NumInp-1:0] inp_ac_chans;
+    logic     [NumInp-1:0] inp_cr_valids, inp_cr_readies;
+    cr_chan_t [NumInp-1:0] inp_cr_chans;
+    logic     [NumInp-1:0] inp_cd_valids, inp_cd_readies;
+    cd_chan_t [NumInp-1:0] inp_cd_chans;
 
 
-logic     [NumOup-1:0] oup_ac_valids, oup_ac_readies;
-ac_chan_t [NumOup-1:0] oup_ac_chans;
-logic     [NumOup-1:0] oup_cr_valids, oup_cr_readies;
-cr_chan_t [NumOup-1:0] oup_cr_chans;
-logic     [NumOup-1:0] oup_cd_valids, oup_cd_readies;
-cd_chan_t [NumOup-1:0] oup_cd_chans;
+    logic     [NumOup-1:0] oup_ac_valids, oup_ac_readies;
+    ac_chan_t [NumOup-1:0] oup_ac_chans;
+    logic     [NumOup-1:0] oup_cr_valids, oup_cr_readies;
+    cr_chan_t [NumOup-1:0] oup_cr_chans;
+    logic     [NumOup-1:0] oup_cd_valids, oup_cd_readies;
+    cd_chan_t [NumOup-1:0] oup_cd_chans;
 
-logic     [NumOup-1:0][NumInp-1:0] cr_valids, cr_readies;
-cr_chan_t [NumOup-1:0][NumInp-1:0] cr_chans;
-logic     [NumOup-1:0][NumInp-1:0] cd_valids, cd_readies;
-cd_chan_t [NumOup-1:0][NumInp-1:0] cd_chans;
+    logic      ac_valid, ac_ready;
+    logic      oup_ac_valid, oup_ac_ready;
+    ac_chan_t  ac_chan;
 
-logic     [NumInp-1:0][NumOup-1:0] cr_valids_rev, cr_readies_rev;
-cr_chan_t [NumInp-1:0][NumOup-1:0] cr_chans_rev;
-logic     [NumInp-1:0][NumOup-1:0] cd_valids_rev, cd_readies_rev;
-cd_chan_t [NumInp-1:0][NumOup-1:0] cd_chans_rev;
+    logic  req_ctrl_valid, req_ctrl_ready;
+    logic  resp_ctrl_valid, resp_ctrl_ready;
+    ctrl_t req_ctrl, resp_ctrl;
 
-logic     [NumOup-1:0] to_arb_ac_valids, from_arb_ac_readies;
+    logic     cr_valid, cr_ready;
+    cr_chan_t cr_chan;
+    ctrl_t    cr_ctrl;
+    logic     cd_valid, cd_ready;
+    cd_chan_t cd_chan;
+    ctrl_t    cd_ctrl;
 
-logic     [NumOup-1:0] ac_valids, ac_readies;
-ac_chan_t [NumOup-1:0] ac_chans;
-inp_idx_t [NumOup-1:0] ac_idx;
+    for (genvar i = 0; i < NumInp; i++) begin : gen_unpack_inp
+        assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;
+        assign inp_resp_o[i].ac_ready = inp_ac_readies[i];
+        assign inp_ac_chans[i]        = inp_req_i[i].ac;
+        assign inp_cr_readies[i]      = inp_req_i[i].cr_ready;
+        assign inp_resp_o[i].cr_valid = inp_cr_valids[i];
+        assign inp_resp_o[i].cr_resp  = inp_cr_chans[i];
+        assign inp_cd_readies[i]      = inp_req_i[i].cd_ready;
+        assign inp_resp_o[i].cd_valid = inp_cd_valids[i];
+        assign inp_resp_o[i].cd       = inp_cd_chans[i];
+    end
 
-sel_mask_t ac_sel;
-logic      ac_sel_valid, ac_sel_ready;
-
-logic     arb_ac_valid, arb_ac_ready;
-ac_chan_t arb_ac_chan;
-inp_idx_t arb_ac_idx;
-
-for (genvar i = 0; i < NumInp; i++) begin
-    assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;
-    assign inp_resp_o[i].ac_ready = inp_ac_readies[i];
-    assign inp_ac_chans[i]        = inp_req_i[i].ac;
-    assign inp_cr_readies[i]      = inp_req_i[i].cr_ready;
-    assign inp_resp_o[i].cr_valid = inp_cr_valids[i];
-    assign inp_resp_o[i].cr_resp  = inp_cr_chans[i];
-    assign inp_cd_readies[i]      = inp_req_i[i].cd_ready;
-    assign inp_resp_o[i].cd_valid = inp_cd_valids[i];
-    assign inp_resp_o[i].cd       = inp_cd_chans[i];
-end
-
-for (genvar i = 0; i < NumOup; i++) begin
-    assign oup_ac_readies[i]     = oup_resp_i[i].ac_ready;
-    assign oup_req_o[i].ac_valid = oup_ac_valids[i];
-    assign oup_req_o[i].ac       = oup_ac_chans[i];
-    assign oup_req_o[i].cr_ready = oup_cr_readies[i];
-    assign oup_cr_valids[i]      = oup_resp_i[i].cr_valid;
-    assign oup_cr_chans[i]       = oup_resp_i[i].cr_resp;
-    assign oup_req_o[i].cd_ready = oup_cd_readies[i];
-    assign oup_cd_valids[i]      = oup_resp_i[i].cd_valid;
-    assign oup_cd_chans[i]       = oup_resp_i[i].cd;
-end
-
-for (genvar i = 0; i < NumInp; i++) begin : inp_loop
-    for (genvar j = 0; j < NumOup; j++) begin : oup_loop
-        if (i == j) begin : gen_tieoff
-            assign cr_valids_rev  [i][j] = '0;
-            assign cr_readies     [j][i] = '0;
-            assign cr_chans_rev   [i][j] = '0;
-            assign cd_valids_rev  [i][j] = '0;
-            assign cd_readies     [j][i] = '0;
-            assign cd_chans_rev   [i][j] = '0;
-        end else if (BufferResp) begin : gen_resp_fifos
+    for (genvar i = 0; i < NumOup; i++) begin : gen_unpack_oup
+        if (BufferReq) begin : gen_buffer_req
+            stream_fifo_optimal_wrap #(
+                .Depth  (2),
+                .type_t (ac_chan_t)
+            ) i_ac_fifo (
+                .clk_i,
+                .rst_ni,
+                .flush_i    (1'b0),
+                .testmode_i (1'b0),
+                .usage_o    (),
+                .valid_i    (oup_ac_valids [i]),
+                .ready_o    (oup_ac_readies[i]),
+                .data_i     (oup_ac_chans  [i]),
+                .valid_o    (oup_req_o [i].ac_valid),
+                .ready_i    (oup_resp_i[i].ac_ready),
+                .data_o     (oup_req_o [i].ac)
+            );
+        end else begin : gen_no_buffer_req
+            assign oup_ac_readies[i]     = oup_resp_i[i].ac_ready;
+            assign oup_req_o[i].ac_valid = oup_ac_valids[i];
+            assign oup_req_o[i].ac       = oup_ac_chans[i];
+        end
+        if (BufferResp) begin : gen_buffer_resp
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
                 .type_t (cr_chan_t)
@@ -106,14 +116,13 @@ for (genvar i = 0; i < NumInp; i++) begin : inp_loop
                 .flush_i    (1'b0),
                 .testmode_i (1'b0),
                 .usage_o    (),
-                .valid_i    (cr_valids     [j][i]),
-                .ready_o    (cr_readies    [j][i]),
-                .data_i     (cr_chans      [j][i]),
-                .valid_o    (cr_valids_rev [i][j]),
-                .ready_i    (cr_readies_rev[i][j]),
-                .data_o     (cr_chans_rev  [i][j])
+                .valid_i    (oup_resp_i[i].cr_valid),
+                .ready_o    (oup_req_o [i].cr_ready),
+                .data_i     (oup_resp_i[i].cr_resp),
+                .valid_o    (oup_cr_valids [i]),
+                .ready_i    (oup_cr_readies[i]),
+                .data_o     (oup_cr_chans  [i])
             );
-
             stream_fifo_optimal_wrap #(
                 .Depth  (4),
                 .type_t (cd_chan_t)
@@ -123,193 +132,141 @@ for (genvar i = 0; i < NumInp; i++) begin : inp_loop
                 .flush_i    (1'b0),
                 .testmode_i (1'b0),
                 .usage_o    (),
-                .valid_i    (cd_valids     [j][i]),
-                .ready_o    (cd_readies    [j][i]),
-                .data_i     (cd_chans      [j][i]),
-                .valid_o    (cd_valids_rev [i][j]),
-                .ready_i    (cd_readies_rev[i][j]),
-                .data_o     (cd_chans_rev  [i][j])
+                .valid_i    (oup_resp_i[i].cd_valid),
+                .ready_o    (oup_req_o [i].cd_ready),
+                .data_i     (oup_resp_i[i].cd),
+                .valid_o    (oup_cd_valids [i]),
+                .ready_i    (oup_cd_readies[i]),
+                .data_o     (oup_cd_chans  [i])
             );
-        end else begin : gen_resp_assigns
-            assign cr_valids_rev  [i][j] = cr_valids     [j][i];
-            assign cr_readies     [j][i] = cr_readies_rev[i][j];
-            assign cr_chans_rev   [i][j] = cr_chans      [j][i];
-            assign cd_valids_rev  [i][j] = cd_valids     [j][i];
-            assign cd_readies     [j][i] = cd_readies_rev[i][j];
-            assign cd_chans_rev   [i][j] = cd_chans      [j][i];
+        end else begin : gen_no_buffer_resp
+            assign oup_req_o[i].cr_ready = oup_cr_readies[i];
+            assign oup_cr_valids[i]      = oup_resp_i[i].cr_valid;
+            assign oup_cr_chans[i]       = oup_resp_i[i].cr_resp;
+            assign oup_req_o[i].cd_ready = oup_cd_readies[i];
+            assign oup_cd_valids[i]      = oup_resp_i[i].cd_valid;
+            assign oup_cd_chans[i]       = oup_resp_i[i].cd;
         end
     end
-end
 
-rr_arb_tree #(
-    .NumIn      (NumInp),
-    .DataType   (ac_chan_t),
-    .ExtPrio    (1'b0),
-    .AxiVldRdy  (1'b1),
-    .LockIn     (1'b1)
-) i_arbiter (
-    .clk_i,
-    .rst_ni,
-    .flush_i ('0),
-    .rr_i    ('0),
-    .req_i   (to_arb_ac_valids),
-    .gnt_o   (from_arb_ac_readies),
-    .data_i  (inp_ac_chans),
-    .req_o   (arb_ac_valid),
-    .gnt_i   (arb_ac_ready),
-    .data_o  (arb_ac_chan),
-    .idx_o   (arb_ac_idx)
-);
+    ace_ccu_snoop_req #(
+        .NumInp    (NumInp),
+        .NumOup    (NumOup),
+        .ac_chan_t (ac_chan_t),
+        .ctrl_t    (ctrl_t)
+    ) i_snoop_req (
+        .clk_i,
+        .rst_ni,
+        .ac_valids_i     (inp_ac_valids),
+        .ac_readies_o    (inp_ac_readies),
+        .ac_chans_i      (inp_ac_chans),
+        .ac_sel_i        (inp_sel_i),
+        .ac_valid_o      (ac_valid),
+        .ac_ready_i      (ac_ready),
+        .ac_chan_o       (ac_chan),
+        .ctrl_valid_o    (req_ctrl_valid),
+        .ctrl_ready_i    (req_ctrl_ready),
+        .ctrl_o          (req_ctrl)
+    );
 
-assign ac_sel = inp_sel_i[arb_ac_idx];
-
-stream_fork_dynamic #(
-.N_OUP (NumOup)
-) i_ac_fork (
-    .clk_i,
-    .rst_ni,
-    .valid_i     (arb_ac_valid),
-    .ready_o     (arb_ac_ready),
-    .sel_i       (ac_sel),
-    .sel_valid_i (arb_ac_valid),
-    .sel_ready_o ( ),
-    .valid_o     (ac_valids),
-    .ready_i     (ac_readies)
-);
-
-assign ac_chans = {NumOup{arb_ac_chan}};
-assign ac_idx   = {NumOup{arb_ac_idx}};
-
-for (genvar i = 0; i < NumOup; i++) begin : gen_oup
-
-    logic     to_snoop_ac_valid, to_snoop_ac_ready;
-    ac_chan_t to_snoop_ac_chan;
-    inp_idx_t to_snoop_ac_idx;
-
-    typedef struct packed {
-        inp_idx_t idx;
-        ac_chan_t ac;
-    } ac_fifo_entry_t;
-
-    ac_fifo_entry_t fifo_in, fifo_out;
-
-    assign fifo_in.idx = ac_idx[i];
-    assign fifo_in.ac  = ac_chans[i];
-
-    assign to_snoop_ac_idx  = fifo_out.idx;
-    assign to_snoop_ac_chan = fifo_out.ac;
-
-    if (BufferReq) begin
-        stream_fifo_optimal_wrap #(
-            .Depth  (8),
-            .type_t (ac_fifo_entry_t)
-        ) i_ac_fifo (
-            .clk_i,
-            .rst_ni,
-            .flush_i    (1'b0),
-            .testmode_i (1'b0),
-            .usage_o    (),
-            .valid_i    (ac_valids[i]),
-            .ready_o    (ac_readies[i]),
-            .data_i     (fifo_in),
-            .valid_o    (to_snoop_ac_valid),
-            .ready_i    (to_snoop_ac_ready),
-            .data_o     (fifo_out)
-        );
+    if (ConfCheck) begin
+        assign oup_ac_valid = lup_valid_i;
+        assign lup_ready_o  = oup_ac_ready;
+        assign lup_valid_o  = ac_valid;
+        assign ac_ready     = lup_ready_i;
+        assign lup_addr_o   = ac_chan.addr[AddrBase+:AddrLength];
+        assign lup_clr_o    = cr_valid && cr_ready;
     end else begin
-        assign to_snoop_ac_valid = ac_valids[i];
-        assign ac_readies[i]     = to_snoop_ac_ready;
-        assign to_snoop_ac_chan  = ac_chans[i];
+        assign oup_ac_valid = ac_valid;
+        assign ac_ready     = oup_ac_ready;
+        assign lup_valid_o  = 1'b0;
+        assign lup_ready_o  = 1'b0;
+        assign lup_addr_o   = '0;
+        assign lup_clr_o    = 1'b0;
     end
 
-    // Control valid/ready
-    ace_ccu_snoop_port #(
-        .NumInp                (NumInp),
-        .ac_chan_t             (ac_chan_t),
-        .cr_chan_t             (cr_chan_t),
-        .cd_chan_t             (cd_chan_t)
-    ) i_snoop_port (
-        .clk_i,
-        .rst_ni,
-        .inp_ac_valid_i        (to_snoop_ac_valid),
-        .inp_ac_ready_o        (to_snoop_ac_ready),
-        .inp_ac_chan_i         (to_snoop_ac_chan),
-        .inp_cr_valids_o       (cr_valids[i]),
-        .inp_cr_readies_i      (cr_readies[i]),
-        .inp_cr_chans_o        (cr_chans[i]),
-        .inp_cd_valids_o       (cd_valids[i]),
-        .inp_cd_readies_i      (cd_readies[i]),
-        .inp_cd_chans_o        (cd_chans[i]),
-        .inp_idx_i             (to_snoop_ac_idx),
-        .oup_ac_valid_o        (oup_ac_valids[i]),
-        .oup_ac_ready_i        (oup_ac_readies[i]),
-        .oup_ac_chan_o         (oup_ac_chans[i]),
-        .oup_cr_valid_i        (oup_cr_valids[i]),
-        .oup_cr_ready_o        (oup_cr_readies[i]),
-        .oup_cr_chan_i         (oup_cr_chans[i]),
-        .oup_cd_valid_i        (oup_cd_valids[i]),
-        .oup_cd_ready_o        (oup_cd_readies[i]),
-        .oup_cd_chan_i         (oup_cd_chans[i])
-    );
-end
-
-for (genvar i = 0; i < NumInp; i++) begin : gen_inp
-
-    logic      to_fifo_sel_valid, from_fifo_sel_ready;
-    logic      to_resp_sel_valid, from_resp_sel_ready;
-    sel_mask_t to_resp_sel;
-
-    stream_fork #(
-        .N_OUP (2)
-    ) i_sel_fork (
-        .clk_i,
-        .rst_ni,
-        .valid_i     (inp_ac_valids[i]),
-        .ready_o     (inp_ac_readies[i]),
-        .valid_o     ({to_arb_ac_valids[i], to_fifo_sel_valid}),
-        .ready_i     ({from_arb_ac_readies[i], from_fifo_sel_ready})
-    );
-
     stream_fifo_optimal_wrap #(
-        .Depth  (4),
-        .type_t (sel_mask_t)
-    ) i_sel_fifo (
+        .Depth  (2),
+        .type_t (ctrl_t)
+    ) i_oup_ctrl_fifo (
         .clk_i,
         .rst_ni,
         .flush_i    (1'b0),
         .testmode_i (1'b0),
         .usage_o    (),
-        .valid_i    (to_fifo_sel_valid),
-        .ready_o    (from_fifo_sel_ready),
-        .data_i     (inp_sel_i[i]),
-        .valid_o    (to_resp_sel_valid),
-        .ready_i    (from_resp_sel_ready),
-        .data_o     (to_resp_sel)
+        .valid_i    (req_ctrl_valid),
+        .ready_o    (req_ctrl_ready),
+        .data_i     (req_ctrl),
+        .valid_o    (resp_ctrl_valid),
+        .ready_i    (resp_ctrl_ready),
+        .data_o     (resp_ctrl)
     );
+
+    stream_fork_dynamic #(
+        .N_OUP (NumOup)
+    ) i_ac_fork (
+        .clk_i,
+        .rst_ni,
+        .valid_i     (oup_ac_valid),
+        .ready_o     (oup_ac_ready),
+        .sel_i       (req_ctrl.sel),
+        .sel_valid_i (oup_ac_valid),
+        .sel_ready_o ( ),
+        .valid_o     (oup_ac_valids),
+        .ready_i     (oup_ac_readies)
+    );
+
+    assign oup_ac_chans = {NumOup{ac_chan}};
 
     ace_ccu_snoop_resp #(
         .NumOup          (NumOup),
         .cr_chan_t       (cr_chan_t),
-        .cd_chan_t       (cd_chan_t)
-    ) i_inp_resp (
-        .clk_i           (clk_i),
-        .rst_ni          (rst_ni),
-        .cr_valids_i     (cr_valids_rev[i]),
-        .cr_readies_o    (cr_readies_rev[i]),
-        .cr_chans_i      (cr_chans_rev[i]),
-        .cd_valids_i     (cd_valids_rev[i]),
-        .cd_readies_o    (cd_readies_rev[i]),
-        .cd_chans_i      (cd_chans_rev[i]),
-        .oup_sel_i       (to_resp_sel),
-        .oup_sel_valid_i (to_resp_sel_valid),
-        .oup_sel_ready_o (from_resp_sel_ready),
-        .cr_valid_o      (inp_cr_valids[i]),
-        .cr_ready_i      (inp_cr_readies[i]),
-        .cr_chan_o       (inp_cr_chans[i]),
-        .cd_valid_o      (inp_cd_valids[i]),
-        .cd_ready_i      (inp_cd_readies[i]),
-        .cd_chan_o       (inp_cd_chans[i])
+        .cd_chan_t       (cd_chan_t),
+        .ctrl_t          (ctrl_t)
+    ) i_snoop_resp (
+        .clk_i,
+        .rst_ni,
+        .cr_valids_i     (oup_cr_valids),
+        .cr_readies_o    (oup_cr_readies),
+        .cr_chans_i      (oup_cr_chans),
+        .cd_valids_i     (oup_cd_valids),
+        .cd_readies_o    (oup_cd_readies),
+        .cd_chans_i      (oup_cd_chans),
+        .ctrl_i          (resp_ctrl),
+        .ctrl_valid_i    (resp_ctrl_valid),
+        .ctrl_ready_o    (resp_ctrl_ready),
+        .cr_valid_o      (cr_valid),
+        .cr_ready_i      (cr_ready),
+        .cr_chan_o       (cr_chan),
+        .cr_ctrl_o       (cr_ctrl),
+        .cd_valid_o      (cd_valid),
+        .cd_ready_i      (cd_ready),
+        .cd_chan_o       (cd_chan),
+        .cd_ctrl_o       (cd_ctrl)
     );
-end
+
+    stream_demux #(
+        .N_OUP (NumInp)
+    ) i_cr_demux (
+        .inp_valid_i (cr_valid),
+        .inp_ready_o (cr_ready),
+        .oup_sel_i   (cr_ctrl.idx),
+        .oup_valid_o (inp_cr_valids),
+        .oup_ready_i (inp_cr_readies)
+    );
+
+    assign inp_cr_chans = {NumInp{cr_chan}};
+
+    stream_demux #(
+        .N_OUP (NumInp)
+    ) i_cd_demux (
+        .inp_valid_i (cd_valid),
+        .inp_ready_o (cd_ready),
+        .oup_sel_i   (cd_ctrl.idx),
+        .oup_valid_o (inp_cd_valids),
+        .oup_ready_i (inp_cd_readies)
+    );
+
+    assign inp_cd_chans = {NumInp{cd_chan}};
 
 endmodule

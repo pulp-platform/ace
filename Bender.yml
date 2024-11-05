@@ -31,7 +31,7 @@ sources:
   - src/ccu/ccu_ctrl_r_snoop.sv
   - src/ccu/ace_ccu_snoop_path.sv
   - src/ccu/ace_ccu_snoop_resp.sv
-  - src/ccu/ace_ccu_snoop_port.sv
+  - src/ccu/ace_ccu_snoop_req.sv
   - src/ccu/ace_ccu_snoop_interconnect.sv
   - src/ccu/ace_ccu_snoop_path.sv
   - src/ccu/ace_ccu_master_path.sv

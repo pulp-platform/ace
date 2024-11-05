@@ -99,6 +99,7 @@ module ace_ccu_top import ace_pkg::*;
     .NumOup       (NoSlvPorts),
     .BufferReq    (1),
     .BufferResp   (1),
+    .ConfCheck    (0),
     .ac_chan_t    (snoop_ac_t),
     .cr_chan_t    (snoop_cr_t),
     .cd_chan_t    (snoop_cd_t),
@@ -111,7 +112,14 @@ module ace_ccu_top import ace_pkg::*;
     .inp_req_i         (snoop_reqs),
     .inp_resp_o        (snoop_resps),
     .oup_req_o         (snoop_req_o),
-    .oup_resp_i        (snoop_resp_i)
+    .oup_resp_i        (snoop_resp_i),
+    // ConfCheck is 0, these are don't cares
+    .lup_valid_o       (),
+    .lup_ready_i       ('0),
+    .lup_addr_o        (),
+    .lup_valid_i       ('0),
+    .lup_ready_o       (),
+    .lup_clr_o         ()
   );
 
 endmodule
