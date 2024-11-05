@@ -30,6 +30,7 @@ class cache_scoreboard #(
     typedef logic [AW-1:0]              addr_t;
     typedef logic [7:0]                 byte_t;
     typedef logic [2:0]                 status_t;
+    typedef logic [$clog2(WAYS)-1:0]    lru_rank_t;
 
     // Data structure obtained from tag lookup
     typedef struct {
@@ -42,9 +43,10 @@ class cache_scoreboard #(
         int unsigned addr;
     } tag_resp_t;
     
-    byte_t   data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
-    status_t status_q[SETS][WAYS];                  // Cache state
-    tag_t    tag_q[SETS][WAYS];                     // Cache tag
+    byte_t     data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
+    status_t   status_q[SETS][WAYS];                  // Cache state
+    tag_t      tag_q[SETS][WAYS];                     // Cache tag
+    lru_rank_t lru_rank_q[SETS][WAYS];              // LRU ranks
 
     // Semaphore to ensure only one process accesses the cache at a time
     // The two processes are cache requests and snoop requests
@@ -83,14 +85,12 @@ class cache_scoreboard #(
     function void init_data_mem_from_file(
         string fname
     );
-        $info("reading data");
         $readmemh(fname, data_q);
     endfunction
 
     function void init_tag_mem_from_file(
         string fname
     );
-        $info("reading tag");
         $readmemh(fname, tag_q);
     endfunction
 
@@ -100,14 +100,12 @@ class cache_scoreboard #(
         // Initialize all to zeros
         for (int set = 0; set < SETS; set++) begin
             for (int way = 0; way < WAYS; way++) begin
-                status_q[set][way] = '0;
+                status_q[set][way]   = '0;
+                lru_rank_q[set][way] = '0;
             end
         end
         // Read initial values from file
-        $info("Reading from %s", fname);
         $readmemb(fname, status_q);
-        $info(status_q[5][0]);
-        $info(status_q[72][0]);
     endfunction
 
     function void init_mem_from_file(
@@ -121,27 +119,25 @@ class cache_scoreboard #(
     endfunction
 
     function tag_resp_t read_and_compare_tag(addr_t addr);
-        addr_t zero_addr = '0;
         tag_resp_t resp;
         tag_t lu_tag;
         status_t status;
         logic hit = '0;
+        logic invalid_found = '0;
         int way;
-        int not_valid_way = 0;
+        int repl_way = 0;
         int i;
         int unsigned idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
         tag_t tag        = addr[AW-1:AW-TAG_BITS];
-        addr = zero_addr & addr;
-        // Replacement policy = highest index with invalid status
-        // otherwise, the highest way
-        // TODO: implement LRU
         for (way = 0; way < WAYS; way++) begin
             lu_tag = tag_q[idx][way];
             status = status_q[idx][way];
             if (!status[VALID_IDX]) begin
-                // Current way is invalid
-                // -> suitable for replacement
-                not_valid_way = way;
+                repl_way      = way;
+                invalid_found = '1;
+            end else if (!invalid_found && lru_rank_q[idx][way] == 0) begin
+                // Least recently used
+                repl_way      = way;
             end
             if (tag == lu_tag && status[VALID_IDX]) begin
                 hit = 'b1;
@@ -151,10 +147,11 @@ class cache_scoreboard #(
         resp.hit = hit;
         resp.idx = idx;
         resp.way = way;
-        resp.repl_way = not_valid_way;
-        resp.status = status;
+        resp.repl_way = repl_way;
+        resp.status = hit ? status : status_q[idx][repl_way];
         resp.tag = tag;
-        resp.addr = {lu_tag, idx, {BLOCK_OFFSET_BITS{1'b0}}};
+        addr[BLOCK_OFFSET_BITS-1:0] = '0;
+        resp.addr = addr;
         return resp;
     endfunction
 
@@ -173,7 +170,7 @@ class cache_scoreboard #(
         int unsigned n_bytes = CACHELINE_BYTES;
         cache_resp resp = new;
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
-        for (int i = 0; i < n_bytes; i++) begin
+        for (int i = 0; (i < n_bytes) && req.data_q.size() > 0; i++) begin
             data_q[info.idx][info.way][byte_idx] = req.data_q.pop_front();
             byte_idx++;
         end
@@ -187,6 +184,7 @@ class cache_scoreboard #(
 
     function automatic mem_req gen_write_back(tag_resp_t info);
         mem_req mem_req = new;
+        $info("Write back");
         mem_req.size           = $clog2(BYTES_PER_WORD);
         mem_req.len            = CACHELINE_WORDS - 1;
         mem_req.addr           = info.addr;
@@ -195,7 +193,7 @@ class cache_scoreboard #(
         for (int i = 0; i < CACHELINE_WORDS; i++) begin
             for (int j = 0; j < BYTES_PER_WORD; j++) begin
                 mem_req.data_q.push_back(
-                    data_q[info.idx][info.way][i*BYTES_PER_WORD+j]);
+                    data_q[info.idx][info.repl_way][i*BYTES_PER_WORD+j]);
             end
         end
         return mem_req;
@@ -211,16 +209,29 @@ class cache_scoreboard #(
         return mem_req;
     endfunction
 
+    function automatic void update_lru(tag_resp_t info);
+        for (int way = 0; way < WAYS; way++) begin
+            if (way == info.repl_way) begin
+                lru_rank_q[info.idx][way] = WAYS-1;
+            end else begin
+                if (lru_rank_q[info.idx][way] != '0) begin
+                    lru_rank_q[info.idx][way]--;
+                end
+            end
+        end
+    endfunction
+
     function automatic void allocate(mem_req req, mem_resp resp, tag_resp_t info);
         int unsigned n_bytes = axi_pkg::num_bytes(req.size);
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
-        for (int i = 0; i < (req.len + 1); i++) begin
-            for (int j = 0; j < n_bytes; j++) begin
+        for (int i = 0; (i < (req.len + 1)) && resp.data_q.size() > 0; i++) begin
+            for (int j = 0; (j < n_bytes) && resp.data_q.size() > 0; j++) begin
                 data_q[info.idx][info.repl_way][byte_idx] =
                     resp.data_q.pop_front();
                 byte_idx++;
             end
         end
+        update_lru(info);
         tag_q[info.idx][info.repl_way]               = info.tag;
         status_q[info.idx][info.repl_way][DIRTY_IDX] = resp.pass_dirty;
         status_q[info.idx][info.repl_way][SHARD_IDX] = resp.is_shared;
@@ -345,6 +356,7 @@ class cache_scoreboard #(
             mem_resp_mbx.get(mem_resp);
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
+            tag_lu.way = tag_lu.repl_way;
             // Handle the initial cache request
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);

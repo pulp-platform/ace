@@ -186,12 +186,15 @@ class CacheState:
   ):
     with open(file, "w") as data_file:
       for set in range(self.sets):
+        fmt = [f"@{set:x}"]
+        any_valid = False
         for way in range(self.ways):
           if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
-            fmt = [f"@{set:x}"]
-            for byte in self.cache_data[set][way]:
-              fmt += [f"{byte:x}"]
-            data_file.write(" ".join(fmt) + "\n")
+            any_valid = True
+          for byte in self.cache_data[set][way]:
+            fmt += [f"{byte:2x}"]
+        if any_valid:
+          data_file.write(" ".join(fmt) + "\n")
 
   # TODO: ensure width
   def save_tag(
