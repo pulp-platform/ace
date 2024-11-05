@@ -1,8 +1,10 @@
-from cache_state import CacheState
+from cache_state import \
+  CacheState, CachelineState, \
+  CachelineStateEnum, CacheSetFullException
 from memory_state import MemoryState
 from common import MemoryRange
 from transactions import CacheTransactionSequence
-from random import random, randint
+from random import random, randint, choice, sample
 import os
 
 class CacheCoherencyTest:
@@ -16,8 +18,10 @@ class CacheCoherencyTest:
       sets: int,
       n_caches: int,
       n_transactions: int,
-      target_dir: str
+      target_dir: str,
+      **kwargs
       ):
+
     self.aw = addr_width
     self.dw = data_width
     self.word_width = word_width
@@ -30,7 +34,7 @@ class CacheCoherencyTest:
 
     self.cacheline_bytes = \
       self.cacheline_words * self.word_width // 8
-    self.caches = []
+    self.caches: list[CacheState] = []
     for _ in range(0, n_caches):
       self.caches.append(
         CacheState(
@@ -51,7 +55,7 @@ class CacheCoherencyTest:
     self.mem_state.save_mem(
       file=os.path.join(self.target_dir, "main_mem.mem"))
 
-    self.transactions = []
+    self.transactions: list[CacheTransactionSequence] = []
     for _ in range(self.n_caches):
       self.transactions.append(
         CacheTransactionSequence(
@@ -60,15 +64,17 @@ class CacheCoherencyTest:
       )
     self.gen_transactions()
 
-    self.init_caches()
+    self.init_caches(n_inited_lines=100)
     self.save_caches()
 
   def gen_memory_ranges(self):
     mem_range = MemoryRange(
-      cached=True, start_addr=0, end_addr=0x0010_0000)
+      cached=True, start_addr=0, end_addr=0x0010_0000
+    )
     self.mem_ranges.append(mem_range)
     mem_range = MemoryRange(
-      cached=False, start_addr=0x0010_0000, end_addr=0x0020_0000)
+      cached=False, start_addr=0x0010_0000, end_addr=0x0020_0000
+    )
     self.mem_ranges.append(mem_range)
 
   def gen_transactions(self):
@@ -98,14 +104,66 @@ class CacheCoherencyTest:
       else:
         sharers.append(self.rand_choice())
 
-  def rand_cacheline_state(self):
-    return 
+  def get_rand_cacheline_data(self):
+    data = []
+    for _ in range(self.cacheline_bytes):
+      data.append(randint(0, 255))
 
-  def init_caches(self):
+  def get_rand_mem_range(self, type="both") -> MemoryRange:
+    rand_pool = []
+    for mem_range in self.mem_ranges:
+      cache_allwd = type in ["cached", "both"]
+      uncache_allwd = type in ["uncached", "both"]
+      if mem_range.cached and cache_allwd:
+        rand_pool.append(mem_range)
+      if not mem_range.cached and uncache_allwd:
+        rand_pool.append(mem_range)
+    return choice(rand_pool)
+
+  def init_caches(self, n_inited_lines):
     for cache in self.caches:
       cache.init_cache()
-    self.caches[0].set_entry(
-      0x20, self.cacheline_bytes*[0xA], [True, False, False])
+    for _ in range(n_inited_lines):
+      # Get a random memory range
+      rand_mem_range = self.get_rand_mem_range(type="cached")
+      # Get a random address from that memory range
+      # Aligned to cache line boundary
+      addr = rand_mem_range.get_rand_addr(self.cacheline_bytes)
+      # Get data from initialized memory
+      data = rand_mem_range.get_data(addr, self.cacheline_bytes)
+      # Select random number of masters to have that cache line
+      n_masters = randint(1, self.n_caches)
+      # Randomly select the master indices to have that cache line
+      mst_idxs = sample(range(self.n_caches), n_masters)
+      # Select whether someone will hold the line in dirty state
+      dirty = self.rand_choice(odds=0.5)
+      shared = len(mst_idxs) > 1
+      owner = -1
+      if dirty:
+        # Randomly select the owner
+        owner = sample(mst_idxs, 1)
+      for mst_idx in mst_idxs:
+        write_data = data
+        if mst_idx == owner:
+          # Generate random data since data is dirty
+          write_data = self.get_rand_cacheline_data()
+          if shared:
+            state = CachelineState(CachelineStateEnum.OWNED)
+          else:
+            state = CachelineState(CachelineStateEnum.MODIFIED)
+        else:
+          if shared:
+            state = CachelineState(CachelineStateEnum.SHARED)
+          else:
+            state = CachelineState(CachelineStateEnum.EXCLUSIVE)
+        try:
+          self.caches[mst_idx].set_entry(
+            addr,
+            write_data,
+            state.get_state_bits()
+          )
+        except CacheSetFullException:
+          pass
 
   def save_caches(self):
     for i, cache in enumerate(self.caches):
@@ -118,6 +176,8 @@ class CacheCoherencyTest:
 
 if __name__ == "__main__":
   import argparse
+  from random import seed
+  import numpy as np
   parser = argparse.ArgumentParser(
     description=('Script to write data to a file'
                  'based on address space.')
@@ -167,5 +227,15 @@ if __name__ == "__main__":
     type=str,
     help='Target directory for generated files'
   )
+  parser.add_argument(
+    '--seed',
+    type=int,
+    help="Seed for the simulation",
+    default=None,
+    nargs='?'
+  )
   parsed_args = vars(parser.parse_args())
+  if parsed_args.get("seed", None):
+    seed(parsed_args["seed"])
+    np.random.seed(parsed_args["seed"])
   cct = CacheCoherencyTest(**parsed_args)
