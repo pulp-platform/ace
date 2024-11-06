@@ -81,12 +81,12 @@ module tb_ace_ccu_top #(
     // Defines domain_mask_t and domain_set_t
     `DOMAIN_TYPEDEF_ALL(TbNumMst)
 
-    domain_set_t  [TbNumMst] domain_set;
+    domain_set_t  [TbNumMst-1:0] domain_set;
     initial begin
         for (int i = 0; i < TbNumMst; i++) begin
-            domain_set[i].initiator = i;
-            domain_set[i].inner = '1;
-            domain_set[i].outer = '1;
+            domain_set[i].initiator = 1 << i;
+            domain_set[i].inner = ~(1 << i);
+            domain_set[i].outer = ~(1 << i);
         end
     end
 
