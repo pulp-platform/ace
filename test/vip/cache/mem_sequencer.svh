@@ -5,7 +5,8 @@ class mem_sequencer #(
     parameter type aw_beat_t = logic,
     parameter type ar_beat_t = logic,
     parameter type r_beat_t  = logic,
-    parameter type w_beat_t  = logic
+    parameter type w_beat_t  = logic,
+    parameter type b_beat_t  = logic
 );
     mailbox #(mem_req)    mem_req_mbx;
     mailbox #(mem_resp)   mem_resp_mbx;
@@ -13,6 +14,7 @@ class mem_sequencer #(
     mailbox #(ar_beat_t)  ar_mbx_o;
     mailbox #(r_beat_t)   r_mbx_o;
     mailbox #(w_beat_t)   w_mbx_o;
+    mailbox #(b_beat_t)   b_mbx_o;
 
     function new(
         mailbox #(mem_req)    mem_req_mbx,
@@ -20,7 +22,8 @@ class mem_sequencer #(
         mailbox #(aw_beat_t)  aw_mbx_o,
         mailbox #(ar_beat_t)  ar_mbx_o,
         mailbox #(r_beat_t)   r_mbx_o,
-        mailbox #(w_beat_t)   w_mbx_o
+        mailbox #(w_beat_t)   w_mbx_o,
+        mailbox #(b_beat_t)   b_mbx_o
     );
         this.mem_req_mbx  = mem_req_mbx;
         this.mem_resp_mbx = mem_resp_mbx;
@@ -28,6 +31,7 @@ class mem_sequencer #(
         this.ar_mbx_o     = ar_mbx_o;
         this.r_mbx_o      = r_mbx_o;
         this.w_mbx_o      = w_mbx_o;
+        this.b_mbx_o      = b_mbx_o;
     endfunction
 
     function automatic axi_pkg::cache_t calc_cache(mem_req req);
@@ -111,12 +115,23 @@ class mem_sequencer #(
         mem_resp_mbx.put(resp);
     endtask
 
+    task recv_b_beats;
+        b_beat_t b_beat;
+        mem_resp resp = new;
+        b_mbx_o.get(b_beat);
+        // Nothing to transfer in the response
+        mem_resp_mbx.put(resp);
+    endtask
+
     task recv_mem_reqs;
         forever recv_mem_req();
     endtask
 
     task send_mem_resps;
-        forever recv_r_beats();
+        fork
+            forever recv_r_beats();
+            forever recv_b_beats();;
+        join
     endtask
 
     task run;

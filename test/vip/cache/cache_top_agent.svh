@@ -65,6 +65,7 @@ class cache_top_agent #(
     mailbox #(w_beat_t)   w_mbx                = new();
     mailbox #(ar_beat_t)  ar_mbx               = new();
     mailbox #(r_beat_t)   r_mbx                = new();
+    mailbox #(b_beat_t)   b_mbx                = new();
     mailbox #(cache_snoop_req)  snoop_req_mbx  = new();
     mailbox #(cache_snoop_resp) snoop_resp_mbx = new();
 
@@ -108,7 +109,8 @@ class cache_top_agent #(
         .aw_beat_t(aw_beat_t),
         .ar_beat_t(ar_beat_t),
         .r_beat_t(r_beat_t),
-        .w_beat_t(w_beat_t)
+        .w_beat_t(w_beat_t),
+        .b_beat_t(b_beat_t)
     ) mem_seq;
 
     function new(
@@ -125,7 +127,8 @@ class cache_top_agent #(
         this.clk_if = clk_if;
 
         this.ace_agent   = new(this.ace, this.clk_if, this.aw_mbx,
-                               this.w_mbx, this.ar_mbx, this.r_mbx);
+                               this.w_mbx, this.ar_mbx, this.r_mbx,
+                               this.b_mbx);
         this.snoop_agent = new(this.snoop, this.clk_if,
                                this.snoop_req_mbx,
                                this.snoop_resp_mbx);
@@ -135,7 +138,7 @@ class cache_top_agent #(
         this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
                                this.aw_mbx, this.ar_mbx, this.r_mbx,
-                               this.w_mbx);
+                               this.w_mbx, this.b_mbx);
 
         this.cache_sb.init_mem_from_file(
             data_mem_file,

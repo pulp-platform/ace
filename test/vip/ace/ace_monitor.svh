@@ -6,13 +6,15 @@ class ace_monitor #(
     parameter time TT        = 0ns,  // stimuli test time
     parameter type ace_bus_t = logic,
     parameter type ar_beat_t = logic,
-    parameter type r_beat_t  = logic
+    parameter type r_beat_t  = logic,
+    parameter type b_beat_t
 );
 
     ace_bus_t ace;
 
     mailbox #(ar_beat_t) ar_mbx;
     mailbox #(r_beat_t) r_mbx;
+    mailbox #(b_beat_t) b_mbx;
 
     task cycle_start;
         #TT;
@@ -25,12 +27,14 @@ class ace_monitor #(
     function new(
         ace_bus_t ace,
         mailbox #(ar_beat_t) ar_mbx,
-        mailbox #(r_beat_t) r_mbx
+        mailbox #(r_beat_t) r_mbx,
+        mailbox #(b_beat_t) b_mbx
     );
         this.ace = ace;
 
         this.ar_mbx = ar_mbx;
         this.r_mbx  = r_mbx;
+        this.b_mbx  = b_mbx;
 
     endfunction
 
@@ -46,6 +50,16 @@ class ace_monitor #(
         cycle_end();
     endtask
 
+    task mon_b (output b_beat_t beat);
+        cycle_start();
+        while (!(ace.b_valid && ace.b_ready)) begin cycle_end(); cycle_start(); end
+        beat = new;
+        beat.id   = ace.b_id;
+        beat.resp = ace.b_resp;
+        beat.user = ace.b_user;
+        cycle_end();
+    endtask
+
     task recv_rs;
         forever begin
             r_beat_t beat;
@@ -54,7 +68,18 @@ class ace_monitor #(
         end
     endtask
 
+    task recv_bs;
+        forever begin
+            b_beat_t beat;
+            mon_b(beat);
+            b_mbx.put(beat);
+        end
+    endtask
+
     task run;
-        forever recv_rs();
+        fork
+            forever recv_rs();
+            forever recv_bs();
+        join
     endtask
 endclass

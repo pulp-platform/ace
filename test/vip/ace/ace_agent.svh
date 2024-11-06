@@ -33,6 +33,7 @@ class ace_agent #(
     mailbox #(w_beat_t)  w_mbx;
     mailbox #(ar_beat_t) ar_mbx;
     mailbox #(r_beat_t)  r_mbx;
+    mailbox #(b_beat_t)  b_mbx;
 
     ace_bus_t  ace;
     clk_if_t clk_if;
@@ -43,8 +44,7 @@ class ace_agent #(
         .ace_bus_t(ace_bus_t),
         .aw_beat_t(aw_beat_t),
         .ar_beat_t(ar_beat_t),
-        .w_beat_t(w_beat_t),
-        .b_beat_t(b_beat_t)
+        .w_beat_t(w_beat_t)
     ) ace_drv;
 
     ace_mbox_sequencer #(
@@ -58,7 +58,8 @@ class ace_agent #(
         .TA(TA), .TT(TT),
         .ace_bus_t(ace_bus_t),
         .ar_beat_t(ar_beat_t),
-        .r_beat_t(r_beat_t)
+        .r_beat_t(r_beat_t),
+        .b_beat_t(b_beat_t)
     ) ace_mon;
 
     function new(
@@ -67,7 +68,8 @@ class ace_agent #(
         mailbox #(aw_beat_t) aw_mbx,
         mailbox #(w_beat_t)  w_mbx,
         mailbox #(ar_beat_t) ar_mbx,
-        mailbox #(r_beat_t)  r_mbx
+        mailbox #(r_beat_t)  r_mbx,
+        mailbox #(b_beat_t)  b_mbx
     );
         this.ace    = ace;
         this.clk_if = clk_if;
@@ -76,6 +78,7 @@ class ace_agent #(
         this.w_mbx  = w_mbx;
         this.ar_mbx = ar_mbx;
         this.r_mbx  = r_mbx;
+        this.b_mbx  = b_mbx;
 
         this.ace_drv = new(
             this.ace, this.i_aw_mbx,
@@ -89,7 +92,7 @@ class ace_agent #(
         );
         this.ace_mon = new(
             this.ace, this.ar_mbx,
-            this.r_mbx
+            this.r_mbx, this.b_mbx
         );
     endfunction
 

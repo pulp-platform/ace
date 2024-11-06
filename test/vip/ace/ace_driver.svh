@@ -11,8 +11,7 @@ class ace_driver #(
     parameter type ace_bus_t  = logic,
     parameter type aw_beat_t  = logic,
     parameter type ar_beat_t  = logic,
-    parameter type w_beat_t   = logic,
-    parameter type b_beat_t   = logic
+    parameter type w_beat_t   = logic
 );
     aw_beat_t aw_txn;
     ar_beat_t ar_txn;
