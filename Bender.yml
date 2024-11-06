@@ -4,7 +4,8 @@ package:
     # Alphabetically ordered by last name (maintainers first)
 
 dependencies:
-  axi:          { git: "https://github.com/pulp-platform/axi.git", version: 0.39.4 }
+
+  axi:          { git: "https://github.com/Roenski/axi.git", rev: 8683baafe168fee8f3e7b15d8ea093fbab004e45 }
   common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: cc0ff76 }
 
 export_include_dirs:
@@ -21,14 +22,19 @@ sources:
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
+  - src/ace_aw_transaction_decoder.sv
+  - src/ace_ar_transaction_decoder.sv
+  # Level 2
   - src/ccu/ace_ccu_lock_reg.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
   - src/ccu/ccu_ctrl_r_snoop.sv
-  - src/ace_aw_transaction_decoder.sv
-  - src/ace_ar_transaction_decoder.sv
+  - src/ccu/ace_ccu_snoop_path.sv
   - src/ccu/ace_ccu_snoop_resp.sv
   - src/ccu/ace_ccu_snoop_port.sv
   - src/ccu/ace_ccu_snoop_interconnect.sv
+  - src/ccu/ace_ccu_snoop_path.sv
+  - src/ccu/ace_ccu_master_path.sv
+  - src/ccu/ace_ccu_top.sv
   #- src/ccu_ctrl_pkg.sv
   ## Level 2
   #- src/ace_trs_dec.sv
@@ -58,9 +64,10 @@ sources:
 
   - target: test
     files:
-      - src/snoop_test.sv
-      - src/ace_test.sv
-      - src/ace_sim_master.sv
-      - test/tb_ccu_ctrl_r_snoop.sv
-      - test/tb_ccu_ctrl_wr_snoop.sv
-      - test/tb_ace_ccu_snoop_interconnect.sv
+      # Level 0
+      - test/vip/ace_test_pkg.sv
+      - test/vip/snoop_test_pkg.sv
+      # Level 1
+      - test/vip/cache_test_pkg.sv
+      # Level 2
+      - test/tb_ace_ccu_top.sv

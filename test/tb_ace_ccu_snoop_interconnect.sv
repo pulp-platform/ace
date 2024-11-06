@@ -132,9 +132,20 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
         forever #(CyclTime/2) clk = !clk;
     end
 
-    logic [TbNumMst-1:0][TbNumMst-1:0] inp_sel, inp_fifo_sel;
-    logic [TbNumMst-1:0]               inp_sel_valid, inp_sel_ready;
-    logic [TbNumMst-1:0]               inp_fifo_sel_valid, inp_fifo_sel_ready;
+    logic [TbNumMst-1:0][TbNumMst-1:0] inp_sel;
+
+    logic [TbNumMst-1:0] sel_done;
+
+    initial begin
+        @(posedge rst_n);
+        cycle_start();
+        while (sel_done != '1) begin
+            cycle_end();
+            cycle_start();
+        end
+        cycle_end();
+        $finish;
+    end
 
     logic [TbNumMst-1:0] sel_done;
 
@@ -156,13 +167,11 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
         logic [TbNumMst-1:0] temp_inp_sel;
 
         initial begin
-            inp_sel[i] = '0;
-            inp_sel_valid[i] = 1'b0;
+
             sel_done[i] = 1'b0;
 
             @(posedge rst_n);
 
-            repeat(5) cycle_end();
 
             repeat (64) begin
                 // Randomize the temp variable with the constraint
@@ -172,35 +181,19 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
                 };
                 // Assign the randomized value to inp_sel[i]
                 inp_sel[i]       <= #(ApplTime) temp_inp_sel;
-                inp_sel_valid[i] <= #(ApplTime) 1'b1;
+
                 cycle_start();
-                while (!inp_sel_ready[i]) begin
+                while (!(inp_snoop_req[i].ac_valid && inp_snoop_resp[i].ac_ready)) begin
+
                     cycle_end();
                     cycle_start();
                 end
                 cycle_end();
-                inp_sel_valid[i] <= #(ApplTime) 1'b0;
-                repeat($urandom_range(0, 6)) cycle_end();
+
             end
             sel_done[i] = 1'b1;
         end
 
-        stream_fifo_optimal_wrap #(
-            .Depth (2),
-            .type_t (logic [TbNumMst-1:0])
-        ) i_inp_fifo_in (
-            .clk_i      (clk),
-            .rst_ni     (rst_n),
-            .flush_i    ('0),
-            .testmode_i ('0),
-            .usage_o    (  ),
-            .data_i     (inp_sel[i]),
-            .valid_i    (inp_sel_valid[i]),
-            .ready_o    (inp_sel_ready[i]),
-            .data_o     (inp_fifo_sel[i]),
-            .valid_o    (inp_fifo_sel_valid[i]),
-            .ready_i    (inp_fifo_sel_ready[i])
-        );
     end
 
     ace_ccu_snoop_interconnect #(
@@ -214,9 +207,7 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
     ) i_dut (
         .clk_i             (clk),
         .rst_ni            (rst_n),
-        .inp_sel_i         (inp_fifo_sel),
-        .inp_sel_valids_i  (inp_fifo_sel_valid),
-        .inp_sel_readies_o (inp_fifo_sel_ready),
+        .inp_sel_i         (inp_sel),
         .inp_req_i         (inp_snoop_req),
         .inp_resp_o        (inp_snoop_resp),
         .oup_req_o         (oup_snoop_req),

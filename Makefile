@@ -24,6 +24,37 @@ TBS         ?= ace_ccu_top \
 
 SIM_TARGETS := $(addsuffix .log,$(addprefix sim-,$(TBS)))
 
+####### Simulation parameters #######
+# Address width
+ADDR_WIDTH 			?= 32
+# AXI/ACE data width
+DATA_WIDTH 			?= 64
+# Cache line word width
+WORD_WIDTH 			?= 64
+# Number of words in a cache line
+CACHELINE_WORDS ?= 4
+# Number of ways in the cache model
+WAYS 						?= 2
+# Number of sets in the cache model
+SETS 						?= 1024
+# Number of cached masters
+NMASTERS 				?= 2
+# Number of transactions to be generated per master
+NTRANSACTIONS 	?= 100
+# Location of the generated files
+MEM_DIR 				?= $(PWD)/build/mem
+# Seed for initial state generation. If empty, no seed
+SEED						?=
+
+export ADDR_WIDTH
+export DATA_WIDTH
+export WORD_WIDTH
+export CACHELINE_WORDS
+export WAYS
+export SETS
+export NMASTERS
+export NTRANSACTIONS
+export MEM_DIR
 
 .SHELL: bash
 
@@ -50,6 +81,22 @@ sim_all: $(SIM_TARGETS)
 
 build:
 	mkdir -p $@
+
+build/mem: build
+	mkdir -p $@
+
+init_mem: build/mem
+	python3 scripts/python/cache_coherency_test.py \
+	--addr_width ${ADDR_WIDTH} \
+	--data_width ${DATA_WIDTH} \
+	--word_width ${WORD_WIDTH} \
+	--cacheline_words ${CACHELINE_WORDS} \
+	--ways ${WAYS} \
+	--sets ${SETS} \
+	--n_caches ${NMASTERS} \
+	--n_transactions ${NTRANSACTIONS} \
+	--target_dir $(MEM_DIR) \
+	--seed $(SEED)
 
 
 elab.log: Bender.yml | build
