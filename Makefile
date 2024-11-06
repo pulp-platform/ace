@@ -36,7 +36,7 @@ CACHELINE_WORDS ?= 4
 # Number of ways in the cache model
 WAYS 						?= 2
 # Number of sets in the cache model
-SETS 						?= 1024
+SETS 						?= 16
 # Number of cached masters
 NMASTERS 				?= 2
 # Number of transactions to be generated per master
@@ -44,7 +44,7 @@ NTRANSACTIONS 	?= 100
 # Location of the generated files
 MEM_DIR 				?= $(PWD)/build/mem
 # Seed for initial state generation. If empty, no seed
-SEED						?=
+SEED						?= 10
 
 export ADDR_WIDTH
 export DATA_WIDTH
