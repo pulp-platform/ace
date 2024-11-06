@@ -1,7 +1,8 @@
 module ace_ccu_snoop_resp #(
     parameter int unsigned NumOup = 1,           // Number of outputs
     parameter type cr_chan_t      = logic,       // Type for Control Response channel
-    parameter type cd_chan_t      = logic        // Type for Data Response channel
+    parameter type cd_chan_t      = logic,       // Type for Data Response channel
+    parameter type ctrl_t         = logic        // Ctrl data type
 ) (
     input  logic clk_i,                              // Clock input
     input  logic rst_ni,                             // Active-low reset
@@ -16,18 +17,20 @@ module ace_ccu_snoop_resp #(
     output logic     [NumOup-1:0] cd_readies_o,      // CD ready signals to outputs
     input  cd_chan_t [NumOup-1:0] cd_chans_i,        // CD data from outputs
 
-    // Output selection inputs
-    input  logic [NumOup-1:0] oup_sel_i,             // Output selection mask
-    input  logic              oup_sel_valid_i,       // Output selection valid signal
-    output logic              oup_sel_ready_o,       // Output selection ready signal
+    // Control flow
+    input  ctrl_t    ctrl_i,                         // Control signals
+    input  logic     ctrl_valid_i,                   // Control valid signal
+    output logic     ctrl_ready_o,                   // Control ready signal
 
     // Combined CR and CD outputs
     output logic     cr_valid_o,                     // Combined CR valid output
     input  logic     cr_ready_i,                     // Combined CR ready input
     output cr_chan_t cr_chan_o,                      // Combined CR data output
+    output ctrl_t    cr_ctrl_o,                      // Combined CR ctrl output
     output logic     cd_valid_o,                     // Combined CD valid output
     input  logic     cd_ready_i,                     // Combined CD ready input
-    output cd_chan_t cd_chan_o                       // Combined CD data output
+    output cd_chan_t cd_chan_o,                      // Combined CD data output
+    output ctrl_t    cd_ctrl_o                       // Combined CD ctrl output
 );
 
     // Index type based on the number of outputs
@@ -47,7 +50,7 @@ module ace_ccu_snoop_resp #(
     oup_idx_t lowest_index_responder;
     logic set_fr, clear_fr;
 
-    logic [NumOup-1:0] cd_sel;
+    assign cr_ctrl_o = ctrl_i;
 
     for (genvar j = 0; j < NumOup; j++) begin : gen_chan
 
@@ -116,7 +119,7 @@ module ace_ccu_snoop_resp #(
     ) i_cr_handshake (
         .inp_valid_i ({cr_sel_valid, cr_valids}),
         .inp_ready_o ({cr_sel_ready, cr_readies}),
-        .sel_i       ({1'b1, oup_sel_i}),
+        .sel_i       ({1'b1, cr_ctrl_o.sel}),
         .oup_valid_o (cr_valid_o),
         .oup_ready_i (cr_ready_i)
     );
@@ -125,7 +128,7 @@ module ace_ccu_snoop_resp #(
     always_comb begin
         cr_chan_o = '0;
         for (int unsigned i = 0; i < NumOup; i++) begin
-            if (oup_sel_i[i]) begin
+            if (cr_ctrl_o.sel[i]) begin
                 cr_chan_o.WasUnique    |= cr_chans_i[i].WasUnique;
                 cr_chan_o.IsShared     |= cr_chans_i[i].IsShared;
                 cr_chan_o.PassDirty    |= cr_chans_i[i].PassDirty;
@@ -140,23 +143,23 @@ module ace_ccu_snoop_resp #(
     ) i_sel_fork (
         .clk_i       (clk_i),
         .rst_ni      (rst_ni),
-        .valid_i     (oup_sel_valid_i),
-        .ready_o     (oup_sel_ready_o),
+        .valid_i     (ctrl_valid_i),
+        .ready_o     (ctrl_ready_o),
         .valid_o     ({cr_sel_valid, cd_sel_lock_valid}),
         .ready_i     ({cr_sel_ready, cd_sel_lock_ready})
     );
 
     ace_ccu_lock_reg #(
-        .dtype (logic [NumOup-1:0])
+        .dtype (ctrl_t)
     ) i_cd_sel_lock (
         .clk_i      (clk_i),
         .rst_ni     (rst_ni),
         .valid_i    (cd_sel_lock_valid),
         .ready_o    (cd_sel_lock_ready),
-        .data_i     (oup_sel_i),
+        .data_i     (cr_ctrl_o),
         .valid_o    (cd_sel_valid),
         .ready_i    (cd_sel_ready),
-        .data_o     (cd_sel)
+        .data_o     (cd_ctrl_o)
     );
 
     stream_fork_dynamic #(
@@ -166,7 +169,7 @@ module ace_ccu_snoop_resp #(
         .rst_ni      (rst_ni),
         .valid_i     (cd_sel_valid),
         .ready_o     (cd_sel_ready),
-        .sel_i       (cd_sel),
+        .sel_i       (cd_ctrl_o.sel),
         .sel_valid_i (cd_sel_valid),
         .sel_ready_o (),
         .valid_o     (cd_sel_valids),

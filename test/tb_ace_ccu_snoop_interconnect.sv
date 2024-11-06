@@ -196,9 +196,15 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
 
     end
 
+    logic lup_valid, lup_ready;
+
     ace_ccu_snoop_interconnect #(
         .NumInp       (TbNumMst),
         .NumOup       (TbNumMst),
+        .ConfCheck    (1),
+        .NumLup       (1),
+        .AddrBase     (4),
+        .AddrLength   (16),
         .ac_chan_t    (snoop_ac_t),
         .cr_chan_t    (snoop_cr_t),
         .cd_chan_t    (snoop_cd_t),
@@ -211,7 +217,13 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
         .inp_req_i         (inp_snoop_req),
         .inp_resp_o        (inp_snoop_resp),
         .oup_req_o         (oup_snoop_req),
-        .oup_resp_i        (oup_snoop_resp)
+        .oup_resp_i        (oup_snoop_resp),
+        .lup_valid_o       (lup_valid),
+        .lup_ready_i       (lup_ready),
+        .lup_addr_o        (),
+        .lup_valid_i       (lup_valid),
+        .lup_ready_o       (lup_ready),
+        .lup_clr_o         ()
     );
 
 endmodule
