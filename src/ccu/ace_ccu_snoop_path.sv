@@ -43,7 +43,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     // SPLIT //
     ///////////
 
-    axi_rw_split #(
+    ace_rw_split #(
         .axi_req_t  (req_t),
         .axi_resp_t (resp_t)
     ) i_snoop_rw_split (

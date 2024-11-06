@@ -19,6 +19,7 @@ sources:
   - src/ace_pkg.sv
   - src/ccu/ccu_ctrl_pkg.sv
   - src/ccu/ccu_pkg.sv
+  - src/ace_rw_split.sv
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
