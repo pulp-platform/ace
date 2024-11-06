@@ -51,6 +51,7 @@ logic     [NumInp-1:0][NumOup-1:0] cd_valids_rev, cd_readies_rev;
 cd_chan_t [NumInp-1:0][NumOup-1:0] cd_chans_rev;
 
 logic     [NumOup-1:0] to_arb_ac_valids, from_arb_ac_readies;
+
 logic     [NumOup-1:0] ac_valids, ac_readies;
 ac_chan_t [NumOup-1:0] ac_chans;
 inp_idx_t [NumOup-1:0] ac_idx;

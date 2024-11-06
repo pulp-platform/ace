@@ -147,6 +147,19 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
         $finish;
     end
 
+    logic [TbNumMst-1:0] sel_done;
+
+    initial begin
+        @(posedge rst_n);
+        cycle_start();
+        while (sel_done != '1) begin
+            cycle_end();
+            cycle_start();
+        end
+        cycle_end();
+        $finish;
+    end
+
 
     for (genvar i = 0; i < TbNumMst; i++) begin : gen_sel
 
@@ -154,9 +167,11 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
         logic [TbNumMst-1:0] temp_inp_sel;
 
         initial begin
+
             sel_done[i] = 1'b0;
 
             @(posedge rst_n);
+
 
             repeat (64) begin
                 // Randomize the temp variable with the constraint
@@ -166,12 +181,15 @@ module tb_ace_ccu_snoop_interconnect import ace_pkg::*; (
                 };
                 // Assign the randomized value to inp_sel[i]
                 inp_sel[i]       <= #(ApplTime) temp_inp_sel;
+
                 cycle_start();
                 while (!(inp_snoop_req[i].ac_valid && inp_snoop_resp[i].ac_ready)) begin
+
                     cycle_end();
                     cycle_start();
                 end
                 cycle_end();
+
             end
             sel_done[i] = 1'b1;
         end
