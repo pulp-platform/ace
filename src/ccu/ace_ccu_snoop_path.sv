@@ -64,7 +64,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     acsnoop_t  write_acsnoop;
     rule_idx_t write_rule_idx;
 
-    assign write_rule_idx = slv_write_req.aw.id[0+:RuleIdBits];
+    assign write_rule_idx = slv_write_req.aw.id[AxiSlvIdWidth+:RuleIdBits];
 
     ace_aw_transaction_decoder #(
         .aw_chan_t (aw_chan_t)
@@ -109,7 +109,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     snoop_info_t read_snoop_info;
     rule_idx_t   read_rule_idx;
 
-    assign read_rule_idx = slv_read_req.ar.id[0+:RuleIdBits];
+    assign read_rule_idx = slv_read_req.ar.id[AxiSlvIdWidth+:RuleIdBits];
 
     ace_ar_transaction_decoder #(
         .ar_chan_t (ar_chan_t)
