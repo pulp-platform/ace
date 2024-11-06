@@ -105,7 +105,7 @@ module ace_ccu_master_path import ace_pkg::*;
         .illegal_trs_o ()
     );
 
-    axi_demux #(
+    ace_demux #(
       .AxiIdWidth  (AxiSlvIdWidth),
       .AtopSupport (1'b1),
       .aw_chan_t   (slv_aw_chan_t),
@@ -150,7 +150,7 @@ module ace_ccu_master_path import ace_pkg::*;
     // MUX //
     /////////
 
-    axi_mux #(
+    ace_mux #(
         .SlvAxiIDWidth (AxiSlvIdWidth),
         .slv_aw_chan_t (slv_aw_chan_t),
         .mst_aw_chan_t (int_ace_aw_chan_t),
@@ -167,6 +167,7 @@ module ace_ccu_master_path import ace_pkg::*;
         .mst_resp_t    (int_ace_resp_t),
         .NoSlvPorts    (NoSlvPerGroup),
         .MaxWTrans     (32'd8),
+        .MaxRespTrans  (32'd8),
         .FallThrough   (1'b0),
         .SpillAw       (1'b1),
         .SpillW        (1'b0),
@@ -234,7 +235,7 @@ module ace_ccu_master_path import ace_pkg::*;
     int_ace_req_t  ace_nonsnooping_muxed_req;
     int_ace_resp_t ace_nonsnooping_muxed_resp;
 
-    axi_mux #(
+    ace_mux #(
       .SlvAxiIDWidth (AxiSlvIdWidth),
       .slv_aw_chan_t (slv_aw_chan_t),
       .mst_aw_chan_t (int_ace_aw_chan_t),
@@ -251,6 +252,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .mst_resp_t    (int_ace_resp_t),
       .NoSlvPorts    (NoSlvPerGroup),
       .MaxWTrans     (32'd8),
+      .MaxRespTrans  (32'd8),
       .FallThrough   (1'b0),
       .SpillAw       (1'b1),
       .SpillW        (1'b0),
