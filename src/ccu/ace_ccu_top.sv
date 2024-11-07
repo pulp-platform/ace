@@ -94,15 +94,26 @@ module ace_ccu_top import ace_pkg::*;
     .mst_req_o         (mst_req_o),
     .mst_resp_i        (mst_resp_i),
     .domain_set_i      (domain_set_i),
-    .snoop_masks_o     (snoop_sel)
+    .snoop_masks_o     (snoop_sel),
+    // ConfCheck is 0, these are don't cares
+    .x_valids_i        ('0),
+    .x_readies_o       (),
+    .x_valids_o        (),
+    .x_readies_i       ('0),
+    .x_acks_o          (),
+    .x_addr_o          ()
   );
 
   ace_ccu_snoop_interconnect #(
     .NumInp       (NoSnoopPorts),
     .NumOup       (NoSlvPorts),
-    .BufferReq    (1),
-    .BufferResp   (1),
+    .BufferInpReq (1),
+    .BufferInpResp(1),
+    .BufferOupReq (1),
+    .BufferOupResp(1),
     .ConfCheck    (0),
+    .LupAddrBase  (0),
+    .LupAddrWidth (AxiAddrWidth),
     .ac_chan_t    (snoop_ac_t),
     .cr_chan_t    (snoop_cr_t),
     .cd_chan_t    (snoop_cd_t),
