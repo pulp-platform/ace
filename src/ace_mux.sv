@@ -84,66 +84,78 @@ module ace_mux #(
         .mst_resp_i       (mst_resp)
     );
 
-    assign b_idx_in = mst_resp.b.id[SlvAxiIDWidth+:MstIdxBits];
+    if (NoSlvPorts == 1) begin : gen_no_mux
+        always_comb begin
+            mst_req_o  = mst_req;
+            mst_resp   = mst_resp_i;
 
-    fifo_v3 #(
-        .FALL_THROUGH (!SpillB),
-        .DEPTH        (MaxRespTrans),
-        .dtype        (switch_id_t)
-    ) i_b_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .full_o     (b_fifo_full),
-        .empty_o    (),
-        .usage_o    (),
-        .data_i     (b_idx_in),
-        .push_i     (mst_resp_i.b_valid && mst_req_o.b_ready),
-        .data_o     (b_idx_out),
-        .pop_i      (mst_req_o.wack)
-    );
+            mst_req_o.wack = slv_reqs_i[0].wack;
+            mst_req_o.rack = slv_reqs_i[0].rack;
+        end
+    end else begin : gen_mux
 
-    assign r_idx_in = mst_resp.r.id[SlvAxiIDWidth+:MstIdxBits];
+        assign b_idx_in = mst_resp.b.id[SlvAxiIDWidth+:MstIdxBits];
 
-    fifo_v3 #(
-        .FALL_THROUGH (!SpillR),
-        .DEPTH        (MaxRespTrans),
-        .dtype        (switch_id_t)
-    ) i_r_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .full_o     (r_fifo_full),
-        .empty_o    (),
-        .usage_o    (),
-        .data_i     (r_idx_in),
-        .push_i     (mst_resp_i.r_valid && mst_req_o.r_ready && mst_resp_i.r.last),
-        .data_o     (r_idx_out),
-        .pop_i      (mst_req_o.rack)
-    );
+        fifo_v3 #(
+            .FALL_THROUGH (!SpillB),
+            .DEPTH        (MaxRespTrans),
+            .dtype        (switch_id_t)
+        ) i_b_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i    (1'b0),
+            .testmode_i (1'b0),
+            .full_o     (b_fifo_full),
+            .empty_o    (),
+            .usage_o    (),
+            .data_i     (b_idx_in),
+            .push_i     (mst_resp_i.b_valid && mst_req_o.b_ready),
+            .data_o     (b_idx_out),
+            .pop_i      (mst_req_o.wack)
+        );
 
-    always_comb begin
-        mst_req_o  = mst_req;
-        mst_resp   = mst_resp_i;
-        mst_req_o.rack = 1'b0;
-        mst_req_o.wack = 1'b0;
+        assign r_idx_in = mst_resp.r.id[SlvAxiIDWidth+:MstIdxBits];
 
-        // Response stalling
-        if (b_fifo_full) begin
-            mst_req_o.b_ready = 1'b0;
-            mst_resp.b_valid  = 1'b0;
+        fifo_v3 #(
+            .FALL_THROUGH (!SpillR),
+            .DEPTH        (MaxRespTrans),
+            .dtype        (switch_id_t)
+        ) i_r_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i    (1'b0),
+            .testmode_i (1'b0),
+            .full_o     (r_fifo_full),
+            .empty_o    (),
+            .usage_o    (),
+            .data_i     (r_idx_in),
+            .push_i     (mst_resp_i.r_valid && mst_req_o.r_ready && mst_resp_i.r.last),
+            .data_o     (r_idx_out),
+            .pop_i      (mst_req_o.rack)
+        );
+
+        always_comb begin
+            mst_req_o  = mst_req;
+            mst_resp   = mst_resp_i;
+            mst_req_o.rack = 1'b0;
+            mst_req_o.wack = 1'b0;
+
+            // Response stalling
+            if (b_fifo_full) begin
+                mst_req_o.b_ready = 1'b0;
+                mst_resp.b_valid  = 1'b0;
+            end
+
+            if (r_fifo_full) begin
+                mst_req_o.r_ready = 1'b0;
+                mst_resp.r_valid  = 1'b0;
+            end
+
+            // xACK steering
+            mst_req_o.wack = slv_reqs_i[b_idx_out].wack;
+            mst_req_o.rack = slv_reqs_i[r_idx_out].rack;
         end
 
-        if (r_fifo_full) begin
-            mst_req_o.r_ready = 1'b0;
-            mst_resp.r_valid  = 1'b0;
-        end
-
-        // xACK steering
-        mst_req_o.wack = slv_reqs_i[b_idx_out].wack;
-        mst_req_o.rack = slv_reqs_i[r_idx_out].rack;
     end
 
 endmodule

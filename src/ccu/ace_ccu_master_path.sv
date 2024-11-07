@@ -46,7 +46,7 @@ module ace_ccu_master_path import ace_pkg::*;
   input  slv_req_t    [NoSlvPorts-1:0]   slv_req_i,
   output slv_resp_t   [NoSlvPorts-1:0]   slv_resp_o,
   output snoop_req_t  [NoSnoopPorts-1:0] snoop_req_o,
-  output axdomain_t   [NoSnoopPorts-1:0] snoop_masks_o,
+  output domain_mask_t[NoSnoopPorts-1:0] snoop_masks_o,
   input  snoop_resp_t [NoSnoopPorts-1:0] snoop_resp_i,
   output mst_req_t                       mst_req_o,
   input  mst_resp_t                      mst_resp_i,
@@ -324,7 +324,7 @@ module ace_ccu_master_path import ace_pkg::*;
     ////////////////
 
     ace_ccu_snoop_path #(
-      .NoRules         (NoSlvPorts),
+      .NoRules         (NoSlvPerGroup),
       .DcacheLineWidth (DcacheLineWidth),
       .AxiDataWidth    (AxiDataWidth),
       .AxiSlvIdWidth   (AxiSlvIdWidth),
@@ -349,7 +349,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .slv_resp_o     (ace_snooping_forked_resp),
       .mst_reqs_o     (ace_memory_reqs),
       .mst_resps_i    (ace_memory_resps),
-      .domain_set_i   (domain_set_i),
+      .domain_set_i   (domain_set_i   [(NoSlvPerGroup*i)+:NoSlvPerGroup]),
       .snoop_reqs_o   (snoop_req_o    [(2*i)+:2]),
       .snoop_resps_i  (snoop_resp_i   [(2*i)+:2]),
       .snoop_masks_o  (snoop_masks_o  [(2*i)+:2])
@@ -398,8 +398,8 @@ module ace_ccu_master_path import ace_pkg::*;
       .clk_i       (clk_i),
       .rst_ni      (rst_ni),
       .test_i      (1'b0),
-      .slv_reqs_i  (ace_nonsnooping_req [i+:NoSlvPerGroup]),
-      .slv_resps_o (ace_nonsnooping_resp[i+:NoSlvPerGroup]),
+      .slv_reqs_i  (ace_nonsnooping_req [NoSlvPerGroup*i+:NoSlvPerGroup]),
+      .slv_resps_o (ace_nonsnooping_resp[NoSlvPerGroup*i+:NoSlvPerGroup]),
       .mst_req_o   (ace_nonsnooping_muxed_req),
       .mst_resp_i  (ace_nonsnooping_muxed_resp)
     );
