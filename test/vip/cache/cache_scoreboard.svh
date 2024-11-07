@@ -212,7 +212,7 @@ class cache_scoreboard #(
         mem_req.addr          = req.addr;
         mem_req.op            = REQ_LOAD;
         mem_req.cacheable     = '1;
-        mem_req.read_snoop_op = ace_pkg::ReadShared;
+        mem_req.read_snoop_op = ace_pkg::ReadUnique;
         return mem_req;
     endfunction
 
