@@ -318,7 +318,7 @@ class RandomTest(CacheCoherencyTest):
 
   def define_test(self):
     self.add_memory_range(MemoryRange(
-        cached=True, shared=True, start_addr=0, end_addr=0x0010_0000
+        cached=True, shared=True, start_addr=0, end_addr=0x0000_1000
     ))
     self.generate_random_memory()
     self.generate_random_transactions()
@@ -422,4 +422,4 @@ if __name__ == "__main__":
   if parsed_args.get("seed", None):
     seed(parsed_args["seed"])
     np.random.seed(parsed_args["seed"])
-  cct = ConflictTest(**parsed_args)
+  cct = RandomTest(**parsed_args)
