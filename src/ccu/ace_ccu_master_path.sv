@@ -56,7 +56,8 @@ module ace_ccu_master_path import ace_pkg::*;
   output logic      [2*NoGroups-1:0] x_valids_o,
   input  logic      [2*NoGroups-1:0] x_readies_i,
   output logic      [2*NoGroups-1:0] x_acks_o,
-  output lup_addr_t [2*NoGroups-1:0] x_addr_o
+  output lup_addr_t [2*NoGroups-1:0] x_addr_o,
+  output logic      [2*NoGroups-1:0] x_lasts_o
 );
 
   typedef logic [AxiAddrWidth -1:0]  addr_t;
@@ -225,10 +226,13 @@ module ace_ccu_master_path import ace_pkg::*;
       assign x_readies_o [2*i+1] = ace_snooping_muxed_req.r_ready;
       assign x_acks_o    [2*i  ] = ace_snooping_muxed_req.wack;
       assign x_acks_o    [2*i+1] = ace_snooping_muxed_req.rack;
+      assign x_lasts_o   [2*i  ] = 1'b1;
+      assign x_lasts_o   [2*i+1] = ace_snooping_forked_resp.r.last;
     end else begin
       assign x_valids_o  [2*i+:2] = '0;
       assign x_readies_o [2*i+:2] = '0;
       assign x_acks_o    [2*i+:2] = '0;
+      assign x_lasts_o   [2*i+:2] = '0;
       assign ace_snooping_muxed_resp.b_valid = ace_snooping_forked_resp.b_valid;
       assign ace_snooping_muxed_resp.r_valid = ace_snooping_forked_resp.r_valid;
       assign ace_snooping_forked_req.b_ready = ace_snooping_muxed_req.b_ready;
