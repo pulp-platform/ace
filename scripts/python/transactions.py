@@ -38,7 +38,7 @@ class BurstType(Enum):
 class CacheReqOp(Enum):
   REQ_LOAD = 0
   REQ_STORE = 1
-  CMO_FLUSH_NLINE = 2
+  #CMO_FLUSH_NLINE = 2
 
 class WritePolicyHint(Enum):
   WR_POLICY_WB = 2
@@ -47,68 +47,41 @@ class WritePolicyHint(Enum):
 class CacheTransaction:
   def __init__(
       self,
-      addr_width: int,
-      data_width: int,
-      mem_ranges: List[MemoryRange]
-    ):
-    self.addr = 0
-    self.data = 0
-    self.size = 0
-    self.op = CacheReqOp.REQ_LOAD
-    self.uncacheable = 0
-    self.wr_poliy_hint = WritePolicyHint.WR_POLICY_WB
-    self.mem_ranges = mem_ranges
-
-    self.aw = addr_width
-    self.dw = data_width
-
-    self.data_min = 0
-    self.data_max = (1 << self.dw) - 1
-
-  def get_rand_mem_range(self, noncached_odds=0.0):
-    # Separate memory ranges into cached and non-cached ones
-    # So that we can generate relatively more cached requestes 
-    cached = []
-    noncached = []
-    for memrange in self.mem_ranges:
-      if memrange.cached:
-        cached.append(memrange)
-      else:
-        noncached.append(memrange)
-    if random() < noncached_odds:
-      return choice(noncached)
-    return choice(cached)
-
-  def get_rand_op(self):
-    allowed_ops = [
-      CacheReqOp.REQ_LOAD,
-      CacheReqOp.REQ_STORE
-    ]
-    return choice(allowed_ops)
-
-  def get_rand_addr(self, mem_range: MemoryRange):
-    return mem_range.get_rand_addr(self.dw // 8)
-
-  def get_rand_wr_policy_hint(self):
-    return choice(list(WritePolicyHint))
-
-  def get_rand_size(self):
-    return int(log2(self.dw))
-
-  def get_rand_data(self, op: CacheReqOp):
-    if op in [CacheReqOp.REQ_STORE]:
-      return randrange(self.data_min, self.data_max)
-    else:
-      return 0
-
-  def randomize(self):
-    self.op   = self.get_rand_op()
-    mem_range = self.get_rand_mem_range()
-    self.addr = self.get_rand_addr(mem_range)
-    self.data = self.get_rand_data(self.op)
-    self.size = self.get_rand_size()
-    self.uncacheable = int(not mem_range.cached)
-    self.wr_policy_hint = self.get_rand_wr_policy_hint()
+      addr: int,
+      op: CacheReqOp,
+      data: int = 0,
+      size: int = 0,
+      shareability: int = 0,
+      cached: bool = False,
+      time: int = 0,
+  ):
+    """
+    Parameters
+    ==========
+      addr
+        Request address.
+      op
+        Operation. Type CacheReqOp.
+      data
+        Write data.
+      size
+        Size of operation as in AXI AxSIZE.
+      shareability
+        Shareable domain. Currently non-shared (0), inner shared (1),
+        and system (3) supported.
+      cached
+        Whether request is cached.
+      time
+        The time stamp to send the request. In clock steps after reset.
+        If 0 (default), it will be sent as soon as possible.
+    """
+    self.addr = addr
+    self.data = data
+    self.op = op
+    self.size = size
+    self.shareability = shareability
+    self.cached = cached
+    self.time = time
 
 class CacheTransactionSequence:
   def __init__(
@@ -125,10 +98,32 @@ class CacheTransactionSequence:
 
   def generate_rand_sequence(self, n_transactions):
     for _ in range(n_transactions):
-      txn = CacheTransaction(
-        self.aw, self.dw, self.mem_ranges)
-      txn.randomize()
+      txn = self.gen_rand_transaction()
       self.sequence.append(txn)
+
+  def get_rand_mem_range(self):
+    return choice(self.mem_ranges)
+
+  def get_rand_data(self):
+    return randrange(0, (1 << self.dw) - 1)
+
+  def gen_rand_transaction(self):
+    mem_range = self.get_rand_mem_range()
+    addr = mem_range.get_rand_cached_shared_addr(self.dw // 8)
+    shareability = 1
+    cached = True
+    op = choice(list(CacheReqOp))
+    data = self.get_rand_data()
+    size = int(log2(self.dw))
+    return CacheTransaction(
+      addr=addr,
+      op=op,
+      data=data,
+      size=size,
+      shareability=shareability,
+      cached=cached,
+      time=0
+    )
 
   def generate_file(self, filename):
     first = True
@@ -140,7 +135,7 @@ class CacheTransactionSequence:
           first = False
         row = [
           txn.op.name, hex(txn.addr), hex(txn.data),
-          txn.size, txn.uncacheable, txn.wr_policy_hint.value
+          txn.size, int(txn.cached), txn.shareability, txn.time
         ]
         file.write((self.separator.join(str(x) for x in row)))
 
