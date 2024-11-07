@@ -48,6 +48,7 @@ module ace_ccu_conflict_manager #(
         logic conflict_no_sel;
 
         logic fifo_push, fifo_full;
+        logic x_lock_q, x_lock_d;
 
         logic x_valid_out, x_ready_in;
 
@@ -71,7 +72,7 @@ module ace_ccu_conflict_manager #(
             .rst_ni,
             .flush_i ('0),
             .rr_i    ('0),
-            .req_i   ({x_valid, snoop_valid[i]}),
+            .req_i   ({x_valid, snoop_valid[i] && !x_lock_q}),
             .gnt_o   ({x_ready, snoop_ready[i]}),
             .data_i  ('0),
             .req_o   (arb_valid),
@@ -87,13 +88,21 @@ module ace_ccu_conflict_manager #(
             .inp_ready_o (arb_ready),
             .oup_sel_i   (arb_sel),
             .oup_valid_o ({x_valid_out, snoop_arb_valid[i]}),
-            .oup_ready_i ({x_ready_in , snoop_arb_ready[i]})
+            .oup_ready_i ({x_ready_in, snoop_arb_ready[i]})
         );
 
         assign x_valid_o[i] = x_match[i] ? 1'b0 : x_valid_out;
         assign x_ready_in   = x_match[i] ? 1'b0 : x_ready_i[i];
 
-        assign fifo_push = x_valid_o[i] && x_ready_i[i] && x_lasts_i[i];
+        assign fifo_push = x_valid_o[i] && !x_lock_q;
+
+        assign x_lock_d = !(x_ready_i[i] && x_lasts_i[i]) &&
+                           (x_valid_o[i] || x_lock_q);
+
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni) x_lock_q <= 1'b0;
+            else         x_lock_q <= x_lock_d;
+        end
 
         lookup_fifo #(
             .DEPTH        (MaxRespTrans),
