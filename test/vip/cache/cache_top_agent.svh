@@ -72,6 +72,7 @@ class cache_top_agent #(
     logic cache_seq_done = 1'b0;
 
     int unsigned os_cache_reqs = 0;
+    localparam int CachelineBytes = (CACHELINE_WORDS * WORD_WIDTH) / 8;
 
     ace_test_pkg::ace_agent #(
         .AW(AW), .DW(DW), .IW(IW), .UW(UW),
@@ -88,6 +89,7 @@ class cache_top_agent #(
     snoop_test_pkg::snoop_agent #(
         .AW(AC_AW), .DW(CD_DW),
         .TA(TA), .TT(TT),
+        .CACHELINE_BYTES(CachelineBytes),
         .snoop_bus_t(snoop_bus_t),
         .clk_if_t(clk_if_t)
     ) snoop_agent;

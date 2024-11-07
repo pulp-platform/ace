@@ -6,7 +6,8 @@ class snoop_agent #(
     parameter      AW = 32,
     /// Snoop data width
     parameter      DW = 32,
-    parameter CACHELINE_BYTES = 0,
+    /// Bytes in a cacheline
+    parameter      CACHELINE_BYTES = 0,
     /// Stimuli application time
     parameter time TA = 0ns,
     /// Stimuli test time
