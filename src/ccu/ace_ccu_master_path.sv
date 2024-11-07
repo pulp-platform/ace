@@ -105,7 +105,7 @@ module ace_ccu_master_path import ace_pkg::*;
         .illegal_trs_o ()
     );
 
-    axi_demux #(
+    ace_demux #(
       .AxiIdWidth  (AxiSlvIdWidth),
       .AtopSupport (1'b1),
       .aw_chan_t   (slv_aw_chan_t),
@@ -150,7 +150,7 @@ module ace_ccu_master_path import ace_pkg::*;
     // MUX //
     /////////
 
-    axi_mux #(
+    ace_mux #(
         .SlvAxiIDWidth (AxiSlvIdWidth),
         .slv_aw_chan_t (slv_aw_chan_t),
         .mst_aw_chan_t (int_ace_aw_chan_t),
@@ -167,6 +167,7 @@ module ace_ccu_master_path import ace_pkg::*;
         .mst_resp_t    (int_ace_resp_t),
         .NoSlvPorts    (NoSlvPerGroup),
         .MaxWTrans     (32'd8),
+        .MaxRespTrans  (32'd8),
         .FallThrough   (1'b0),
         .SpillAw       (1'b1),
         .SpillW        (1'b0),
@@ -234,7 +235,7 @@ module ace_ccu_master_path import ace_pkg::*;
     int_ace_req_t  ace_nonsnooping_muxed_req;
     int_ace_resp_t ace_nonsnooping_muxed_resp;
 
-    axi_mux #(
+    ace_mux #(
       .SlvAxiIDWidth (AxiSlvIdWidth),
       .slv_aw_chan_t (slv_aw_chan_t),
       .mst_aw_chan_t (int_ace_aw_chan_t),
@@ -251,6 +252,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .mst_resp_t    (int_ace_resp_t),
       .NoSlvPorts    (NoSlvPerGroup),
       .MaxWTrans     (32'd8),
+      .MaxRespTrans  (32'd8),
       .FallThrough   (1'b0),
       .SpillAw       (1'b1),
       .SpillW        (1'b0),
@@ -266,55 +268,6 @@ module ace_ccu_master_path import ace_pkg::*;
       .mst_req_o   (ace_nonsnooping_muxed_req),
       .mst_resp_i  (ace_nonsnooping_muxed_resp)
     );
-
-    // TODO: cleanup code once it is clear this module is not needed
-    // axi_id_prepend #(
-    //   .NoBus             (1),
-    //   .AxiIdWidthSlvPort (AxiSlvIdWidth),
-    //   .AxiIdWidthMstPort (AxiIntIdWidth),
-    //   .slv_aw_chan_t     (slv_aw_chan_t),
-    //   .slv_w_chan_t      (slv_w_chan_t ),
-    //   .slv_b_chan_t      (slv_b_chan_t ),
-    //   .slv_ar_chan_t     (slv_ar_chan_t),
-    //   .slv_r_chan_t      (slv_r_chan_t ),
-    //   .mst_aw_chan_t     (int_aw_chan_t),
-    //   .mst_w_chan_t      (int_w_chan_t ),
-    //   .mst_b_chan_t      (int_b_chan_t ),
-    //   .mst_ar_chan_t     (int_ar_chan_t),
-    //   .mst_r_chan_t      (int_r_chan_t )
-    // ) i_nosnoop_id_prepend (
-    //   .pre_id_i         ('0),
-    //   .slv_aw_chans_i   (ace_nonsnooping_req[i].aw),
-    //   .slv_aw_valids_i  (ace_nonsnooping_req[i].aw_valid),
-    //   .slv_aw_readies_o (ace_nonsnooping_resp[i].aw_ready),
-    //   .slv_w_chans_i    (ace_nonsnooping_req[i].w),
-    //   .slv_w_valids_i   (ace_nonsnooping_req[i].w_valid),
-    //   .slv_w_readies_o  (ace_nonsnooping_resp[i].w_ready),
-    //   .slv_b_chans_o    (ace_nonsnooping_resp[i].b),
-    //   .slv_b_valids_o   (ace_nonsnooping_resp[i].b_valid),
-    //   .slv_b_readies_i  (ace_nonsnooping_req[i].b_ready),
-    //   .slv_ar_chans_i   (ace_nonsnooping_req[i].ar),
-    //   .slv_ar_valids_i  (ace_nonsnooping_req[i].ar_valid),
-    //   .slv_ar_readies_o (ace_nonsnooping_resp[i].ar_ready),
-    //   .slv_r_chans_o    (ace_nonsnooping_resp[i].r),
-    //   .slv_r_valids_o   (ace_nonsnooping_resp[i].r_valid),
-    //   .slv_r_readies_i  (ace_nonsnooping_req[i].r_ready),
-    //   .mst_aw_chans_o   (ace_nonsnooping_prepended_req.aw),
-    //   .mst_aw_valids_o  (ace_nonsnooping_prepended_req.aw_valid),
-    //   .mst_aw_readies_i (ace_nonsnooping_prepended_resp.aw_ready),
-    //   .mst_w_chans_o    (ace_nonsnooping_prepended_req.w),
-    //   .mst_w_valids_o   (ace_nonsnooping_prepended_req.w_valid),
-    //   .mst_w_readies_i  (ace_nonsnooping_prepended_resp.w_ready),
-    //   .mst_b_chans_i    (ace_nonsnooping_prepended_resp.b),
-    //   .mst_b_valids_i   (ace_nonsnooping_prepended_resp.b_valid),
-    //   .mst_b_readies_o  (ace_nonsnooping_prepended_req.b_ready),
-    //   .mst_ar_chans_o   (ace_nonsnooping_prepended_req.ar),
-    //   .mst_ar_valids_o  (ace_nonsnooping_prepended_req.ar_valid),
-    //   .mst_ar_readies_i (ace_nonsnooping_prepended_resp.ar_ready),
-    //   .mst_r_chans_i    (ace_nonsnooping_prepended_resp.r),
-    //   .mst_r_valids_i   (ace_nonsnooping_prepended_resp.r_valid),
-    //   .mst_r_readies_o  (ace_nonsnooping_prepended_req.r_ready)
-    // );
 
     `ACE_TO_AXI_ASSIGN_REQ (axi_memory_reqs[NoMemPortsPerGroup*i], ace_nonsnooping_muxed_req)
     `AXI_TO_ACE_ASSIGN_RESP(ace_nonsnooping_muxed_resp, axi_memory_resps[NoMemPortsPerGroup*i])

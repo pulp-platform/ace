@@ -210,12 +210,12 @@ class ace_driver #(
     task recv_r;
         ace.r_ready <= #TA 1;
         cycle_start();
-        while (!(ace.r_valid && ace.r_last)) begin 
-            cycle_end(); cycle_start(); 
+        while (!(ace.r_valid && ace.r_last)) begin
+            cycle_end(); cycle_start();
         end
         ace.r_ready <= #TA 0;
         ace.rack    <= #TA 1;
-        cycle_start();
+        cycle_start(); cycle_end();
         ace.rack    <= #TA 0;
     endtask
 
@@ -227,7 +227,7 @@ class ace_driver #(
         cycle_end();
         ace.b_ready <= #TA 0;
         ace.wack    <= #TA 1;
-        cycle_start();
+        cycle_start(); cycle_end();
         ace.wack <= #TA 0;
     endtask
 
