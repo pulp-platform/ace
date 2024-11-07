@@ -33,9 +33,6 @@ class snoop_agent #(
     mailbox #(cd_beat_t) cd_mbx = new;
     mailbox #(cr_beat_t) cr_mbx = new;
 
-    mailbox #(cache_snoop_req)  snoop_req_mbx;
-    mailbox #(cache_snoop_resp) snoop_resp_mbx;
-
     snoop_driver #(
         .TA(TA), .TT(TT),
         .snoop_bus_t(snoop_bus_t),
@@ -69,9 +66,6 @@ class snoop_agent #(
         this.snoop  = snoop;
         this.clk_if = clk_if;
 
-        this.snoop_req_mbx  = snoop_req_mbx;
-        this.snoop_resp_mbx = snoop_resp_mbx;
-
         this.snoop_drv = new(
             this.snoop, this.cr_mbx,
             this.cd_mbx
@@ -82,8 +76,8 @@ class snoop_agent #(
         this.snoop_seq = new(
             this.ac_mbx, this.cr_mbx,
             this.cd_mbx,
-            this.snoop_req_mbx,
-            this.snoop_resp_mbx
+            snoop_req_mbx,
+            snoop_resp_mbx
         );
 
     endfunction

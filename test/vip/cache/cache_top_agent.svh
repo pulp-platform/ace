@@ -98,7 +98,8 @@ class cache_top_agent #(
         .WORD_WIDTH(WORD_WIDTH),
         .CACHELINE_WORDS(CACHELINE_WORDS),
         .WAYS(WAYS),
-        .SETS(SETS)
+        .SETS(SETS),
+        .clk_if_t(clk_if_t)
     ) cache_sb;
 
     cache_sequencer #(
@@ -134,7 +135,8 @@ class cache_top_agent #(
         this.snoop_agent = new(this.snoop, this.clk_if,
                                this.snoop_req_mbx,
                                this.snoop_resp_mbx);
-        this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
+        this.cache_sb    = new(this.clk_if,
+                               this.cache_req_mbx, this.cache_resp_mbx,
                                this.snoop_req_mbx, this.snoop_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx);
         this.cache_seq   = new(this.clk_if,

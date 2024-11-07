@@ -87,7 +87,7 @@ class cache_sequencer #(
         if (fd) begin
             while (!$feof(fd)) begin
                 ret = $fgets(line, fd);
-                rows++;
+                if (line != "") rows++;
             end
         end else begin
             $fatal("Could not open file %s", txn_file);
