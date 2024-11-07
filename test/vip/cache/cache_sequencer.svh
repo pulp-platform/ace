@@ -2,8 +2,9 @@
 *** INCLUDED IN cache_test_pkg ***
 `endif
 class cache_sequencer #(
-    parameter int AW = 32,
-    parameter int DW = 32
+    parameter int AW        = 32,
+    parameter int DW        = 32,
+    parameter type clk_if_t = logic
 );
 
     mailbox #(cache_req)  cache_req_mbx;
@@ -12,12 +13,18 @@ class cache_sequencer #(
     byte delimiter = " ";
     string txn_file;
     int unsigned txns_remaining;
+    int unsigned clk_cnt = 0;
+
+    // Interface to provide simulation clock
+    clk_if_t clk_if;
 
     function new(
+        clk_if_t              clk_if,
         mailbox #(cache_req)  cache_req_mbx,
         mailbox #(cache_resp) cache_resp_mbx,
         string txn_file
     );
+        this.clk_if         = clk_if;
         this.cache_req_mbx  = cache_req_mbx;
         this.cache_resp_mbx = cache_resp_mbx;
         this.txn_file       = txn_file;
@@ -43,8 +50,9 @@ class cache_sequencer #(
             req.data_q.push_back(word[i +: 8]);
         end
         size               = get_next_word(line).atoi();
-        req.uncacheable    = get_next_word(line).atoi();
-        req.wr_policy_hint = get_next_word(line).atoi();
+        req.cached         = get_next_word(line).atoi();
+        req.shareability   = get_next_word(line).atoi();
+        req.timestamp      = get_next_word(line).atoi();
         return req;
     endfunction
 
@@ -97,13 +105,22 @@ class cache_sequencer #(
             while (!$feof(fd)) begin
                 int mbx_size;
                 ret = $fgets(line, fd);
-                cache_req = parse_txn(line);
-                cache_req_mbx.put(cache_req);
+                if (line != "") begin
+                    cache_req = parse_txn(line);
+                    send_req(cache_req);
+                end
             end
         end else begin
             $fatal("Could not open file %s", txn_file);
         end
         $fclose(fd);
+    endtask
+
+    task send_req(input cache_req req);
+        while (req.timestamp > clk_cnt) begin
+            @(posedge clk_if.clk_i);
+        end
+        cache_req_mbx.put(req);
     endtask
 
     task recv_resps;
@@ -112,14 +129,24 @@ class cache_sequencer #(
         txns_remaining--;
     endtask
 
+    task count_clocks;
+        forever begin
+            @(posedge clk_if.clk_i);
+            clk_cnt++;
+        end
+    endtask
+
     task run;
         txns_remaining = get_n_transactions();
         fork
-            gen_txns_from_file();
-            while (txns_remaining != 0) begin
-                recv_resps();
-            end
-        join
+            count_clocks();
+            fork
+                gen_txns_from_file();
+                while (txns_remaining != 0) begin
+                    recv_resps();
+                end
+            join
+        join_any
     endtask
 
 endclass

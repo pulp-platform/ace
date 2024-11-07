@@ -38,7 +38,7 @@ module tb_ace_ccu_top #(
     localparam int unsigned AxiIdWidthMasters =  4;
     localparam int unsigned AxiIdUsed         =  3;
     localparam int unsigned AxiIdWidthSlave   =  AxiIdWidthMasters
-                                                 + $clog2(MstPerGroup) 
+                                                 + $clog2(MstPerGroup)
                                                  + $clog2(3*NoGroups);
     localparam int unsigned AxiAddrWidth      =  AddrWidth;
     localparam int unsigned AxiDataWidth      =  DataWidth;
@@ -77,6 +77,7 @@ module tb_ace_ccu_top #(
     `SNOOP_TYPEDEF_RESP_T(snoop_resp_t, snoop_cd_t, snoop_cr_t)
 
     logic clk, rst_n;
+    logic [TbNumMst-1:0] end_of_sim = '0;
 
     // Defines domain_mask_t and domain_set_t
     `DOMAIN_TYPEDEF_ALL(TbNumMst)
@@ -214,8 +215,12 @@ module tb_ace_ccu_top #(
             @(posedge clk);
             @(posedge clk);
             @(posedge clk);
-            $finish();
+            end_of_sim[i] = '1;
         end
+    end
+
+    always @(*) begin
+        if (&end_of_sim) $finish();
     end
 
     // AXI Simulation Memory

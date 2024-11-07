@@ -102,7 +102,9 @@ class cache_top_agent #(
     ) cache_sb;
 
     cache_sequencer #(
-        .AW(AW)
+        .AW(AW),
+        .DW(DW),
+        .clk_if_t(clk_if_t)
     ) cache_seq;
 
     mem_sequencer #(
@@ -135,7 +137,8 @@ class cache_top_agent #(
         this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
                                this.snoop_req_mbx, this.snoop_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx);
-        this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx, txn_file);
+        this.cache_seq   = new(this.clk_if,
+                               this.cache_req_mbx, this.cache_resp_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
                                this.aw_mbx, this.ar_mbx, this.r_mbx,
                                this.w_mbx, this.b_mbx);
