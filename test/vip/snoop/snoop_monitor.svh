@@ -44,7 +44,7 @@ class snoop_monitor #(
     endtask
 
     task run;
-        forever mon_ac;
+        forever mon_ac();
     endtask
 
 endclass

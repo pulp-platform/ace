@@ -72,6 +72,7 @@ class cache_top_agent #(
     logic cache_seq_done = 1'b0;
 
     int unsigned os_cache_reqs = 0;
+    localparam int CachelineBytes = (CACHELINE_WORDS * WORD_WIDTH) / 8;
 
     ace_test_pkg::ace_agent #(
         .AW(AW), .DW(DW), .IW(IW), .UW(UW),
@@ -88,6 +89,7 @@ class cache_top_agent #(
     snoop_test_pkg::snoop_agent #(
         .AW(AC_AW), .DW(CD_DW),
         .TA(TA), .TT(TT),
+        .CACHELINE_BYTES(CachelineBytes),
         .snoop_bus_t(snoop_bus_t),
         .clk_if_t(clk_if_t)
     ) snoop_agent;
@@ -98,11 +100,14 @@ class cache_top_agent #(
         .WORD_WIDTH(WORD_WIDTH),
         .CACHELINE_WORDS(CACHELINE_WORDS),
         .WAYS(WAYS),
-        .SETS(SETS)
+        .SETS(SETS),
+        .clk_if_t(clk_if_t)
     ) cache_sb;
 
     cache_sequencer #(
-        .AW(AW)
+        .AW(AW),
+        .DW(DW),
+        .clk_if_t(clk_if_t)
     ) cache_seq;
 
     mem_sequencer #(
@@ -132,10 +137,12 @@ class cache_top_agent #(
         this.snoop_agent = new(this.snoop, this.clk_if,
                                this.snoop_req_mbx,
                                this.snoop_resp_mbx);
-        this.cache_sb    = new(this.cache_req_mbx, this.cache_resp_mbx,
+        this.cache_sb    = new(this.clk_if,
+                               this.cache_req_mbx, this.cache_resp_mbx,
                                this.snoop_req_mbx, this.snoop_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx);
-        this.cache_seq   = new(this.cache_req_mbx, this.cache_resp_mbx, txn_file);
+        this.cache_seq   = new(this.clk_if,
+                               this.cache_req_mbx, this.cache_resp_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,
                                this.aw_mbx, this.ar_mbx, this.r_mbx,
                                this.w_mbx, this.b_mbx);

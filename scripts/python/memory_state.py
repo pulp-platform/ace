@@ -10,7 +10,7 @@ class MemoryState:
 
   def gen_rand_mem(self):
     for mem_range in self.mem_ranges:
-      mem_range.init_mem()
+      mem_range.init_random_mem()
 
   def save_mem(
     self,
