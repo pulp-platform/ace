@@ -2,10 +2,12 @@ from cache_state import \
   CacheState, CachelineState, \
   CachelineStateEnum, CacheSetFullException, \
   StateBits
+from math import log2
 from typing import List
 from memory_state import MemoryState
 from common import MemoryRange
-from transactions import CacheTransactionSequence
+from transactions import \
+  CacheTransactionSequence, CacheTransaction, CacheReqOp
 from random import random, randint, choice, sample
 import os
 import logging
@@ -45,20 +47,27 @@ class CacheCoherencyTest:
     self.cacheline_bytes = \
       self.cacheline_words * self.word_width // 8
 
-    self.caches: list[CacheState] = []
-    for _ in range(0, n_caches):
-      self.caches.append(
-        CacheState(
-          addr_width=self.aw,
-          data_width=self.dw,
-          word_width=self.word_width,
-          cacheline_words=self.cacheline_words,
-          ways=self.ways,
-          sets=self.sets
-        )
-      )
-
     self.mem_ranges : list[MemoryRange] = []
+
+  @property
+  def caches(self) -> List[CacheState]:
+    if not hasattr(self, '_caches'):
+      self._caches = []
+      for _ in range(0, self.n_caches):
+        cache = CacheState(
+            addr_width=self.aw,
+            data_width=self.dw,
+            word_width=self.word_width,
+            cacheline_words=self.cacheline_words,
+            ways=self.ways,
+            sets=self.sets
+          )
+        cache.init_cache()
+        self._caches.append(cache)
+    return self._caches
+  @caches.setter
+  def caches(self, caches: List[CacheState]):
+    self._caches = caches
 
   @property
   def mem_state(self) -> MemoryState:
@@ -103,6 +112,9 @@ class CacheCoherencyTest:
       data=data,
       status=state
     )
+
+  def create_transaction(self, n_cache: int, txn: CacheTransaction):
+    self.transactions[n_cache].add_transaction(txn)
 
   def generate_random_memory(self):
     self.mem_state.gen_rand_mem()
@@ -156,8 +168,6 @@ class CacheCoherencyTest:
     return choice(self.mem_ranges)
 
   def generate_random_caches(self, n_inited_lines):
-    for cache in self.caches:
-      cache.init_cache()
     for _ in range(n_inited_lines):
       # Get a random memory range
       rand_mem_range = self.get_rand_mem_range()
@@ -200,7 +210,7 @@ class CacheCoherencyTest:
           )
         except CacheSetFullException:
           pass
-        
+
 
   def reconstruct_state(self):
     # Reconstruct state into Python datatypes
@@ -316,6 +326,37 @@ class RandomTest(CacheCoherencyTest):
     self.check_coherency()
     self.save_state()
 
+class ConflictTest(CacheCoherencyTest):
+  def __init__(
+      self,
+      **kwargs
+  ):
+    super().__init__(**kwargs)
+    self.define_test()
+
+  def define_test(self):
+    self.add_memory_range(MemoryRange(
+        cached=True, shared=True, start_addr=0, end_addr=0x0010_0000
+    ))
+    self.generate_random_memory()
+    self.create_transaction(n_cache=0, txn=CacheTransaction(
+      addr=0,
+      op=CacheReqOp.REQ_LOAD,
+      size=int(log2(self.dw)),
+      shareability=1,
+      cached=True,
+      time=10
+    ))
+    self.create_transaction(n_cache=1, txn=CacheTransaction(
+      addr=0,
+      op=CacheReqOp.REQ_LOAD,
+      size=int(log2(self.dw)),
+      shareability=1,
+      cached=True,
+      time=10
+    ))
+    self.save_state()
+
 
 if __name__ == "__main__":
   import argparse
@@ -381,4 +422,4 @@ if __name__ == "__main__":
   if parsed_args.get("seed", None):
     seed(parsed_args["seed"])
     np.random.seed(parsed_args["seed"])
-  cct = RandomTest(**parsed_args)
+  cct = ConflictTest(**parsed_args)

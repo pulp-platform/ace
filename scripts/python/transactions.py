@@ -96,6 +96,9 @@ class CacheTransactionSequence:
     self.sequence : list[CacheTransaction] = []
     self.separator = " "
 
+  def add_transaction(self, txn: CacheTransaction):
+    self.sequence.append(txn)
+
   def generate_rand_sequence(self, n_transactions):
     for _ in range(n_transactions):
       txn = self.gen_rand_transaction()
