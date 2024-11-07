@@ -1,20 +1,22 @@
 module ace_ccu_snoop_interconnect import ace_pkg::*; #(
-    parameter int unsigned  NumInp       = 0,
-    parameter int unsigned  NumOup       = 0,
-    parameter int unsigned  NumLup       = 0,
-    parameter bit           BufferReq    = 1,
-    parameter bit           BufferResp   = 1,
-    parameter int unsigned  AddrBase     = 0,
-    parameter int unsigned  AddrLength   = 0,
-    parameter bit           ConfCheck    = 1,
-    parameter type          ac_chan_t    = logic,
-    parameter type          cr_chan_t    = logic,
-    parameter type          cd_chan_t    = logic,
-    parameter type          snoop_req_t  = logic,
-    parameter type          snoop_resp_t = logic,
+    parameter int unsigned  NumInp        = 0,
+    parameter int unsigned  NumOup        = 0,
+    parameter int unsigned  NumLup        = 0,
+    parameter bit           BufferOupReq  = 1,
+    parameter bit           BufferOupResp = 1,
+    parameter bit           BufferInpReq  = 1,
+    parameter bit           BufferInpResp = 1,
+    parameter int unsigned  LupAddrBase   = 0,
+    parameter int unsigned  LupAddrWidth  = 0,
+    parameter bit           ConfCheck     = 1,
+    parameter type          ac_chan_t     = logic,
+    parameter type          cr_chan_t     = logic,
+    parameter type          cd_chan_t     = logic,
+    parameter type          snoop_req_t   = logic,
+    parameter type          snoop_resp_t  = logic,
 
-    localparam type         oup_sel_t    = logic [NumOup-1:0],
-    localparam type         lup_addr_t   = logic [AddrLength-1:0]
+    localparam type         oup_sel_t     = logic [NumOup-1:0],
+    localparam type         lup_addr_t    = logic [LupAddrWidth-1:0]
 ) (
 
     input  logic                     clk_i,
@@ -72,19 +74,73 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     ctrl_t    cd_ctrl;
 
     for (genvar i = 0; i < NumInp; i++) begin : gen_unpack_inp
-        assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;
-        assign inp_resp_o[i].ac_ready = inp_ac_readies[i];
-        assign inp_ac_chans[i]        = inp_req_i[i].ac;
-        assign inp_cr_readies[i]      = inp_req_i[i].cr_ready;
-        assign inp_resp_o[i].cr_valid = inp_cr_valids[i];
-        assign inp_resp_o[i].cr_resp  = inp_cr_chans[i];
-        assign inp_cd_readies[i]      = inp_req_i[i].cd_ready;
-        assign inp_resp_o[i].cd_valid = inp_cd_valids[i];
-        assign inp_resp_o[i].cd       = inp_cd_chans[i];
+        if (BufferInpReq) begin : gen_buffer_req
+            stream_fifo_optimal_wrap #(
+                .Depth  (2),
+                .type_t (ac_chan_t)
+            ) i_ac_fifo (
+                .clk_i,
+                .rst_ni,
+                .flush_i    (1'b0),
+                .testmode_i (1'b0),
+                .usage_o    (),
+                .valid_i    (inp_req_i [i].ac_valid),
+                .ready_o    (inp_resp_o[i].ac_ready),
+                .data_i     (inp_req_i [i].ac),
+                .valid_o    (inp_ac_valids [i]),
+                .ready_i    (inp_ac_readies[i]),
+                .data_o     (inp_ac_chans  [i])
+            );
+        end else begin : gen_no_buffer_req
+            assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;
+            assign inp_resp_o[i].ac_ready = inp_ac_readies[i];
+            assign inp_ac_chans[i]        = inp_req_i[i].ac;
+        end
+        if (BufferInpResp) begin : gen_buffer_resp
+            stream_fifo_optimal_wrap #(
+                .Depth  (2),
+                .type_t (cr_chan_t)
+            ) i_cr_fifo (
+                .clk_i,
+                .rst_ni,
+                .flush_i    (1'b0),
+                .testmode_i (1'b0),
+                .usage_o    (),
+                .valid_i    (inp_cr_valids [i]),
+                .ready_o    (inp_cr_readies[i]),
+                .data_i     (inp_cr_chans  [i]),
+                .valid_o    (inp_resp_o[i].cr_valid),
+                .ready_i    (inp_req_i [i].cr_ready),
+                .data_o     (inp_resp_o[i].cr_resp)
+            );
+            stream_fifo_optimal_wrap #(
+                .Depth  (4),
+                .type_t (cd_chan_t)
+            ) i_cd_fifo (
+                .clk_i,
+                .rst_ni,
+                .flush_i    (1'b0),
+                .testmode_i (1'b0),
+                .usage_o    (),
+                .valid_i    (inp_cd_valids [i]),
+                .ready_o    (inp_cd_readies[i]),
+                .data_i     (inp_cd_chans  [i]),
+                .valid_o    (inp_resp_o[i].cd_valid),
+                .ready_i    (inp_req_i [i].cd_ready),
+                .data_o     (inp_resp_o[i].cd)
+            );
+        end else begin : gen_no_buffer_resp
+            assign inp_cr_readies[i]      = inp_req_i[i].cr_ready;
+            assign inp_resp_o[i].cr_valid = inp_cr_valids[i];
+            assign inp_resp_o[i].cr_resp  = inp_cr_chans[i];
+            assign inp_cd_readies[i]      = inp_req_i[i].cd_ready;
+            assign inp_resp_o[i].cd_valid = inp_cd_valids[i];
+            assign inp_resp_o[i].cd       = inp_cd_chans[i];
+        end
     end
 
     for (genvar i = 0; i < NumOup; i++) begin : gen_unpack_oup
-        if (BufferReq) begin : gen_buffer_req
+        if (BufferOupReq) begin : gen_buffer_req
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
                 .type_t (ac_chan_t)
@@ -106,7 +162,7 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
             assign oup_req_o[i].ac_valid = oup_ac_valids[i];
             assign oup_req_o[i].ac       = oup_ac_chans[i];
         end
-        if (BufferResp) begin : gen_buffer_resp
+        if (BufferOupResp) begin : gen_buffer_resp
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
                 .type_t (cr_chan_t)
@@ -174,7 +230,7 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
         assign lup_ready_o  = oup_ac_ready;
         assign lup_valid_o  = ac_valid;
         assign ac_ready     = lup_ready_i;
-        assign lup_addr_o   = ac_chan.addr[AddrBase+:AddrLength];
+        assign lup_addr_o   = ac_chan.addr[LupAddrBase+:LupAddrWidth];
         assign lup_clr_o    = cr_valid && cr_ready;
     end else begin
         assign oup_ac_valid = ac_valid;

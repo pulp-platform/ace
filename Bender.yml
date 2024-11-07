@@ -27,6 +27,7 @@ sources:
   - src/ace_demux.sv
   - src/ace_mux.sv
   # Level 2
+  - src/ccu/lookup_fifo.sv
   - src/ccu/ace_ccu_lock_reg.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
   - src/ccu/ccu_ctrl_r_snoop.sv
@@ -36,6 +37,7 @@ sources:
   - src/ccu/ace_ccu_snoop_interconnect.sv
   - src/ccu/ace_ccu_snoop_path.sv
   - src/ccu/ace_ccu_master_path.sv
+  - src/ccu/ace_ccu_conflict_manager.sv
   - src/ccu/ace_ccu_top.sv
   #- src/ccu_ctrl_pkg.sv
   ## Level 2
