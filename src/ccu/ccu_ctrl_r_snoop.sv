@@ -146,18 +146,28 @@ end
 
 // Write back
 always_comb begin
-    mst_req_o.aw_valid   = aw_valid_q;
-    mst_req_o.aw.id      = slv_req_holder.ar.id;
-    mst_req_o.aw.addr    = slv_req_holder.ar.addr;
-    mst_req_o.aw.len     = AXLEN;
-    mst_req_o.aw.size    = AXSIZE;
-    mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
-    mst_req_o.aw.domain  = 2'b00;
-    mst_req_o.aw.snoop   = ace_pkg::WriteBack;
+    mst_req_o.aw_valid    = aw_valid_q;
+    mst_req_o.aw.id       = slv_req_holder.ar.id;
+    mst_req_o.aw.addr     = slv_req_holder.ar.addr;
+    mst_req_o.aw.len      = AXLEN;
+    mst_req_o.aw.size     = AXSIZE;
+    mst_req_o.aw.burst    = axi_pkg::BURST_WRAP;
+    mst_req_o.aw.domain   = slv_req_holder.ar.domain;
+    mst_req_o.aw.snoop    = ace_pkg::WriteBack;
+    mst_req_o.aw.lock     = 1'b0; // TODO
+    mst_req_o.aw.cache    = axi_pkg::CACHE_MODIFIABLE;
+    mst_req_o.aw.prot     = slv_req_holder.ar.prot;
+    mst_req_o.aw.qos      = slv_req_holder.ar.qos;
+    mst_req_o.aw.region   = slv_req_holder.ar.region;
+    mst_req_o.aw.atop     = '0; // TODO
+    mst_req_o.aw.user     = slv_req_holder.ar.user;
+    mst_req_o.aw.bar      = '0;
+    mst_req_o.aw.awunique = 1'b0;
 
     mst_req_o.w.data  = snoop_resp_i.cd.data;
     mst_req_o.w.strb  = '1;
     mst_req_o.w.last  = snoop_resp_i.cd.last;
+    mst_req_o.w.user  = slv_req_holder.ar.user;
     mst_req_o.rack    = 1'b0;
     mst_req_o.wack    = 1'b0;
 end
