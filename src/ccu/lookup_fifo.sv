@@ -79,9 +79,10 @@ always_comb begin
     for (int unsigned p = 0; p < LOOKUP_PORTS; p++) begin
         lookup_match_o[p] = 1'b0;
         for (int unsigned d = 0; d < DEPTH; d++) begin : gen_lookup_loop
-            if (lookup_data_i[p] == mem_q[d] && valid_q[d])
+            if (valid_q[d] && (lookup_data_i[p] == mem_q[d])) begin
                 lookup_match_o[p] = 1'b1;
                 break;
+            end
         end
     end
 end
