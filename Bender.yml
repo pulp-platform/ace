@@ -16,7 +16,6 @@ sources:
   # levels 1 and 0, etc. Files within a level are ordered alphabetically.
   # Level 0
   - src/ace_pkg.sv
-  - src/ccu/ccu_ctrl_pkg.sv
   - src/ccu/ccu_pkg.sv
   - src/ace_rw_split.sv
   # Level 1

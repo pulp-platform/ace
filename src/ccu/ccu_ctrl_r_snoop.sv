@@ -13,7 +13,7 @@ module ccu_ctrl_r_snoop #(
     parameter type mst_req_t         = logic,
     /// Response channel type towards memory
     parameter type mst_resp_t        = logic,
-    // /// AW channel type towards cached master
+    /// AR channel type towards cached master
     parameter type slv_ar_chan_t     = logic,
     /// Snoop request type
     parameter type mst_snoop_req_t   = logic,
@@ -53,9 +53,12 @@ module ccu_ctrl_r_snoop #(
     output domain_mask_t                domain_mask_o
 );
 
-logic load_ar_holder;
+typedef struct packed {
+    slv_ar_chan_t ar;
+    snoop_info_t  snoop_info;
+} slv_req_s;
+
 snoop_info_t snoop_info_holder_q;
-slv_ar_chan_t ar_holder_q;
 logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
@@ -69,19 +72,25 @@ logic cd_mask_valid;
 logic r_last;
 logic r_last_q, r_last_d;
 logic write_back, resp_shared, resp_dirty;
+slv_req_s slv_req, slv_req_holder;
+logic slv_req_fifo_not_full;
+logic slv_req_fifo_valid;
+logic pop_slv_req_fifo;
 
+assign slv_req.ar         = slv_req_i.ar;
+assign slv_req.snoop_info = snoop_info_i;
 assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
 assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
 assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
-assign r_last             = (arlen_counter == ar_holder_q.len);
+assign r_last             = (arlen_counter == slv_req_holder.ar.len);
 assign mst_req_o.aw_valid = aw_valid_q;
-assign mst_req_o.ar       = ar_holder_q;
+assign mst_req_o.ar       = slv_req_holder.ar;
 assign mst_req_o.ar_valid = ar_valid_q;
 
 localparam unsigned MST_R_IDX = 0; // R channel of Initiating master
 localparam unsigned MEM_W_IDX = 1; // W channel of Memory
-typedef enum logic [2:0] { SNOOP_REQ, SNOOP_RESP, READ_CD, WRITE_CD, READ_R, IGNORE_CD } r_fsm_t;
+typedef enum logic [1:0] { SNOOP_RESP, WRITE_CD, READ_R, IGNORE_CD } r_fsm_t;
 r_fsm_t fsm_state_d, fsm_state_q;
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
@@ -96,7 +105,7 @@ end
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
-        fsm_state_q  <= SNOOP_REQ;
+        fsm_state_q  <= SNOOP_RESP;
         rresp_q[3:2] <= '0;
         cd_mask_q    <= '0;
         aw_valid_q   <= '0;
@@ -114,23 +123,27 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
     end
 end
 
-always_ff @(posedge clk_i, negedge rst_ni) begin
-    if (!rst_ni) begin
-        ar_holder_q         <= '0;
-        snoop_info_holder_q <= '0;
-    end else begin
-        if (load_ar_holder) begin
-            ar_holder_q         <= slv_req_i.ar;
-            snoop_info_holder_q <= snoop_info_i;
-        end
-    end
+// AC request
+always_comb begin
+    snoop_req_o.ac_valid = slv_req_i.ar_valid && slv_req_fifo_not_full;
+    snoop_req_o.ac.addr  = slv_req.ar.addr;
+    snoop_req_o.ac.snoop = slv_req.snoop_info.snoop_trs;
+    snoop_req_o.ac.prot  = slv_req.ar.prot;
+    slv_resp_o.ar_ready  = snoop_resp_i.ac_ready && slv_req_fifo_not_full;
+end
+
+// Determine whether write-back is needed and what the
+// RRESP[3:2] bits are
+always_comb begin
+    resp_shared = snoop_resp_i.cr_resp.IsShared;
+    resp_dirty  = slv_req_holder.snoop_info.accepts_dirty && snoop_resp_i.cr_resp.PassDirty;
+    write_back  = !slv_req_holder.snoop_info.accepts_dirty && snoop_resp_i.cr_resp.PassDirty;
 end
 
 always_comb begin
     r_last_d             = r_last_q;
     arlen_counting       = 1'b0;
     fsm_state_d          = fsm_state_q;
-    load_ar_holder       = 1'b0;
     rresp_d[3:2]         = rresp_q[3:2];
     cd_mask_d            = cd_mask_q;
     arlen_counter_clear  = 1'b0;
@@ -140,8 +153,8 @@ always_comb begin
     mst_req_o.w          = '0;
     mst_req_o.w_valid    = '0;
     mst_req_o.aw         = '0; // defaults
-    mst_req_o.aw.id      = ar_holder_q.id;
-    mst_req_o.aw.addr    = ar_holder_q.addr;
+    mst_req_o.aw.id      = slv_req_holder.ar.id;
+    mst_req_o.aw.addr    = slv_req_holder.ar.addr;
     mst_req_o.aw.len     = AXLEN;
     mst_req_o.aw.size    = AXSIZE;
     mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
@@ -151,44 +164,29 @@ always_comb begin
     mst_req_o.b_ready    = 1'b0;
     mst_req_o.rack       = 1'b0;
     mst_req_o.wack       = 1'b0;
-    slv_resp_o.ar_ready  = 1'b0;
     slv_resp_o.aw_ready  = 1'b0;
     slv_resp_o.w_ready   = 1'b0;
     slv_resp_o.b_valid   = 1'b0;
     slv_resp_o.b         = '0;
     slv_resp_o.r_valid   = 1'b0;
     slv_resp_o.r         = '0;
-    slv_resp_o.r.id      = ar_holder_q.id;
-    snoop_req_o.ac       = '0;
-    snoop_req_o.ac_valid = 1'b0;
+    slv_resp_o.r.id      = slv_req_holder.ar.id;
     snoop_req_o.cd_ready = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
     cd_fork_ready        = '0;
     cd_mask_valid        = 1'b1;
     arlen_counter_en     = 1'b0;
+    pop_slv_req_fifo     = 1'b0;
 
     case(fsm_state_q)
-        // Forward AR channel into a snoop request on the
-        // AC channel
-        SNOOP_REQ: begin
-            cd_mask_d            = '0;
-            cd_last_d            = 1'b0;
-            r_last_d             = 1'b0;
-            arlen_counter_clear  = 1'b1;
-            snoop_req_o.ac_valid = slv_req_i.ar_valid;
-            snoop_req_o.ac.addr  = slv_req_i.ar.addr;
-            snoop_req_o.ac.snoop = snoop_info_i.snoop_trs;
-            snoop_req_o.ac.prot  = slv_req_i.ar.prot;
-            slv_resp_o.ar_ready  = snoop_resp_i.ac_ready;
-            if (ac_handshake) begin
-                fsm_state_d = SNOOP_RESP;
-                load_ar_holder = 1'b1;
-            end
-        end
         // Receive snoop response
         // Move to receiving CD response or reading from memory
         SNOOP_RESP: begin
-            snoop_req_o.cr_ready = 1'b1;
+            r_last_d = 1'b0;
+            cd_mask_d = '0;
+            cd_last_d = 1'b0;
+            arlen_counter_clear = 1'b1;
+            snoop_req_o.cr_ready = slv_req_fifo_valid;
             if (snoop_resp_i.cr_valid) begin
                 rresp_d[2] = resp_dirty;
                 rresp_d[3] = resp_shared;
@@ -248,19 +246,22 @@ always_comb begin
             end
             if (b_handshake) begin
                 // If memory access, end on b handshake
-                fsm_state_d = SNOOP_REQ;
+                fsm_state_d = SNOOP_RESP;
+                pop_slv_req_fifo = 1'b1;
             end
             if (r_handshake && r_last && !cd_mask_q[MEM_W_IDX]) begin
                 r_last_d    = 1'b1;
                 if (cd_handshake && snoop_resp_i.cd.last) begin
                     // Move forward only if it was the last cd sample
-                    fsm_state_d = SNOOP_REQ;
+                    fsm_state_d = SNOOP_RESP;
+                    pop_slv_req_fifo = 1'b1;
                 end
             end
             if (cd_handshake && snoop_resp_i.cd.last &&
                 r_last_q && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
-                fsm_state_d = SNOOP_REQ;
+                fsm_state_d = SNOOP_RESP;
+                pop_slv_req_fifo = 1'b1;
             end
         end
         // Read data from memory
@@ -272,44 +273,32 @@ always_comb begin
             slv_resp_o.r_valid = mst_resp_i.r_valid;
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
-                fsm_state_d = SNOOP_REQ;
+                fsm_state_d = SNOOP_RESP;
+                pop_slv_req_fifo = 1'b1;
             end
         end
     endcase
 end
 
 
-// Determine whether write-back is needed and what the
-// RRESP[3:2] bits are
-always_comb begin
-    write_back  = 1'b1;
-    resp_shared = 1'b0;
-    resp_dirty  = 1'b0;
-    case ({snoop_resp_i.cr_resp.PassDirty, snoop_resp_i.cr_resp.IsShared})
-        2'b00: begin
-            write_back = 1'b0;
-        end
-        2'b01: begin
-            if (snoop_info_holder_q.accepts_shared) begin
-                write_back  = 1'b0;
-                resp_shared = 1'b1;
-            end
-        end
-        2'b10: begin
-            if (snoop_info_holder_q.accepts_dirty) begin
-                write_back = 1'b0;
-                resp_dirty = 1'b1;
-            end
-        end
-        2'b11: begin
-            if (snoop_info_holder_q.accepts_dirty_shared) begin
-                write_back  = 1'b0;
-                resp_shared = 1'b1;
-                resp_dirty  = 1'b1;
-            end
-        end
-    endcase
-end
+
+// FIFO for storing AR requests
+stream_fifo_optimal_wrap #(
+    .Depth  (2),
+    .type_t (slv_req_s)
+) i_slv_req_fifo (
+    .clk_i      (clk_i),
+    .rst_ni     (rst_ni),
+    .flush_i    (1'b0),
+    .testmode_i (1'b0),
+    .usage_o    (),
+    .valid_i    (ac_handshake),
+    .ready_o    (slv_req_fifo_not_full),
+    .data_i     (slv_req),
+    .valid_o    (slv_req_fifo_valid),
+    .ready_i    (pop_slv_req_fifo),
+    .data_o     (slv_req_holder)
+);
 
 // Fork module to achieve simultaneous write-back and
 // R channel response
