@@ -53,19 +53,26 @@ module ccu_ctrl_r_snoop #(
     output domain_mask_t                domain_mask_o
 );
 
+// Indices for stream fork dynamic mask
+localparam unsigned MST_R_IDX = 0; // R channel of Initiating master
+localparam unsigned MEM_W_IDX = 1; // W channel of Memory
+
+// Data structure to store AR request and decoded snoop transaction
 typedef struct packed {
     slv_ar_chan_t ar;
     snoop_info_t  snoop_info;
 } slv_req_s;
 
-snoop_info_t snoop_info_holder_q;
+// FSM states
+typedef enum logic [1:0] { SNOOP_RESP, WRITE_CD, READ_R, IGNORE_CD } r_fsm_t;
+
 logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
 logic arlen_counter_en, arlen_counting, arlen_counter_clear;
-logic cd_ready;
+logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
 logic cd_mask_valid;
@@ -76,6 +83,7 @@ slv_req_s slv_req, slv_req_holder;
 logic slv_req_fifo_not_full;
 logic slv_req_fifo_valid;
 logic pop_slv_req_fifo;
+r_fsm_t fsm_state_d, fsm_state_q;
 
 assign slv_req.ar         = slv_req_i.ar;
 assign slv_req.snoop_info = snoop_info_i;
@@ -84,14 +92,10 @@ assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
 assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
 assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
 assign r_last             = (arlen_counter == slv_req_holder.ar.len);
-assign mst_req_o.aw_valid = aw_valid_q;
+assign cd_last            = cd_handshake && snoop_resp_i.cd.last;
 assign mst_req_o.ar       = slv_req_holder.ar;
 assign mst_req_o.ar_valid = ar_valid_q;
 
-localparam unsigned MST_R_IDX = 0; // R channel of Initiating master
-localparam unsigned MEM_W_IDX = 1; // W channel of Memory
-typedef enum logic [1:0] { SNOOP_RESP, WRITE_CD, READ_R, IGNORE_CD } r_fsm_t;
-r_fsm_t fsm_state_d, fsm_state_q;
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
@@ -132,6 +136,32 @@ always_comb begin
     slv_resp_o.ar_ready  = snoop_resp_i.ac_ready && slv_req_fifo_not_full;
 end
 
+// Write channel signals not used
+always_comb begin
+    slv_resp_o.aw_ready  = 1'b0;
+    slv_resp_o.w_ready   = 1'b0;
+    slv_resp_o.b_valid   = 1'b0;
+    slv_resp_o.b         = '0;
+end
+
+// Write back
+always_comb begin
+    mst_req_o.aw_valid   = aw_valid_q;
+    mst_req_o.aw.id      = slv_req_holder.ar.id;
+    mst_req_o.aw.addr    = slv_req_holder.ar.addr;
+    mst_req_o.aw.len     = AXLEN;
+    mst_req_o.aw.size    = AXSIZE;
+    mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
+    mst_req_o.aw.domain  = 2'b00;
+    mst_req_o.aw.snoop   = ace_pkg::WriteBack;
+
+    mst_req_o.w.data  = snoop_resp_i.cd.data;
+    mst_req_o.w.strb  = '1;
+    mst_req_o.w.last  = snoop_resp_i.cd.last;
+    mst_req_o.rack    = 1'b0;
+    mst_req_o.wack    = 1'b0;
+end
+
 // Determine whether write-back is needed and what the
 // RRESP[3:2] bits are
 always_comb begin
@@ -142,32 +172,17 @@ end
 
 always_comb begin
     r_last_d             = r_last_q;
-    arlen_counting       = 1'b0;
-    fsm_state_d          = fsm_state_q;
-    rresp_d[3:2]         = rresp_q[3:2];
-    cd_mask_d            = cd_mask_q;
-    arlen_counter_clear  = 1'b0;
     aw_valid_d           = aw_valid_q;
     ar_valid_d           = ar_valid_q;
     cd_last_d            = cd_last_q;
-    mst_req_o.w          = '0;
-    mst_req_o.w_valid    = '0;
-    mst_req_o.aw         = '0; // defaults
-    mst_req_o.aw.id      = slv_req_holder.ar.id;
-    mst_req_o.aw.addr    = slv_req_holder.ar.addr;
-    mst_req_o.aw.len     = AXLEN;
-    mst_req_o.aw.size    = AXSIZE;
-    mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
-    mst_req_o.aw.domain  = 2'b00;
-    mst_req_o.aw.snoop   = ace_pkg::WriteBack;
+    fsm_state_d          = fsm_state_q;
+    cd_mask_d            = cd_mask_q;
+    rresp_d[3:2]         = rresp_q[3:2];
+    arlen_counting       = 1'b0;
+    arlen_counter_clear  = 1'b0;
+    mst_req_o.w_valid    = 1'b0;
     mst_req_o.r_ready    = 1'b0;
     mst_req_o.b_ready    = 1'b0;
-    mst_req_o.rack       = 1'b0;
-    mst_req_o.wack       = 1'b0;
-    slv_resp_o.aw_ready  = 1'b0;
-    slv_resp_o.w_ready   = 1'b0;
-    slv_resp_o.b_valid   = 1'b0;
-    slv_resp_o.b         = '0;
     slv_resp_o.r_valid   = 1'b0;
     slv_resp_o.r         = '0;
     slv_resp_o.r.id      = slv_req_holder.ar.id;
@@ -220,12 +235,8 @@ always_comb begin
         // Write CD
         // To memory and/or to initiating master
         WRITE_CD: begin
-            arlen_counting    = cd_mask_q[MST_R_IDX];
-            mst_req_o.w_valid = cd_fork_valid[MEM_W_IDX] && !aw_valid_q;
-            mst_req_o.w.data  = snoop_resp_i.cd.data;
-            mst_req_o.w.strb  = '1;
-            mst_req_o.w.last  = snoop_resp_i.cd.last;
-
+            arlen_counting     = cd_mask_q[MST_R_IDX];
+            mst_req_o.w_valid  = cd_fork_valid[MEM_W_IDX] && !aw_valid_q;
             slv_resp_o.r.data  = snoop_resp_i.cd.data;
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
             slv_resp_o.r.last  = r_last;
@@ -238,7 +249,7 @@ always_comb begin
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = cd_ready;
 
-            if (cd_handshake && snoop_resp_i.cd.last) begin
+            if (cd_last) begin
                 cd_last_d = 1'b1;
             end
             if (mst_resp_i.aw_ready) begin
@@ -250,15 +261,15 @@ always_comb begin
                 pop_slv_req_fifo = 1'b1;
             end
             if (r_handshake && r_last && !cd_mask_q[MEM_W_IDX]) begin
+                // If no memory access, end once ACE request is handled
                 r_last_d    = 1'b1;
-                if (cd_handshake && snoop_resp_i.cd.last) begin
+                if (cd_last) begin
                     // Move forward only if it was the last cd sample
                     fsm_state_d = SNOOP_RESP;
                     pop_slv_req_fifo = 1'b1;
                 end
             end
-            if (cd_handshake && snoop_resp_i.cd.last &&
-                r_last_q && !cd_mask_q[MEM_W_IDX]) begin
+            if (cd_last && r_last_q && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
                 fsm_state_d = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
