@@ -76,71 +76,83 @@ module ace_demux #(
         .mst_resps_i        (mst_resps_i)
     );
 
-    assign b_idx_in = i_axi_demux.i_demux_simple.genblk1.b_idx; // TODO: add idx as port in demux
+    if (NoMstPorts == 1) begin : gen_no_demux
+        always_comb begin
+            slv_req     = slv_req_i;
+            slv_resp_o  = slv_resp;
+            mst_reqs_o  = mst_reqs;
+            mst_reqs_o[0].wack = slv_req_i.wack;
+            mst_reqs_o[0].rack = slv_req_i.rack;
+        end
+    end else begin : gen_demux
 
-    fifo_v3 #(
-        .FALL_THROUGH (!SpillB),
-        .DEPTH        (MaxTrans),
-        .dtype        (select_t)
-    ) i_b_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .full_o     (b_fifo_full),
-        .empty_o    (),
-        .usage_o    (),
-        .data_i     (b_idx_in),
-        .push_i     (slv_resp_o.b_valid && slv_req_i.b_ready),
-        .data_o     (b_idx_out),
-        .pop_i      (slv_req_i.wack)
-    );
+        assign b_idx_in = i_axi_demux.i_demux_simple.genblk1.b_idx; // TODO: add idx as port in demux
 
-    assign r_idx_in = i_axi_demux.i_demux_simple.genblk1.r_idx; // TODO: add idx as port in demux
+        fifo_v3 #(
+            .FALL_THROUGH (!SpillB),
+            .DEPTH        (MaxTrans),
+            .dtype        (select_t)
+        ) i_b_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i    (1'b0),
+            .testmode_i (1'b0),
+            .full_o     (b_fifo_full),
+            .empty_o    (),
+            .usage_o    (),
+            .data_i     (b_idx_in),
+            .push_i     (slv_resp_o.b_valid && slv_req_i.b_ready),
+            .data_o     (b_idx_out),
+            .pop_i      (slv_req_i.wack)
+        );
 
-    fifo_v3 #(
-        .FALL_THROUGH (!SpillR),
-        .DEPTH        (MaxTrans),
-        .dtype        (select_t)
-    ) i_r_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .full_o     (r_fifo_full),
-        .empty_o    (),
-        .usage_o    (),
-        .data_i     (r_idx_in),
-        .push_i     (slv_resp_o.r_valid && slv_req_i.r_ready && slv_resp_o.r.last),
-        .data_o     (r_idx_out),
-        .pop_i      (slv_req_i.rack)
-    );
+        assign r_idx_in = i_axi_demux.i_demux_simple.genblk1.r_idx; // TODO: add idx as port in demux
 
-    always_comb begin
-        slv_req     = slv_req_i;
-        slv_resp_o  = slv_resp;
+        fifo_v3 #(
+            .FALL_THROUGH (!SpillR),
+            .DEPTH        (MaxTrans),
+            .dtype        (select_t)
+        ) i_r_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i    (1'b0),
+            .testmode_i (1'b0),
+            .full_o     (r_fifo_full),
+            .empty_o    (),
+            .usage_o    (),
+            .data_i     (r_idx_in),
+            .push_i     (slv_resp_o.r_valid && slv_req_i.r_ready && slv_resp_o.r.last),
+            .data_o     (r_idx_out),
+            .pop_i      (slv_req_i.rack)
+        );
 
-        mst_reqs_o  = mst_reqs;
+        always_comb begin
+            slv_req     = slv_req_i;
+            slv_resp_o  = slv_resp;
 
-        for (int unsigned i = 0; i < NoMstPorts; i++) begin
-            mst_reqs_o[i].wack = '0;
-            mst_reqs_o[i].rack = '0;
+            mst_reqs_o  = mst_reqs;
+
+            for (int unsigned i = 0; i < NoMstPorts; i++) begin
+                mst_reqs_o[i].wack = '0;
+                mst_reqs_o[i].rack = '0;
+            end
+
+            // Response stalling
+            if (b_fifo_full) begin
+                slv_req.b_ready    = 1'b0;
+                slv_resp_o.b_valid = 1'b0;
+            end
+
+            if (r_fifo_full) begin
+                slv_req.r_ready    = 1'b0;
+                slv_resp_o.r_valid = 1'b0;
+            end
+
+            // xACK steering
+            mst_reqs_o[b_idx_out].wack = slv_req_i.wack;
+            mst_reqs_o[r_idx_out].rack = slv_req_i.rack;
         end
 
-        // Response stalling
-        if (b_fifo_full) begin
-            slv_req.b_ready    = 1'b0;
-            slv_resp_o.b_valid = 1'b0;
-        end
-
-        if (r_fifo_full) begin
-            slv_req.r_ready    = 1'b0;
-            slv_resp_o.r_valid = 1'b0;
-        end
-
-        // xACK steering
-        mst_reqs_o[b_idx_out].wack = slv_req_i.wack;
-        mst_reqs_o[r_idx_out].rack = slv_req_i.rack;
     end
 
 endmodule

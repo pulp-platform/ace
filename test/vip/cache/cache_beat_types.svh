@@ -18,11 +18,13 @@ localparam int WR_POLICY_WT   = 3'b100;
 
 /// Datatype to orchestrate cache read and write requests
 class cache_req;
-    int unsigned addr           = 0;
+    int unsigned addr         = 0;
     logic [7:0]  data_q[$];
-    int unsigned op             = REQ_LOAD;
-    bit          uncacheable    = 0;
-    int unsigned wr_policy_hint = WR_POLICY_WB;
+    int unsigned op           = REQ_LOAD;
+    bit          cached       = 0;
+    int unsigned shareability = 0;
+    int unsigned size         = 0;
+    int unsigned timestamp    = 0;
 endclass
 
 /// Datatype to orchestrate cache lookups between

@@ -20,7 +20,7 @@ class snoop_sequencer #(
     mailbox #(ac_beat_t) ac_mbx;
     mailbox #(cr_beat_t) cr_mbx;
     mailbox #(cd_beat_t) cd_mbx;
-    
+
     mailbox #(cache_snoop_req)  snoop_req_mbx;
     mailbox #(cache_snoop_resp) snoop_resp_mbx;
 
@@ -68,15 +68,17 @@ class snoop_sequencer #(
         snoop_resp_mbx.get(cache_resp);
         cr_beat.cr_resp = cache_resp.snoop_resp;
         cr_mbx.put(cr_beat);
-        for (int i = 0; i < CACHELINE_BYTES; i++) begin
-            cd_beat.cd_data[byte_count +: 8] = cache_resp.data_q.pop_front();
-            cd_beat.cd_last = 1'b0;
-            byte_count++;
-            if (byte_count == BYTES_PER_CD_DW) begin
-                if (i == (CACHELINE_BYTES - 1)) cd_beat.cd_last = 1'b1;
-                cd_mbx.put(cd_beat);
-                cd_beat = new;
-                byte_count = 0;
+        if (cache_resp.snoop_resp.DataTransfer) begin
+            for (int i = 0; i < CACHELINE_BYTES; i++) begin
+                cd_beat.cd_data[byte_count*8 +: 8] = cache_resp.data_q.pop_front();
+                cd_beat.cd_last = 1'b0;
+                byte_count++;
+                if (byte_count == BYTES_PER_CD_DW) begin
+                    if (i == (CACHELINE_BYTES - 1)) cd_beat.cd_last = 1'b1;
+                    cd_mbx.put(cd_beat);
+                    cd_beat = new;
+                    byte_count = 0;
+                end
             end
         end
     endtask

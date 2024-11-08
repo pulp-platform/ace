@@ -7,13 +7,15 @@ class cache_scoreboard #(
     /// Width of the memory bus
     parameter int DW = 32,
     /// Width of one cache word
-    parameter int WORD_WIDTH,
+    parameter int WORD_WIDTH = 0,
     /// How many words per cache line
-    parameter int CACHELINE_WORDS,
+    parameter int CACHELINE_WORDS = 0,
     /// How many ways per set
-    parameter int WAYS,
+    parameter int WAYS = 0,
     /// How many sets
-    parameter int SETS
+    parameter int SETS = 0,
+    /// Clock interface type
+    parameter type clk_if_t = logic
 );
 
     localparam int BYTES_PER_WORD    = DW / 8;
@@ -42,7 +44,7 @@ class cache_scoreboard #(
         int tag;
         int unsigned addr;
     } tag_resp_t;
-    
+
     byte_t     data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
     status_t   status_q[SETS][WAYS];                  // Cache state
     tag_t      tag_q[SETS][WAYS];                     // Cache tag
@@ -52,7 +54,10 @@ class cache_scoreboard #(
     // The two processes are cache requests and snoop requests
     // TODO: figure the critical point where using this is necessary
     // ATM it is not used
-    semaphore cache_lookup_sem; 
+    semaphore cache_lookup_sem;
+
+    // Interface to provide simulation clock
+    clk_if_t clk_if;
 
     // Mailboxes for cache requests
     mailbox #(cache_req)        cache_req_mbx;
@@ -65,6 +70,7 @@ class cache_scoreboard #(
     mailbox #(mem_resp)         mem_resp_mbx;
 
     function new(
+        clk_if_t                    clk_if,
         mailbox #(cache_req)        cache_req_mbx,
         mailbox #(cache_resp)       cache_resp_mbx,
         mailbox #(cache_snoop_req)  snoop_req_mbx,
@@ -72,6 +78,7 @@ class cache_scoreboard #(
         mailbox #(mem_req)          mem_req_mbx,
         mailbox #(mem_resp)         mem_resp_mbx
     );
+        this.clk_if         = clk_if;
         this.cache_req_mbx  = cache_req_mbx;
         this.cache_resp_mbx = cache_resp_mbx;
         this.snoop_req_mbx  = snoop_req_mbx;
@@ -156,7 +163,7 @@ class cache_scoreboard #(
     endfunction
 
     function automatic cache_resp cache_read(tag_resp_t info, cache_req req);
-        int unsigned n_bytes = CACHELINE_BYTES;
+        int unsigned n_bytes = 1 << req.size;
         cache_resp resp = new;
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
         for (int i = 0; i < n_bytes; i++) begin
@@ -167,7 +174,7 @@ class cache_scoreboard #(
     endfunction
 
     function automatic cache_resp cache_write(tag_resp_t info, cache_req req);
-        int unsigned n_bytes = CACHELINE_BYTES;
+        int unsigned n_bytes = 1 << req.size;
         cache_resp resp = new;
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
         for (int i = 0; (i < n_bytes) && req.data_q.size() > 0; i++) begin
@@ -204,7 +211,8 @@ class cache_scoreboard #(
         mem_req.len           = CACHELINE_WORDS - 1;
         mem_req.addr          = req.addr;
         mem_req.op            = REQ_LOAD;
-        mem_req.read_snoop_op = ace_pkg::ReadShared;
+        mem_req.cacheable     = '1;
+        mem_req.read_snoop_op = ace_pkg::ReadUnique;
         return mem_req;
     endfunction
 
@@ -243,6 +251,7 @@ class cache_scoreboard #(
         cache_resp cache_resp;
         resp = new;
         cache_req.addr = req.addr;
+        cache_req.size = $clog2(CACHELINE_BYTES);
         tag_lu = read_and_compare_tag(cache_req.addr);
         resp.snoop_resp.Error = 1'b0;
         if (tag_lu.hit) begin
@@ -328,7 +337,7 @@ class cache_scoreboard #(
         tag_resp_t tag_lu;
         mem_req mem_req = new;
         mem_resp mem_resp;
-        mem_req.cacheable = !req.uncacheable;
+        mem_req.cacheable = '1;
         //cache_lookup_sem.get(1);
         tag_lu = read_and_compare_tag(req.addr);
         if (tag_lu.hit) begin
@@ -365,11 +374,11 @@ class cache_scoreboard #(
                 $fatal("Unsupported op");
             end
         end
-        cache_resp_mbx.put(resp);
+        //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
     endtask
 
-    task gen_cache_req;
+    task recv_cache_req;
         cache_req req;
         cache_resp resp = new;
         cache_req_mbx.get(req);
@@ -377,7 +386,7 @@ class cache_scoreboard #(
         cache_resp_mbx.put(resp);
     endtask
 
-    task recv_snoop_reqs;
+    task recv_snoop_req;
         cache_snoop_req req;
         cache_snoop_resp resp = new;
         snoop_req_mbx.get(req);
@@ -385,9 +394,37 @@ class cache_scoreboard #(
         snoop_resp_mbx.put(resp);
     endtask
 
+    // Handle one request per clock cycle
+    // Snooping gets priority
+    /*
+    task handle_reqs;
+        int snp_exists;
+        int c_req_exists;
+        cache_snoop_req snp_req;
+        cache_req c_req;
+        @(posedge clk_if.clk_i);
+        snp_exists = snoop_req_mbx.try_get(snp_req);
+        if (snp_exists != 0) begin
+            recv_snoop_req(snp_req);
+        end
+        c_req_exists = cache_req_mbx.try_get(c_req);
+        if (c_req_exists) begin
+            recv_cache_req(c_req);
+        end
+    endtask
+    */
+
+    task recv_cache_reqs;
+        forever recv_cache_req();
+    endtask
+
+    task recv_snoop_reqs;
+        forever recv_snoop_req();
+    endtask
+
     task run;
         fork
-            forever gen_cache_req();
+            forever recv_cache_reqs();
             forever recv_snoop_reqs();
         join
     endtask

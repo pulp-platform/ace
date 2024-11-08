@@ -196,18 +196,20 @@ class CacheState:
         if any_valid:
           data_file.write(" ".join(fmt) + "\n")
 
-  # TODO: ensure width
   def save_tag(
     self,
     file
   ):
     with open(file, "w") as tag_file:
       for set in range(self.sets):
+        fmt = [f"@{set:x}"]
+        any_valid = False
         for way in range(self.ways):
           if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
-            fmt = [f"@{set:x}"]
-            fmt += [f"{self.cache_tag[set][way]:x}"]
-            tag_file.write(" ".join(fmt) + "\n")
+            any_valid = True
+          fmt += [f"{self.cache_tag[set][way]:2x}"]
+        if any_valid:
+          tag_file.write(" ".join(fmt) + "\n")
 
   def status_arr_to_int(self, bool_arr):
     bin_str = ''.join(['1' if x else '0' for x in list(reversed(bool_arr))])
@@ -219,11 +221,14 @@ class CacheState:
   ):
     with open(file, "w") as state_file:
       for set in range(self.sets):
+        fmt = [f"@{set:x}"]
+        any_valid = False
         for way in range(self.ways):
           if (self.cache_status[set][way][StateBits.VALID_IDX.value]):
-            fmt = [f"@{set:x}"]
-            fmt += [f"{self.status_arr_to_int(self.cache_status[set][way]):03b}"]
-            state_file.write(" ".join(fmt) + "\n")
+            any_valid = True
+          fmt += [f"{self.status_arr_to_int(self.cache_status[set][way]):03b}"]
+        if any_valid:
+          state_file.write(" ".join(fmt) + "\n")
 
   def save_state(
       self,

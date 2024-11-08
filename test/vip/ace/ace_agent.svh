@@ -51,7 +51,8 @@ class ace_agent #(
         .AW(AW), .IW(IW), .UW(UW), .DW(DW),
         .aw_beat_t(aw_beat_t),
         .ar_beat_t(ar_beat_t),
-        .w_beat_t(w_beat_t)
+        .w_beat_t(w_beat_t),
+        .RAND_WAIT(0)
     ) ace_seq;
 
     ace_monitor #(
