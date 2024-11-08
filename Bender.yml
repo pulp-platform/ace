@@ -1,7 +1,8 @@
 package:
   name: ace
   authors:
-    # Alphabetically ordered by last name (maintainers first)
+    - "Aleksi Korsman <aleksi.korsman@aalto.fi>"
+    - "Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>"
 
 dependencies:
   axi:          { git: "https://github.com/pulp-platform/axi.git", version: 0.39.4 }
