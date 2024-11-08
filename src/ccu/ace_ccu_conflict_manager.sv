@@ -35,17 +35,17 @@ module ace_ccu_conflict_manager #(
     logic [NoRespPorts-1:0] snoop_arb_valid, snoop_arb_ready;
 
     logic [NoRespPorts-1:0] sel_q, sel_d, sel;
-    logic                   lock_q, lock_d;
+    logic                   snoop_lock_q, snoop_lock_d;
 
     lup_addr_t                   snoop_addr;
     lup_addr_t [NoRespPorts-1:0] x_addr;
 
 
     for (genvar i = 0; i < NoRespPorts; i++) begin : gen_resp_path
-        logic x_valid, x_ready;
-        logic arb_valid, arb_ready;
-        logic arb_sel;
-        logic conflict_no_sel;
+        logic [1:0] arb_valids, arb_readies, arb_masks;
+        logic       arb_valid, arb_ready;
+        logic       arb_sel;
+        logic       conflict_no_sel;
 
         logic fifo_push, fifo_full;
         logic x_lock_q, x_lock_d;
@@ -56,10 +56,12 @@ module ace_ccu_conflict_manager #(
 
         assign addr_equal[i]    = snoop_addr == x_addr[i];
         assign addr_conflict[i] = addr_equal[i] && x_valid_i[i];
-        assign conflict_no_sel  = addr_conflict[i] && !sel_q[i] && lock_q;
+        assign conflict_no_sel  = addr_conflict[i] && !sel_q[i] && snoop_lock_q;
 
-        assign x_valid      = fifo_full || conflict_no_sel ? 1'b0 : x_valid_i[i];
-        assign x_ready_o[i] = fifo_full || conflict_no_sel ? 1'b0 : x_ready;
+        assign arb_masks = ~{fifo_full || conflict_no_sel, x_lock_q};
+
+        assign arb_valids = {x_valid_i[i], snoop_valid[i]}  & arb_masks;
+        assign {x_ready_o[i], snoop_ready[i]} = arb_readies & arb_masks;
 
         rr_arb_tree #(
             .NumIn      (2),
@@ -72,8 +74,8 @@ module ace_ccu_conflict_manager #(
             .rst_ni,
             .flush_i ('0),
             .rr_i    ('0),
-            .req_i   ({x_valid, snoop_valid[i] && !x_lock_q}),
-            .gnt_o   ({x_ready, snoop_ready[i]}),
+            .req_i   (arb_valids),
+            .gnt_o   (arb_readies),
             .data_i  ('0),
             .req_o   (arb_valid),
             .gnt_i   (arb_ready),
@@ -135,37 +137,37 @@ module ace_ccu_conflict_manager #(
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
                 sel_q  <= '0;
-                lock_q <= '0;
+                snoop_lock_q <= '0;
             end else begin
                 sel_q  <= sel_d;
-                lock_q <= lock_d;
+                snoop_lock_q <= snoop_lock_d;
             end
         end
 
         assign snoop_valid_in = fifo_full ? 1'b0 : snoop_valid_i;
         assign snoop_ready_o  = fifo_full ? 1'b0 : snoop_ready_out;
 
-        assign sel = lock_q ? sel_q : addr_conflict;
+        assign sel = snoop_lock_q ? sel_q : addr_conflict;
 
         always_comb begin
             snoop_fork_valid = 1'b0;
 
-            lock_d = lock_q;
+            snoop_lock_d = snoop_lock_q;
             sel_d  = sel_q;
 
-            case (lock_q)
+            case (snoop_lock_q)
                 1'b0: begin
                     if (!fifo_full && snoop_valid_i && |addr_conflict) begin
                         snoop_fork_valid = 1'b1;
                         sel_d            = addr_conflict;
                         if (!snoop_fork_ready)
-                            lock_d = 1'b1;
+                            snoop_lock_d = 1'b1;
                     end
                 end
                 1'b1: begin
                     snoop_fork_valid = 1'b1;
                     if (snoop_fork_ready) begin
-                        lock_d = 1'b0;
+                        snoop_lock_d = 1'b0;
                     end
                 end
             endcase
