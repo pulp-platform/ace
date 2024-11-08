@@ -97,7 +97,7 @@ module ace_mux #(
         assign b_idx_in = mst_resp.b.id[SlvAxiIDWidth+:MstIdxBits];
 
         fifo_v3 #(
-            .FALL_THROUGH (!SpillB),
+            .FALL_THROUGH (1'b0),
             .DEPTH        (MaxRespTrans),
             .dtype        (switch_id_t)
         ) i_b_fifo (
@@ -117,7 +117,7 @@ module ace_mux #(
         assign r_idx_in = mst_resp.r.id[SlvAxiIDWidth+:MstIdxBits];
 
         fifo_v3 #(
-            .FALL_THROUGH (!SpillR),
+            .FALL_THROUGH (1'b0),
             .DEPTH        (MaxRespTrans),
             .dtype        (switch_id_t)
         ) i_r_fifo (
