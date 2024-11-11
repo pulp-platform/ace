@@ -102,6 +102,8 @@ module tb_ace_ccu_top #(
     string txn_file_template      = {MemDir, "/txns_%0d.txt"};
     // Initial main memory state
     string init_main_mem          = {MemDir, "/main_mem.mem"};
+    // Logged cache state changes
+    string diff_file_template     = {MemDir, "/cache_diff_%0d.txn"};
 
     ACE_BUS_DV #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
@@ -196,10 +198,12 @@ module tb_ace_ccu_top #(
     for (genvar i = 0; i < TbNumMst; i++) begin : init_cache_agents
         initial begin
             string data_mem_file, tag_mem_file, status_file, txn_file;
+            string diff_file;
             $sformat(data_mem_file, data_mem_file_template, i);
             $sformat(tag_mem_file, tag_mem_file_template, i);
             $sformat(status_file, status_file_template, i);
             $sformat(txn_file, txn_file_template, i);
+            $sformat(diff_file, diff_file_template, i);
             ace_master[i] = new(
                 ace_dv_intf[i],
                 snoop_dv_intf[i],
@@ -207,7 +211,8 @@ module tb_ace_ccu_top #(
                 data_mem_file,
                 tag_mem_file,
                 status_file,
-                txn_file
+                txn_file,
+                diff_file
             );
             ace_master[i].reset();
             @(posedge rst_n);
