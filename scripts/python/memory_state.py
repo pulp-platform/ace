@@ -24,9 +24,9 @@ class MemoryState:
 
   def reconstruct_mem(
       self,
-      file="/scratch2/akorsman/ace/build/mem/main_mem_diff.txt",
-      start_time=0,
-      end_time=0
+      file,
+      start_time,
+      end_time
   ) -> int:
     """
     Updates memory given the transactions in a file.
@@ -75,7 +75,3 @@ class MemoryState:
             mem_range.mem_data[addr - mem_range.start_addr + 3]
           )
           mem_file.write(fmt)
-
-if __name__ == "__main__":
-  ms = MemoryState()
-  ms.reconstruct_mem(timestamp=2000)
