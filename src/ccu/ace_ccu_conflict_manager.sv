@@ -98,7 +98,7 @@ module ace_ccu_conflict_manager #(
 
         assign fifo_push = x_valid_o[i] && !x_lock_q;
 
-        assign x_lock_d = !(x_ready_i[i] && x_lasts_i[i]) &&
+        assign x_lock_d = !(x_ready_i[i] && x_lasts_i[i] && x_valid_o[i]) &&
                            (x_valid_o[i] || x_lock_q);
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
