@@ -47,12 +47,12 @@ class cache_sequencer #(
         req.addr = get_next_word(line).atohex();
         word     = get_next_word(line).atohex();
         for (int i = 0; i < (DW / 8); i++) begin
-            req.data_q.push_back(word[i +: 8]);
+            req.data_q.push_back(word[i*8 +: 8]);
         end
-        size               = get_next_word(line).atoi();
-        req.cached         = get_next_word(line).atoi();
-        req.shareability   = get_next_word(line).atoi();
-        req.timestamp      = get_next_word(line).atoi();
+        req.size         = get_next_word(line).atoi();
+        req.cached       = get_next_word(line).atoi();
+        req.shareability = get_next_word(line).atoi();
+        req.timestamp    = get_next_word(line).atoi();
         return req;
     endfunction
 

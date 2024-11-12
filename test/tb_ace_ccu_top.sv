@@ -103,7 +103,8 @@ module tb_ace_ccu_top #(
     // Initial main memory state
     string init_main_mem          = {MemDir, "/main_mem.mem"};
     // Logged cache state changes
-    string diff_file_template     = {MemDir, "/cache_diff_%0d.txn"};
+    string diff_file_template     = {MemDir, "/cache_diff_%0d.txt"};
+    string diff_main_mem          = {MemDir, "/main_mem_diff.txt"};
 
     ACE_BUS_DV #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
@@ -143,6 +144,13 @@ module tb_ace_ccu_top #(
         .AXI_USER_WIDTH ( AxiUserWidth     )
     ) axi_intf();
 
+    MONITOR_BUS_DV #(
+        .ADDR_WIDTH (AxiAddrWidth),
+        .DATA_WIDTH ( AxiDataWidth),
+        .ID_WIDTH ( AxiIdWidthSlave),
+        .USER_WIDTH (AxiUserWidth)
+    ) sim_mem_mon_intf (clk);
+
     // Interface with clock for generating delays
     CLK_IF clk_if (clk);
 
@@ -160,6 +168,14 @@ module tb_ace_ccu_top #(
 
     typedef virtual CLK_IF clk_if_v_t;
 
+    typedef virtual MONITOR_BUS_DV #(
+        .ADDR_WIDTH (AxiAddrWidth),
+        .DATA_WIDTH ( AxiDataWidth),
+        .ID_WIDTH ( AxiIdWidthSlave),
+        .USER_WIDTH (AxiUserWidth)
+    ) mon_bus_t;
+
+
     // Clock generator
     clk_rst_gen #(
         .ClkPeriod    ( CyclTime ),
@@ -168,6 +184,16 @@ module tb_ace_ccu_top #(
         .clk_o  (clk),
         .rst_no (rst_n)
     );
+
+    cache_test_pkg::mem_logger #(
+        .AW(AxiAddrWidth),
+        .DW(AxiDataWidth),
+        .IW(AxiIdWidthSlave),
+        .UW(AxiUserWidth),
+        .TA(ApplTime),
+        .TT(TestTime),
+        .mon_bus_t(mon_bus_t)
+    ) axi_mem_logger;
 
     cache_test_pkg::cache_top_agent #(
         .AW              (AxiAddrWidth),
@@ -228,6 +254,16 @@ module tb_ace_ccu_top #(
         if (&end_of_sim) $finish();
     end
 
+    initial begin
+        axi_mem_logger = new(
+            sim_mem_mon_intf,
+            diff_main_mem
+        );
+        @(posedge rst_n);
+        axi_mem_logger.run();
+    end
+
+
     // AXI Simulation Memory
     axi_sim_mem_intf #(
         // AXI interface parameters
@@ -241,20 +277,20 @@ module tb_ace_ccu_top #(
         .clk_i(clk),
         .rst_ni(rst_n),
         .axi_slv(axi_intf),
-        .mon_w_valid_o(),
-        .mon_w_addr_o(),
-        .mon_w_data_o(),
-        .mon_w_id_o(),
-        .mon_w_user_o(),
-        .mon_w_beat_count_o(),
-        .mon_w_last_o(),
-        .mon_r_valid_o(),
-        .mon_r_addr_o(),
-        .mon_r_data_o(),
-        .mon_r_id_o(),
-        .mon_r_user_o(),
-        .mon_r_beat_count_o(),
-        .mon_r_last_o()
+        .mon_w_valid_o(sim_mem_mon_intf.w_valid),
+        .mon_w_addr_o(sim_mem_mon_intf.w_addr),
+        .mon_w_data_o(sim_mem_mon_intf.w_data),
+        .mon_w_id_o(sim_mem_mon_intf.w_id),
+        .mon_w_user_o(sim_mem_mon_intf.w_user),
+        .mon_w_beat_count_o(sim_mem_mon_intf.w_beat_count),
+        .mon_w_last_o(sim_mem_mon_intf.w_last),
+        .mon_r_valid_o(sim_mem_mon_intf.r_valid),
+        .mon_r_addr_o(sim_mem_mon_intf.r_addr),
+        .mon_r_data_o(sim_mem_mon_intf.r_data),
+        .mon_r_id_o(sim_mem_mon_intf.r_id),
+        .mon_r_user_o(sim_mem_mon_intf.r_user),
+        .mon_r_beat_count_o(sim_mem_mon_intf.r_beat_count),
+        .mon_r_last_o(sim_mem_mon_intf.r_last)
     );
 
     initial begin

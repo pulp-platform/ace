@@ -150,6 +150,7 @@ class cache_scoreboard #(
 
     function void log_state_change(
         bit initiator,
+        int unsigned addr,
         int unsigned set,
         int unsigned way,
         tag_t new_tag,
@@ -160,11 +161,15 @@ class cache_scoreboard #(
         if (first_write) fd = $fopen(this.state_file, "w");
         else             fd = $fopen(this.state_file, "a");
         first_write = 0;
-        $fwrite(fd, "%0t %0d %0d %0d %x %b", $time, initiator, set, way, new_tag, new_status);
+        $fwrite(fd, "TIME:%0t ADDR:%x INITIATOR:%0d SET:%0d WAY:%0d TAG:%x STATUS:%b DATA:[",
+                $time, addr, initiator, set, way, new_tag, new_status);
         for (int i = 0; i < CACHELINE_BYTES; i++) begin
-            $fwrite(fd, " %x", new_data[i]);
+            if (i == 0)
+                $fwrite(fd, "%x", new_data[i]);
+            else
+                $fwrite(fd, ",%x", new_data[i]);
         end
-        $fwrite(fd, "\n");
+        $fwrite(fd, "]\n");
         $fclose(fd);
     endfunction
 
@@ -182,6 +187,7 @@ class cache_scoreboard #(
         update_lru(info);
         log_state_change(
             initiator,
+            info.new_addr,
             info.idx,
             info.way,
             tag_q[info.idx][info.way],
@@ -291,7 +297,6 @@ class cache_scoreboard #(
     endfunction
 
     function automatic void allocate(mem_req req, mem_resp resp, ref tag_resp_t info);
-        status_t new_status;
         info.status[DIRTY_IDX] = resp.pass_dirty;
         info.status[SHARD_IDX] = resp.is_shared;
         cache_write(info, resp.data_q);
@@ -306,7 +311,7 @@ class cache_scoreboard #(
         if (tag_lu.hit) begin
             cache_req cache_req = new;
             cache_req.addr = req.addr;
-            cache_req.size = 1 << CACHELINE_BYTES;
+            cache_req.size = $clog2(CACHELINE_BYTES);
             cache_resp = cache_read(tag_lu, cache_req);
             resp.snoop_resp.WasUnique = !tag_lu.status[SHARD_IDX];
             while (cache_resp.data_q.size() > 0) begin
@@ -392,6 +397,7 @@ class cache_scoreboard #(
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
                 cache_write(tag_lu, req.data_q);
+                tag_lu.new_status[DIRTY_IDX] = 1'b1;
             end else begin
                 $fatal("Unsupported op");
             end
@@ -417,10 +423,12 @@ class cache_scoreboard #(
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
                 cache_write(tag_lu, req.data_q);
+                tag_lu.new_status[DIRTY_IDX] = 1'b1;
             end else begin
                 $fatal("Unsupported op");
             end
         end
+        modify_cache(tag_lu, 1);
         update_lru(tag_lu);
         //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
