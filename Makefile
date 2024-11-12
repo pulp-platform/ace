@@ -45,6 +45,8 @@ NTRANSACTIONS 	?= 100
 MEM_DIR 				?= $(PWD)/build/mem
 # Seed for initial state generation. If empty, no seed
 SEED						?= 10
+# Run coherency check after simulation
+CHECK 					?= 0
 
 export ADDR_WIDTH
 export DATA_WIDTH
@@ -96,7 +98,8 @@ init_mem: build/mem
 	--n_caches ${NMASTERS} \
 	--n_transactions ${NTRANSACTIONS} \
 	--target_dir $(MEM_DIR) \
-	--seed $(SEED)
+	--seed $(SEED) \
+	$(if $(filter 1, $(CHECK)),--check)
 
 
 elab.log: Bender.yml | build
