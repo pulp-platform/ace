@@ -1,16 +1,64 @@
 from common import MemoryRange
 from typing import List
+import pdb
 
 class MemoryState:
   def __init__(
       self,
-      mem_ranges: List[MemoryRange]
+      mem_ranges: List[MemoryRange] = []
     ):
     self.mem_ranges: List[MemoryRange] = mem_ranges
 
   def gen_rand_mem(self):
     for mem_range in self.mem_ranges:
       mem_range.init_random_mem()
+
+  def store(self, addr, data):
+    range_found = False
+    for mem_range in self.mem_ranges:
+      if mem_range.start_addr <= addr <= mem_range.end_addr:
+        range_found = True
+        mem_range.mem_data[addr - mem_range.start_addr] = data
+    if not range_found:
+      raise Exception("Provided an address outside the memory range(s)")
+
+  def reconstruct_mem(
+      self,
+      file="/scratch2/akorsman/ace/build/mem/main_mem_diff.txt",
+      start_time=0,
+      end_time=0
+  ) -> int:
+    """
+    Updates memory given the transactions in a file.
+    Returns the time stamp that was the first one that was not updated.
+    """
+    with open(file, "r") as mem_file:
+      for line in mem_file:
+        words = line.split()
+        time = -1
+        addr = None
+        data = None
+        for word in words:
+          t_idx = word.find("TIME:")
+          a_idx = word.find("ADDR:")
+          d_idx = word.find("DATA:")
+          payload = word.split(":")[1]
+          if t_idx != -1:
+            time = int(payload)
+          if a_idx != -1:
+            addr = int(payload, 16)
+          if d_idx != -1:
+            data = int(payload, 16)
+        if time > end_time:
+          return time
+        if time < start_time:
+          continue
+        if addr and data:
+          self.store(addr, data)
+        elif addr or data:
+          raise Exception(
+            "Either data or addr provided without the other"
+          )
 
   def save_mem(
     self,
@@ -27,3 +75,7 @@ class MemoryState:
             mem_range.mem_data[addr - mem_range.start_addr + 3]
           )
           mem_file.write(fmt)
+
+if __name__ == "__main__":
+  ms = MemoryState()
+  ms.reconstruct_mem(timestamp=2000)

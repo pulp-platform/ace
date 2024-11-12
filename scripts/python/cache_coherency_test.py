@@ -29,6 +29,7 @@ class CacheCoherencyTest:
       n_caches: int,
       n_transactions: int,
       target_dir: str,
+      check: bool,
       **kwargs
       ):
 
@@ -43,6 +44,7 @@ class CacheCoherencyTest:
     self.n_caches = n_caches
     self.n_transactions = n_transactions
     self.target_dir = target_dir
+    self.check = check
 
     self.cacheline_bytes = \
       self.cacheline_words * self.word_width // 8
@@ -176,6 +178,27 @@ class CacheCoherencyTest:
       addr = rand_mem_range.get_rand_addr(self.cacheline_bytes)
       # Get data from initialized memory
       data = rand_mem_range.get_data(addr, self.cacheline_bytes)
+
+      # Check if all caches have space for the new entry
+      # Skip if not
+      not_free_found = False
+      for cache in self.caches:
+        _, free = cache.get_free_way(cache.get_index(addr))
+        if not free:
+          not_free_found = True
+      if not_free_found:
+        continue
+
+      # Check if the address is already stored
+      # Skip if yes
+      hit_found = False
+      for cache in self.caches:
+        hit, _, _, _, _ = cache.get_addr(addr)
+        if hit:
+          hit_found = True
+      if hit_found:
+        continue
+
       # Select random number of masters to have that cache line
       n_masters = randint(1, self.n_caches)
       # Randomly select the master indices to have that cache line
@@ -211,10 +234,51 @@ class CacheCoherencyTest:
         except CacheSetFullException:
           pass
 
+  def get_next_timestamp(self, files, cur_time):
+    """
+    Returns (finish, next_tstamp). If finish == True, it means
+    there are no more timestamps
+    """
+    timestamps = []
+    for file in files:
+      with open(file, "r") as cache_file:
+        for line in cache_file:
+          words = line.split()
+          time = None
+          for word in words:
+            t_idx = word.find("TIME:")
+            if t_idx != -1:
+              payload = word.split(":")[1]
+              time = int(payload)
+          if time:
+            if time > cur_time:
+              timestamps.append(time)
+              break
+    finish = False
+    next_tstamp = 0
+    try:
+      next_tstamp = min(timestamps)
+    except ValueError:
+      finish = True
+    return finish, next_tstamp
 
   def reconstruct_state(self):
+    import pdb
     # Reconstruct state into Python datatypes
-    ...
+    files = []
+    start_time = 0
+    while True:
+      for i in range(self.n_caches):
+        files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
+      finish, end_time = self.get_next_timestamp(files, start_time)
+      if finish:
+        break
+      for i, cache in enumerate(self.caches):
+        cache.reconstruct_state(files[i], start_time, end_time)
+      self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
+      logger.info(f"==================== TIMESTAMP: {start_time}")
+      self.check_coherency()
+      start_time = end_time
 
   def check_coherency(self):
     """Check that caches and main memory are coherent.
@@ -269,7 +333,7 @@ class CacheCoherencyTest:
                 modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
-                print_info(logging.ERROR, addr=addr, cache_idx=i, state=state.name)
+                print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name)
               if moesi.state in \
                 [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
                 owner_found = True
@@ -307,6 +371,11 @@ class CacheCoherencyTest:
         state_file=os.path.join(self.target_dir, f"state_{i}.mem")
       )
 
+  def run(self):
+    if self.check:
+      input("Press enter after simulation finishes to start coherency check")
+      self.reconstruct_state()
+
 
 class RandomTest(CacheCoherencyTest):
   def __init__(
@@ -315,6 +384,7 @@ class RandomTest(CacheCoherencyTest):
   ):
     super().__init__(**kwargs)
     self.define_test()
+    self.run()
 
   def define_test(self):
     self.add_memory_range(MemoryRange(
@@ -417,6 +487,11 @@ if __name__ == "__main__":
     help="Seed for the simulation",
     default=None,
     nargs='?'
+  )
+  parser.add_argument(
+    '--check',
+    action='store_true',
+    help="Check for coherency once prompted"
   )
   parsed_args = vars(parser.parse_args())
   if parsed_args.get("seed", None):

@@ -137,7 +137,7 @@ class CacheTransactionSequence:
         else:
           first = False
         row = [
-          txn.op.name, hex(txn.addr), hex(txn.data),
+          txn.op.name, format(txn.addr, 'x'), format(txn.data, 'x'),
           txn.size, int(txn.cached), txn.shareability, txn.time
         ]
         file.write((self.separator.join(str(x) for x in row)))
