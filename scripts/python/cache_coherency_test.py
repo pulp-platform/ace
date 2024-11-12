@@ -263,20 +263,19 @@ class CacheCoherencyTest:
     return finish, next_tstamp
 
   def reconstruct_state(self):
-    import pdb
     # Reconstruct state into Python datatypes
     files = []
     start_time = 0
+    for i in range(self.n_caches):
+      files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
     while True:
-      for i in range(self.n_caches):
-        files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
       finish, end_time = self.get_next_timestamp(files, start_time)
       if finish:
         break
       for i, cache in enumerate(self.caches):
         cache.reconstruct_state(files[i], start_time, end_time)
       self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
-      logger.info(f"==================== TIMESTAMP: {start_time}")
+      logger.info(f"==================== TIMESTAMP: {start_time} ====================")
       self.check_coherency()
       start_time = end_time
 
@@ -309,9 +308,23 @@ class CacheCoherencyTest:
                 mem_range.end_addr,
                 self.cacheline_bytes):
         cached, shared = mem_range.get_addr_properties(addr)
+        skip_addr = False
         if not (shared and cached):
           # Currently only checking shared and cached regions
           continue
+
+        # Check if there are addresses which have outstanding transactions
+        # This occurs when a snoop transaction has modified a cache line, but
+        # the transaction itself didnt finish yet
+        for cache in self.caches:
+          if addr in cache.outstanding:
+            skip_addr = True
+            logger.info("Skipping address due to an outstanding transaction")
+            print_info(logging.INFO, addr=addr)
+            break
+        if skip_addr:
+          continue
+
         cacheline = mem_range.get_data(addr, self.cacheline_bytes)
         states: List[CachelineState] = []
         modified = False
