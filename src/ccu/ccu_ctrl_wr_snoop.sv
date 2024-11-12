@@ -1,5 +1,4 @@
 import ace_pkg::*;
-import ccu_ctrl_pkg::*;
 
 // FSM to control write snoop transactions
 // This module assumes that snooping happens
