@@ -11,7 +11,9 @@ from transactions import \
 from random import random, randint, choice, sample
 import os
 import logging
+import pdb
 logger = logging.getLogger(__name__)
+
 
 class CoherencyError(AssertionError):
   pass
@@ -297,7 +299,7 @@ class CacheCoherencyTest:
       for i, cache in enumerate(self.caches):
         cache.reconstruct_state(files[i], start_time, end_time)
       self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
-      logger.info(f"==================== TIMESTAMP: {start_time} ====================")
+      logger.info(f"==================== TIMESTAMP: {end_time} ====================")
       self.check_coherency()
       for addr in addrs:
         # Clear outstanding addresses for the ones that were handled this timestamp
@@ -377,7 +379,8 @@ class CacheCoherencyTest:
                 modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
-                self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name)
+                self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
+                import pdb; pdb.set_trace()
               if moesi.state in \
                 [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
                 owner_found = True
@@ -386,6 +389,7 @@ class CacheCoherencyTest:
         if modified and not owner_found:
           logger.error("A modified cache line without owner was found!")
           self.print_info(logging.ERROR, addr=addr, set=set)
+          import pdb; pdb.set_trace()
 
         # Compare cacheline states
         for i in range(len(states)):
@@ -405,6 +409,7 @@ class CacheCoherencyTest:
                 set=(a_set, b_set),
                 way=(a_way, b_way)
               )
+              import pdb; pdb.set_trace()
     logger.info("Coherency check finished")
 
   def save_caches(self):
