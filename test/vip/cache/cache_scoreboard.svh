@@ -28,6 +28,8 @@ class cache_scoreboard #(
     localparam int SHARD_IDX = 1;
     localparam int DIRTY_IDX = 2;
 
+    int INDEX = -1;
+
     typedef logic [TAG_BITS-1:0]        tag_t;
     typedef logic [AW-1:0]              addr_t;
     typedef logic [7:0]                 byte_t;
@@ -98,7 +100,8 @@ class cache_scoreboard #(
         mailbox #(cache_snoop_resp) snoop_resp_mbx,
         mailbox #(mem_req)          mem_req_mbx,
         mailbox #(mem_resp)         mem_resp_mbx,
-        string                      state_file
+        string                      state_file,
+        int index
     );
         this.clk_if         = clk_if;
         this.cache_req_mbx  = cache_req_mbx;
@@ -108,6 +111,7 @@ class cache_scoreboard #(
         this.mem_req_mbx    = mem_req_mbx;
         this.mem_resp_mbx   = mem_resp_mbx;
         this.state_file     = state_file;
+        this.INDEX = index;
 
         this.cache_lookup_sem = new(1);
     endfunction
@@ -148,14 +152,14 @@ class cache_scoreboard #(
         init_status_from_file(status_fname);
     endfunction
 
-    function void log_state_change(
+    function automatic void log_state_change(
         bit initiator,
         int unsigned addr,
         int unsigned set,
         int unsigned way,
         tag_t new_tag,
         status_t new_status,
-        byte_t new_data[CACHELINE_BYTES]
+        byte_t new_data[CACHELINE_BYTES-1:0]
     );
         int fd;
         if (first_write) fd = $fopen(this.state_file, "w");
@@ -178,7 +182,7 @@ class cache_scoreboard #(
     // NO OTHER FUNCTION SHOULD MODIFY THE CACHE
     // initiator = 1 when "core" modifies the cache
     // initiator = 0 when cache is modified by snooping
-    function void modify_cache(
+    function automatic void modify_cache(
         tag_resp_t info, int initiator
     );
         data_q[info.idx][info.way]   = info.new_cline;
@@ -208,7 +212,7 @@ class cache_scoreboard #(
         end
     endfunction
 
-    function tag_resp_t read_and_compare_tag(addr_t addr);
+    function automatic tag_resp_t read_and_compare_tag(addr_t addr);
         tag_resp_t resp;
         tag_t lu_tag;
         status_t status;
@@ -243,7 +247,9 @@ class cache_scoreboard #(
         resp.new_addr   = {addr[AW-1:BLOCK_OFFSET_BITS], {BLOCK_OFFSET_BITS{1'b0}}};
         resp.new_tag    = tag;
         resp.new_status = status_q[idx][way];
-        resp.new_cline  = data_q[idx][way];
+        for (int i = 0; i < CACHELINE_BYTES; i++) begin
+            resp.new_cline[i]  = data_q[idx][way][i];
+        end
         return resp;
     endfunction
 
@@ -296,9 +302,21 @@ class cache_scoreboard #(
         return mem_req;
     endfunction
 
+    function automatic mem_req gen_clean_unique(tag_resp_t info);
+        mem_req mem_req = new;
+        mem_req.size          = $clog2(BYTES_PER_WORD);
+        mem_req.len           = CACHELINE_WORDS - 1;
+        mem_req.addr          = info.new_addr;
+        mem_req.op            = REQ_LOAD;
+        mem_req.cacheable     = '1;
+        mem_req.read_snoop_op = ace_pkg::CleanUnique;
+        return mem_req;
+    endfunction
+
     function automatic void allocate(mem_req req, mem_resp resp, ref tag_resp_t info);
-        info.status[DIRTY_IDX] = resp.pass_dirty;
-        info.status[SHARD_IDX] = resp.is_shared;
+        info.new_status[DIRTY_IDX] = resp.pass_dirty;
+        info.new_status[SHARD_IDX] = resp.is_shared;
+        info.byte_idx = 0; // Cache line allocations are always cacheline-aligned
         cache_write(info, resp.data_q);
     endfunction;
 
@@ -396,6 +414,15 @@ class cache_scoreboard #(
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
+                if (
+                    tag_lu.status[SHARD_IDX] &&
+                    tag_lu.status[VALID_IDX]
+                ) begin
+                    mem_req = gen_clean_unique(tag_lu);
+                    mem_req_mbx.put(mem_req);
+                    mem_resp_mbx.get(mem_resp);
+                    allocate(mem_req, mem_resp, tag_lu);
+                end
                 cache_write(tag_lu, req.data_q);
                 tag_lu.new_status[DIRTY_IDX] = 1'b1;
             end else begin
@@ -417,7 +444,6 @@ class cache_scoreboard #(
             mem_resp_mbx.get(mem_resp);
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
-            tag_lu.way = tag_lu.way;
             // Handle the initial cache request
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
@@ -438,6 +464,7 @@ class cache_scoreboard #(
         cache_req req;
         cache_resp resp = new;
         cache_req_mbx.get(req);
+        @(posedge clk_if.clk_i);
         cache_fsm(req, resp);
         cache_resp_mbx.put(resp);
     endtask
