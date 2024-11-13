@@ -236,40 +236,62 @@ class CacheCoherencyTest:
 
   def get_next_timestamp(self, files, cur_time):
     """
-    Returns (finish, next_tstamp). If finish == True, it means
-    there are no more timestamps
+    Returns (finish, next_tstamp, addrs_w_same_tstamp).
+    If finish == True, it means there are no more timestamps
+    addrs_w_same_tstamp is a list of (idx, addr), which indicates
+    the cache index that retires a transaction on this timestamp, and
+    the address it retires.
     """
     timestamps = []
+    addrs = []
+    addrs_w_tstamp = []
     for file in files:
       with open(file, "r") as cache_file:
         for line in cache_file:
           words = line.split()
           time = None
+          initiator = None
+          addr = None
           for word in words:
+            # Find timestamp
+            # Skip if not the initiator
             t_idx = word.find("TIME:")
+            i_idx = word.find("INITIATOR:")
+            a_idx = word.find("ADDR:")
+            payload = word.split(":")[1]
             if t_idx != -1:
-              payload = word.split(":")[1]
-              time = int(payload)
+              if initiator != False:
+                time = int(payload)
+            if i_idx != -1:
+              initiator = bool(int(payload))
+              if not initiator:
+                time = None
+            if a_idx != -1:
+              addr = int(payload, 16)
           if time:
             if time > cur_time:
               timestamps.append(time)
+              addrs.append(addr)
               break
     finish = False
     next_tstamp = 0
     try:
       next_tstamp = min(timestamps)
+      idx_w_same_tstamp = [i for i, x in enumerate(timestamps) if x == next_tstamp]
+      for i in idx_w_same_tstamp:
+        addrs_w_tstamp.append((i, addrs[i]))
     except ValueError:
       finish = True
-    return finish, next_tstamp
+    return finish, next_tstamp, addrs_w_tstamp
 
   def reconstruct_state(self):
-    # Reconstruct state into Python datatypes
+    """Reconstruct state into Python datatypes"""
     files = []
     start_time = 0
     for i in range(self.n_caches):
       files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
     while True:
-      finish, end_time = self.get_next_timestamp(files, start_time)
+      finish, end_time, addrs = self.get_next_timestamp(files, start_time)
       if finish:
         break
       for i, cache in enumerate(self.caches):
@@ -277,7 +299,28 @@ class CacheCoherencyTest:
       self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
       logger.info(f"==================== TIMESTAMP: {start_time} ====================")
       self.check_coherency()
+      for addr in addrs:
+        # Clear outstanding addresses for the ones that were handled this timestamp
+        for i in range(self.n_caches):
+          if i == addr[0]:
+            continue
+          if self.caches[i].clear_outstanding_addr(addr[1]):
+            logger.info("Removing address from outstanding")
+            self.print_info(addr=addr[1], cache_idx=i)
       start_time = end_time
+
+  def print_info(self, level=logging.INFO, addr=None, cache_idx=None, state=None,
+                  set=None, way=None):
+    if addr is not None:
+      logger.log(level, msg=f"Address: {hex(addr)}")
+    if cache_idx is not None:
+      logger.log(level, msg=f"Cache: {cache_idx}")
+    if state is not None:
+      logger.log(level, msg=f"State: {state}")
+    if set is not None:
+      logger.log(level, msg=f"Set: {set}")
+    if way is not None:
+      logger.log(level, msg=f"Way: {way}")
 
   def check_coherency(self):
     """Check that caches and main memory are coherent.
@@ -289,18 +332,6 @@ class CacheCoherencyTest:
 
     logger.info("Starting coherency check")
 
-    def print_info(level, addr=None, cache_idx=None, state=None,
-                   set=None, way=None):
-      if addr is not None:
-        logger.log(level, msg=f"Address: {addr}")
-      if cache_idx is not None:
-        logger.log(level, msg=f"Cache: {cache_idx}")
-      if state is not None:
-        logger.log(level, msg=f"State: {state}")
-      if set is not None:
-        logger.log(level, msg=f"Set: {set}")
-      if way is not None:
-        logger.log(level, msg=f"Way: {way}")
 
     for mem_range in self.mem_ranges:
       for addr in range(
@@ -320,7 +351,7 @@ class CacheCoherencyTest:
           if addr in cache.outstanding:
             skip_addr = True
             logger.info("Skipping address due to an outstanding transaction")
-            print_info(logging.INFO, addr=addr)
+            self.print_info(logging.INFO, addr=addr)
             break
         if skip_addr:
           continue
@@ -340,13 +371,13 @@ class CacheCoherencyTest:
           moesi: CachelineState = state
           if hit:
             logger.info("Cacheline found")
-            print_info(logging.INFO, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
+            self.print_info(logging.INFO, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
             if data != cacheline:
               if moesi.state != CachelineStateEnum.INVALID:
                 modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
-                print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name)
+                self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name)
               if moesi.state in \
                 [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
                 owner_found = True
@@ -354,7 +385,7 @@ class CacheCoherencyTest:
 
         if modified and not owner_found:
           logger.error("A modified cache line without owner was found!")
-          print_info(logging.ERROR, addr=addr, set=set)
+          self.print_info(logging.ERROR, addr=addr, set=set)
 
         # Compare cacheline states
         for i in range(len(states)):
@@ -366,7 +397,7 @@ class CacheCoherencyTest:
               a_hit, _, a_state, a_set, a_way = self.caches[i].get_addr(addr)
               b_hit, _, b_state, b_set, b_way = self.caches[j].get_addr(addr)
               logger.error("Two cache lines in incompatible states!")
-              print_info(
+              self.print_info(
                 logging.ERROR,
                 addr=addr,
                 cache_idx=(i, j),

@@ -245,10 +245,14 @@ class CacheState:
     self.save_status(state_file)
 
   def clear_outstanding_addr(self, addr):
+    """Remove addr from self.outstanding.
+    Returns True if the address was stored.
+    Returns False if it wasn't."""
     try:
       self.outstanding.remove(addr)
+      return True
     except ValueError:
-      pass
+      return False
 
   def reconstruct_state(
       self,
