@@ -50,6 +50,8 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     logic     [NumInp-1:0] inp_cd_valids, inp_cd_readies;
     cd_chan_t [NumInp-1:0] inp_cd_chans;
 
+    oup_sel_t [NumInp-1:0] inp_sel;
+
 
     logic     [NumOup-1:0] oup_ac_valids, oup_ac_readies;
     ac_chan_t [NumOup-1:0] oup_ac_chans;
@@ -75,9 +77,22 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
 
     for (genvar i = 0; i < NumInp; i++) begin : gen_unpack_inp
         if (BufferInpReq) begin : gen_buffer_req
+            typedef struct packed {
+                ac_chan_t ac;
+                oup_sel_t sel;
+            } ac_fifo_entry_t;
+
+            ac_fifo_entry_t ac_fifo_in, ac_fifo_out;
+
+            assign ac_fifo_in.ac  = inp_req_i[i].ac;
+            assign ac_fifo_in.sel = inp_sel_i[i];
+
+            assign inp_ac_chans[i] = ac_fifo_out.ac;
+            assign inp_sel[i]      = ac_fifo_out.sel;
+
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
-                .type_t (ac_chan_t)
+                .type_t (ac_fifo_entry_t)
             ) i_ac_fifo (
                 .clk_i,
                 .rst_ni,
@@ -86,15 +101,16 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
                 .usage_o    (),
                 .valid_i    (inp_req_i [i].ac_valid),
                 .ready_o    (inp_resp_o[i].ac_ready),
-                .data_i     (inp_req_i [i].ac),
+                .data_i     (ac_fifo_in),
                 .valid_o    (inp_ac_valids [i]),
                 .ready_i    (inp_ac_readies[i]),
-                .data_o     (inp_ac_chans  [i])
+                .data_o     (ac_fifo_out)
             );
         end else begin : gen_no_buffer_req
             assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;
             assign inp_resp_o[i].ac_ready = inp_ac_readies[i];
             assign inp_ac_chans[i]        = inp_req_i[i].ac;
+            assign inp_sel[i]             = inp_sel_i[i];
         end
         if (BufferInpResp) begin : gen_buffer_resp
             stream_fifo_optimal_wrap #(
@@ -216,7 +232,7 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
         .ac_valids_i     (inp_ac_valids),
         .ac_readies_o    (inp_ac_readies),
         .ac_chans_i      (inp_ac_chans),
-        .ac_sel_i        (inp_sel_i),
+        .ac_sel_i        (inp_sel),
         .ac_valid_o      (ac_valid),
         .ac_ready_i      (ac_ready),
         .ac_chan_o       (ac_chan),
