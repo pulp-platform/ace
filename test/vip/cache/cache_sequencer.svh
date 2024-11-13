@@ -76,7 +76,7 @@ class cache_sequencer #(
         wsize = get_next_word_size(line);
         word = line.substr(0, wsize - 1);
         line = line.substr(wsize + 1, line_len - 1);
-        return word;
+        return word.substr(5, word.len()-1);
     endfunction
 
     function automatic int get_n_transactions;
