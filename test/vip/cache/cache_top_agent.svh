@@ -126,7 +126,8 @@ class cache_top_agent #(
         string tag_mem_file,
         string status_file,
         string txn_file,
-        string state_file
+        string state_file,
+        int index
     );
         this.ace    = ace;
         this.snoop  = snoop;
@@ -142,7 +143,7 @@ class cache_top_agent #(
                                this.cache_req_mbx, this.cache_resp_mbx,
                                this.snoop_req_mbx, this.snoop_resp_mbx,
                                this.mem_req_mbx, this.mem_resp_mbx,
-                               state_file);
+                               state_file, index);
         this.cache_seq   = new(this.clk_if,
                                this.cache_req_mbx, this.cache_resp_mbx, txn_file);
         this.mem_seq     = new(this.mem_req_mbx, this.mem_resp_mbx,

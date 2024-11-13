@@ -238,7 +238,8 @@ module tb_ace_ccu_top #(
                 tag_mem_file,
                 status_file,
                 txn_file,
-                diff_file
+                diff_file,
+                i
             );
             ace_master[i].reset();
             @(posedge rst_n);
