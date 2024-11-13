@@ -299,14 +299,14 @@ class CacheState:
           if data_idx != -1:
             data = [int(x, 16) for x in payload.strip("[]").split(",")]
         if None in [time,initiator,set,way,tag,status,data]:
+          print("Unexpected state")
           import pdb; pdb.set_trace()
         if time > end_time:
           return time
-        if time < start_time:
+        if time <= start_time:
           continue
-        if initiator:
-          self.cache_data[set][way] = data
-          self.cache_tag[set][way] = tag
-          self.cache_status[set][way] = status
-        else:
+        self.cache_data[set][way] = data
+        self.cache_tag[set][way] = tag
+        self.cache_status[set][way] = status
+        if not initiator:
           self.outstanding.append(addr)
