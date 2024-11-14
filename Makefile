@@ -38,7 +38,9 @@ WAYS 						?= 2
 # Number of sets in the cache model
 SETS 						?= 16
 # Number of cached masters
-NMASTERS 				?= 2
+NMASTERS 				?= 4
+# Number of master groups
+NGROUPS 				?= 1
 # Number of transactions to be generated per master
 NTRANSACTIONS 	?= 100
 # Location of the generated files
@@ -55,6 +57,7 @@ export CACHELINE_WORDS
 export WAYS
 export SETS
 export NMASTERS
+export NGROUPS
 export NTRANSACTIONS
 export MEM_DIR
 

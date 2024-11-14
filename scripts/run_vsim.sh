@@ -55,6 +55,7 @@ exec_test() {
             -gWays=$WAYS \
             -gSets=$SETS \
             -gTbNumMst=$NMASTERS \
+            -gNoMstGroups=$NGROUPS \
             -gMemDir=$MEM_DIR
             ;;
         ccu_ctrl_r_snoop)

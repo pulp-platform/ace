@@ -19,6 +19,8 @@ module tb_ace_ccu_top #(
     parameter int unsigned Sets           = 0,
     /// Number of cached masters
     parameter int unsigned TbNumMst       = 0,
+    /// Number of master groups (a group share the snooping FSM)
+    parameter int unsigned NoMstGroups    = 1,
     /// Directory for files
     parameter string       MemDir         = ""
 );
@@ -31,8 +33,8 @@ module tb_ace_ccu_top #(
     localparam CachelineBits = CachelineWords * WordWidth;
 
     // How many cached masters per group
-    localparam MstPerGroup = TbNumMst;
-    localparam NoGroups = TbNumMst / MstPerGroup;
+    localparam MstPerGroup = TbNumMst / NoMstGroups;
+    localparam NoGroups = NoMstGroups;
 
     // axi configuration
     localparam int unsigned AxiIdWidthMasters =  4;
@@ -304,7 +306,7 @@ module tb_ace_ccu_top #(
         .AXI_USER_WIDTH       (AxiUserWidth),
         .AXI_SLV_ID_WIDTH     (AxiIdWidthMasters),
         .NO_SLV_PORTS         (TbNumMst),
-        .NO_SLV_PER_GROUPS    (TbNumMst),
+        .NO_SLV_PER_GROUPS    (MstPerGroup),
         .DCACHE_LINE_WIDTH    (CachelineBits),
         .domain_mask_t        (domain_mask_t),
         .domain_set_t         (domain_set_t)
