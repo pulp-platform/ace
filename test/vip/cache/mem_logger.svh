@@ -59,11 +59,9 @@ class mem_logger #(
         int unsigned beat_count = 0;
         forever begin
             @(posedge mem_mon_bus.clk_i);
-            if (mem_mon_bus.w_valid &&
-                mem_mon_bus.w_beat_count != beat_count
-            ) begin
-                if (beat_count == 0) log_time();
+            if (mem_mon_bus.w_valid) begin
                 beat_count = mem_mon_bus.w_beat_count;
+                if (beat_count == 0) log_time();
                 log_word(mem_mon_bus.w_addr, mem_mon_bus.w_data);
             end
         end
