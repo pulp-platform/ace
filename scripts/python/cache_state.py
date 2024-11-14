@@ -32,7 +32,7 @@ class CachelineState:
       self.state = CachelineStateEnum.EXCLUSIVE
     else:
       raise Exception("Unexpected state")
-  
+
   def get_state_bits(self):
     state_bits = [False, False, False]
     if self.state == CachelineStateEnum.MODIFIED:
@@ -84,7 +84,7 @@ class CacheState:
       word_width,
       cacheline_words,
       ways,
-      sets 
+      sets
     ):
     self.aw = addr_width
     self.dw = data_width
@@ -107,6 +107,11 @@ class CacheState:
     self.cache_status = None
     self.cache_data   = None
     self.cache_tag    = None
+
+    # Store which cache lines are "outstanding"
+    # i.e. a snoop has modified their status, but the
+    # respective transaction has not finished
+    self.outstanding = []
 
   def init_cache(self):
     # multi-dimensional lists must be initialized in steps
@@ -174,7 +179,6 @@ class CacheState:
     for byte_idx in range(self.cacheline_bytes):
       self.cache_data[set_idx][way_idx][byte_idx] = \
         data[byte_idx]
-    # TODO: SET TAG
     self.cache_tag[set_idx][way_idx] = self.get_tag(addr)
     self.cache_status[set_idx][way_idx][0] = status[0]
     self.cache_status[set_idx][way_idx][1] = status[1]
@@ -240,3 +244,69 @@ class CacheState:
     self.save_tag(tag_file)
     self.save_status(state_file)
 
+  def clear_outstanding_addr(self, addr):
+    """Remove addr from self.outstanding.
+    Returns True if the address was stored.
+    Returns False if it wasn't."""
+    try:
+      self.outstanding.remove(addr)
+      return True
+    except ValueError:
+      return False
+
+  def reconstruct_state(
+      self,
+      file,
+      start_time,
+      end_time
+  ):
+    with open(file, "r") as state_file:
+      for line in state_file:
+        words = line.split()
+        addr = None
+        time = None
+        initiator = None
+        set = None
+        way = None
+        tag = None
+        status = None
+        data = None
+        for word in words:
+          time_idx = word.find("TIME:")
+          initiator_idx = word.find("INITIATOR:")
+          addr_idx = word.find("ADDR:")
+          set_idx = word.find("SET:")
+          way_idx = word.find("WAY")
+          tag_idx = word.find("TAG:")
+          status_idx = word.find("STATUS:")
+          data_idx = word.find("DATA:")
+          payload = word.split(":")[1]
+          if time_idx != -1:
+            time = int(payload)
+          if addr_idx != -1:
+            addr = int(payload, 16)
+          if set_idx != -1:
+            set = int(payload)
+          if initiator_idx != -1:
+            initiator = bool(int(payload))
+          if way_idx != -1:
+            way = int(payload)
+          if tag_idx != -1:
+            tag = int(payload, 16)
+          if status_idx != -1:
+            status = [char == '1' for char in payload]
+            status.reverse()
+          if data_idx != -1:
+            data = [int(x, 16) for x in payload.strip("[]").split(",")]
+        if None in [time,initiator,set,way,tag,status,data]:
+          print("Unexpected state")
+          import pdb; pdb.set_trace()
+        if time > end_time:
+          return time
+        if time <= start_time:
+          continue
+        self.cache_data[set][way] = data
+        self.cache_tag[set][way] = tag
+        self.cache_status[set][way] = status
+        if not initiator:
+          self.outstanding.append(addr)

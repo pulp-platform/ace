@@ -49,15 +49,29 @@ class snoop_driver #(
     endtask
 
     task rec_cd_txns;
-        cd_beat_t beat;
-        cd_mbx.get(beat);
-        send_cd(beat);
+        // Ensure that mailbox is read only
+        // at cycle_end
+        forever begin
+            cd_beat_t beat;
+            if (cd_mbx.try_get(beat)) begin
+                send_cd(beat);
+            end else begin
+                cycle_end();
+            end
+        end
     endtask
 
     task rec_cr_txns;
-        cr_beat_t beat;
-        cr_mbx.get(beat);
-        send_cr(beat);
+        // Ensure that mailbox is read only
+        // at cycle_end
+        forever begin
+            cr_beat_t beat;
+            if (cr_mbx.try_get(beat)) begin
+                send_cr(beat);
+            end else begin
+                cycle_end();
+            end
+        end
     endtask
 
     /// Issue a beat on the CR channel.
@@ -94,8 +108,8 @@ class snoop_driver #(
 
     task run();
         fork
-            forever rec_cd_txns();
-            forever rec_cr_txns();
+            rec_cd_txns();
+            rec_cr_txns();
             forever recv_ac();
         join
     endtask

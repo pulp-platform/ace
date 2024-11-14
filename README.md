@@ -23,6 +23,20 @@ You can simulate the top level design with
 make -B sim-ace_ccu_top.log
 ```
 
+### Coherency check
+
+To run coherency check, run
+```
+make init_mem CHECK=1
+```
+It will generate the initial cache and memory states, and stall until given a prompt.
+
+Next, open another terminal and simulate the top level design with
+```
+make -B sim-ace_ccu_top.log
+```
+Once the simulation finishes, press enter on the coherency check prompt. A coherency check will be run. A log file is generated called `cache_python.log`. Search with keyword `ERROR` to find whether coherency was broken during the simulation.
+
 ## License
 
 The ACE repository is released under Solderpad v0.51 (SHL-0.51) see [LICENSE](LICENSE)

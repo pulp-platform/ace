@@ -11,7 +11,9 @@ from transactions import \
 from random import random, randint, choice, sample
 import os
 import logging
+import pdb
 logger = logging.getLogger(__name__)
+
 
 class CoherencyError(AssertionError):
   pass
@@ -29,6 +31,7 @@ class CacheCoherencyTest:
       n_caches: int,
       n_transactions: int,
       target_dir: str,
+      check: bool,
       **kwargs
       ):
 
@@ -43,6 +46,7 @@ class CacheCoherencyTest:
     self.n_caches = n_caches
     self.n_transactions = n_transactions
     self.target_dir = target_dir
+    self.check = check
 
     self.cacheline_bytes = \
       self.cacheline_words * self.word_width // 8
@@ -176,6 +180,27 @@ class CacheCoherencyTest:
       addr = rand_mem_range.get_rand_addr(self.cacheline_bytes)
       # Get data from initialized memory
       data = rand_mem_range.get_data(addr, self.cacheline_bytes)
+
+      # Check if all caches have space for the new entry
+      # Skip if not
+      not_free_found = False
+      for cache in self.caches:
+        _, free = cache.get_free_way(cache.get_index(addr))
+        if not free:
+          not_free_found = True
+      if not_free_found:
+        continue
+
+      # Check if the address is already stored
+      # Skip if yes
+      hit_found = False
+      for cache in self.caches:
+        hit, _, _, _, _ = cache.get_addr(addr)
+        if hit:
+          hit_found = True
+      if hit_found:
+        continue
+
       # Select random number of masters to have that cache line
       n_masters = randint(1, self.n_caches)
       # Randomly select the master indices to have that cache line
@@ -184,14 +209,16 @@ class CacheCoherencyTest:
       dirty = self.rand_choice(odds=0.5)
       shared = len(mst_idxs) > 1
       owner = -1
+      write_data = data
       if dirty:
         # Randomly select the owner
         owner = sample(mst_idxs, 1)[0]
+        # All cachelines have the same data
+        write_data = self.get_rand_cacheline_data()
+
       for mst_idx in mst_idxs:
-        write_data = data
         if mst_idx == owner:
           # Generate random data since data is dirty
-          write_data = self.get_rand_cacheline_data()
           if shared:
             state = CachelineState(CachelineStateEnum.OWNED)
           else:
@@ -211,10 +238,93 @@ class CacheCoherencyTest:
         except CacheSetFullException:
           pass
 
+  def get_next_timestamp(self, files, cur_time):
+    """
+    Returns (finish, next_tstamp, addrs_w_same_tstamp).
+    If finish == True, it means there are no more timestamps
+    addrs_w_same_tstamp is a list of (idx, addr), which indicates
+    the cache index that retires a transaction on this timestamp, and
+    the address it retires.
+    """
+    timestamps = []
+    addrs = []
+    addrs_w_tstamp = []
+    for file in files:
+      with open(file, "r") as cache_file:
+        for line in cache_file:
+          words = line.split()
+          time = None
+          initiator = None
+          addr = None
+          for word in words:
+            # Find timestamp
+            # Skip if not the initiator
+            t_idx = word.find("TIME:")
+            i_idx = word.find("INITIATOR:")
+            a_idx = word.find("ADDR:")
+            payload = word.split(":")[1]
+            if t_idx != -1:
+              if initiator != False:
+                time = int(payload)
+            if i_idx != -1:
+              initiator = bool(int(payload))
+              if not initiator:
+                time = None
+            if a_idx != -1:
+              addr = int(payload, 16)
+          if time:
+            if time > cur_time:
+              timestamps.append(time)
+              addrs.append(addr)
+              break
+    finish = False
+    next_tstamp = 0
+    try:
+      next_tstamp = min(timestamps)
+      idx_w_same_tstamp = [i for i, x in enumerate(timestamps) if x == next_tstamp]
+      for i in idx_w_same_tstamp:
+        addrs_w_tstamp.append((i, addrs[i]))
+    except ValueError:
+      finish = True
+    return finish, next_tstamp, addrs_w_tstamp
 
   def reconstruct_state(self):
-    # Reconstruct state into Python datatypes
-    ...
+    """Reconstruct state into Python datatypes"""
+    files = []
+    start_time = 0
+    for i in range(self.n_caches):
+      files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
+    while True:
+      finish, end_time, addrs = self.get_next_timestamp(files, start_time)
+      if finish:
+        break
+      for i, cache in enumerate(self.caches):
+        cache.reconstruct_state(files[i], start_time, end_time)
+      self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
+      logger.info(f"==================== TIMESTAMP: {end_time} ====================")
+      self.check_coherency()
+      for addr in addrs:
+        # Clear outstanding addresses for the ones that were handled this timestamp
+        for i in range(self.n_caches):
+          if i == addr[0]:
+            continue
+          if self.caches[i].clear_outstanding_addr(addr[1]):
+            logger.info("Removing address from outstanding")
+            self.print_info(addr=addr[1], cache_idx=i)
+      start_time = end_time
+
+  def print_info(self, level=logging.INFO, addr=None, cache_idx=None, state=None,
+                  set=None, way=None):
+    if addr is not None:
+      logger.log(level, msg=f"Address: {hex(addr)}")
+    if cache_idx is not None:
+      logger.log(level, msg=f"Cache: {cache_idx}")
+    if state is not None:
+      logger.log(level, msg=f"State: {state}")
+    if set is not None:
+      logger.log(level, msg=f"Set: {set}")
+    if way is not None:
+      logger.log(level, msg=f"Way: {way}")
 
   def check_coherency(self):
     """Check that caches and main memory are coherent.
@@ -226,18 +336,6 @@ class CacheCoherencyTest:
 
     logger.info("Starting coherency check")
 
-    def print_info(level, addr=None, cache_idx=None, state=None,
-                   set=None, way=None):
-      if addr is not None:
-        logger.log(level, msg=f"Address: {addr}")
-      if cache_idx is not None:
-        logger.log(level, msg=f"Cache: {cache_idx}")
-      if state is not None:
-        logger.log(level, msg=f"State: {state}")
-      if set is not None:
-        logger.log(level, msg=f"Set: {set}")
-      if way is not None:
-        logger.log(level, msg=f"Way: {way}")
 
     for mem_range in self.mem_ranges:
       for addr in range(
@@ -245,9 +343,23 @@ class CacheCoherencyTest:
                 mem_range.end_addr,
                 self.cacheline_bytes):
         cached, shared = mem_range.get_addr_properties(addr)
+        skip_addr = False
         if not (shared and cached):
           # Currently only checking shared and cached regions
           continue
+
+        # Check if there are addresses which have outstanding transactions
+        # This occurs when a snoop transaction has modified a cache line, but
+        # the transaction itself didnt finish yet
+        for cache in self.caches:
+          if addr in cache.outstanding:
+            skip_addr = True
+            logger.info("Skipping address due to an outstanding transaction")
+            self.print_info(logging.INFO, addr=addr)
+            break
+        if skip_addr:
+          continue
+
         cacheline = mem_range.get_data(addr, self.cacheline_bytes)
         states: List[CachelineState] = []
         modified = False
@@ -263,21 +375,23 @@ class CacheCoherencyTest:
           moesi: CachelineState = state
           if hit:
             logger.info("Cacheline found")
-            print_info(logging.INFO, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
+            self.print_info(logging.INFO, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
             if data != cacheline:
               if moesi.state != CachelineStateEnum.INVALID:
                 modified = True
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
-                print_info(logging.ERROR, addr=addr, cache_idx=i, state=state.name)
-              if moesi.state in \
-                [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
-                owner_found = True
+                self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
+                import pdb; pdb.set_trace()
+            if moesi.state in \
+              [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
+              owner_found = True
           states.append(moesi)
 
         if modified and not owner_found:
           logger.error("A modified cache line without owner was found!")
-          print_info(logging.ERROR, addr=addr, set=set)
+          self.print_info(logging.ERROR, addr=addr, set=set)
+          import pdb; pdb.set_trace()
 
         # Compare cacheline states
         for i in range(len(states)):
@@ -289,7 +403,7 @@ class CacheCoherencyTest:
               a_hit, _, a_state, a_set, a_way = self.caches[i].get_addr(addr)
               b_hit, _, b_state, b_set, b_way = self.caches[j].get_addr(addr)
               logger.error("Two cache lines in incompatible states!")
-              print_info(
+              self.print_info(
                 logging.ERROR,
                 addr=addr,
                 cache_idx=(i, j),
@@ -297,6 +411,7 @@ class CacheCoherencyTest:
                 set=(a_set, b_set),
                 way=(a_way, b_way)
               )
+              import pdb; pdb.set_trace()
     logger.info("Coherency check finished")
 
   def save_caches(self):
@@ -307,6 +422,11 @@ class CacheCoherencyTest:
         state_file=os.path.join(self.target_dir, f"state_{i}.mem")
       )
 
+  def run(self):
+    if self.check:
+      input("Press enter after simulation finishes to start coherency check")
+      self.reconstruct_state()
+
 
 class RandomTest(CacheCoherencyTest):
   def __init__(
@@ -315,6 +435,7 @@ class RandomTest(CacheCoherencyTest):
   ):
     super().__init__(**kwargs)
     self.define_test()
+    self.run()
 
   def define_test(self):
     self.add_memory_range(MemoryRange(
@@ -417,6 +538,11 @@ if __name__ == "__main__":
     help="Seed for the simulation",
     default=None,
     nargs='?'
+  )
+  parser.add_argument(
+    '--check',
+    action='store_true',
+    help="Check for coherency once prompted"
   )
   parsed_args = vars(parser.parse_args())
   if parsed_args.get("seed", None):

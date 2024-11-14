@@ -45,18 +45,19 @@ class ace_driver #(
     endtask
 
     task run();
+        cycle_end();
         fork
             forever begin
-                aw_mbx.get(aw_txn);
-                send_aw(aw_txn);
+                if (aw_mbx.try_get(aw_txn)) send_aw(aw_txn);
+                else cycle_end();
             end
             forever begin
-                w_mbx.get(w_txn);
-                send_w(w_txn);
+                if (w_mbx.try_get(w_txn)) send_w(w_txn);
+                else cycle_end();
             end
             forever begin
-                ar_mbx.get(ar_txn);
-                send_ar(ar_txn);
+                if (ar_mbx.try_get(ar_txn)) send_ar(ar_txn);
+                else cycle_end();
             end
             forever recv_r();
             forever recv_b();
@@ -213,6 +214,7 @@ class ace_driver #(
         while (!(ace.r_valid && ace.r_last)) begin
             cycle_end(); cycle_start();
         end
+        cycle_end();
         ace.r_ready <= #TA 0;
         ace.rack    <= #TA 1;
         cycle_start(); cycle_end();

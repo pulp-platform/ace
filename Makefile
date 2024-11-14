@@ -38,13 +38,17 @@ WAYS 						?= 2
 # Number of sets in the cache model
 SETS 						?= 16
 # Number of cached masters
-NMASTERS 				?= 2
+NMASTERS 				?= 4
+# Number of master groups
+NGROUPS 				?= 1
 # Number of transactions to be generated per master
 NTRANSACTIONS 	?= 100
 # Location of the generated files
 MEM_DIR 				?= $(PWD)/build/mem
 # Seed for initial state generation. If empty, no seed
 SEED						?= 10
+# Run coherency check after simulation
+CHECK 					?= 0
 
 export ADDR_WIDTH
 export DATA_WIDTH
@@ -53,6 +57,7 @@ export CACHELINE_WORDS
 export WAYS
 export SETS
 export NMASTERS
+export NGROUPS
 export NTRANSACTIONS
 export MEM_DIR
 
@@ -96,7 +101,8 @@ init_mem: build/mem
 	--n_caches ${NMASTERS} \
 	--n_transactions ${NTRANSACTIONS} \
 	--target_dir $(MEM_DIR) \
-	--seed $(SEED)
+	--seed $(SEED) \
+	$(if $(filter 1, $(CHECK)),--check)
 
 
 elab.log: Bender.yml | build
