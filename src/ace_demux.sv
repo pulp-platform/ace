@@ -89,7 +89,7 @@ module ace_demux #(
         assign b_idx_in = i_axi_demux.i_demux_simple.genblk1.b_idx; // TODO: add idx as port in demux
 
         fifo_v3 #(
-            .FALL_THROUGH (!SpillB),
+            .FALL_THROUGH (1'b0),
             .DEPTH        (MaxTrans),
             .dtype        (select_t)
         ) i_b_fifo (
@@ -109,7 +109,7 @@ module ace_demux #(
         assign r_idx_in = i_axi_demux.i_demux_simple.genblk1.r_idx; // TODO: add idx as port in demux
 
         fifo_v3 #(
-            .FALL_THROUGH (!SpillR),
+            .FALL_THROUGH (1'b0),
             .DEPTH        (MaxTrans),
             .dtype        (select_t)
         ) i_r_fifo (
