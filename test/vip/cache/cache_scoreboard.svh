@@ -28,27 +28,47 @@ class cache_scoreboard #(
     localparam int SHARD_IDX = 1;
     localparam int DIRTY_IDX = 2;
 
+    int INDEX = -1;
+
     typedef logic [TAG_BITS-1:0]        tag_t;
     typedef logic [AW-1:0]              addr_t;
     typedef logic [7:0]                 byte_t;
     typedef logic [2:0]                 status_t;
     typedef logic [$clog2(WAYS)-1:0]    lru_rank_t;
+    typedef logic [INDEX_BITS-1:0]      idx_t;
 
-    // Data structure obtained from tag lookup
+    // Data structure for carrying cache request information
+    // It also monitors all cache modifications so that they can
+    // be executed at once and logged easily.
     typedef struct {
+        // Cache hit
         logic hit;
+        // Status of the old cache line
         status_t status;
+        // Way index for hit or replacement
         int way;
-        int repl_way;
-        int idx;
-        int tag;
-        int unsigned addr;
+        // Set index of the old cache line
+        idx_t idx;
+        // Tag of the old cache line
+        tag_t tag;
+        // Cacheline-aligned address of the old cache line
+        addr_t addr;
+        // Cacheline-aligned address of the new cache line
+        addr_t new_addr;
+        // Byte index within the cache line
+        logic [BLOCK_OFFSET_BITS-1:0] byte_idx;
+        // New cache line to be stored
+        byte_t new_cline [CACHELINE_BYTES];
+        // New status for the cache line
+        status_t new_status;
+        // New tag for the cache line
+        tag_t new_tag;
     } tag_resp_t;
 
     byte_t     data_q[SETS][WAYS][CACHELINE_BYTES];   // Cache data
     status_t   status_q[SETS][WAYS];                  // Cache state
     tag_t      tag_q[SETS][WAYS];                     // Cache tag
-    lru_rank_t lru_rank_q[SETS][WAYS];              // LRU ranks
+    lru_rank_t lru_rank_q[SETS][WAYS];                // LRU ranks
 
     // Semaphore to ensure only one process accesses the cache at a time
     // The two processes are cache requests and snoop requests
@@ -58,6 +78,9 @@ class cache_scoreboard #(
 
     // Interface to provide simulation clock
     clk_if_t clk_if;
+
+    string state_file;
+    logic first_write = '1;
 
     // Mailboxes for cache requests
     mailbox #(cache_req)        cache_req_mbx;
@@ -76,7 +99,9 @@ class cache_scoreboard #(
         mailbox #(cache_snoop_req)  snoop_req_mbx,
         mailbox #(cache_snoop_resp) snoop_resp_mbx,
         mailbox #(mem_req)          mem_req_mbx,
-        mailbox #(mem_resp)         mem_resp_mbx
+        mailbox #(mem_resp)         mem_resp_mbx,
+        string                      state_file,
+        int index
     );
         this.clk_if         = clk_if;
         this.cache_req_mbx  = cache_req_mbx;
@@ -85,6 +110,8 @@ class cache_scoreboard #(
         this.snoop_resp_mbx = snoop_resp_mbx;
         this.mem_req_mbx    = mem_req_mbx;
         this.mem_resp_mbx   = mem_resp_mbx;
+        this.state_file     = state_file;
+        this.INDEX = index;
 
         this.cache_lookup_sem = new(1);
     endfunction
@@ -125,47 +152,109 @@ class cache_scoreboard #(
         init_status_from_file(status_fname);
     endfunction
 
-    function tag_resp_t read_and_compare_tag(addr_t addr);
+    function automatic void log_state_change(
+        bit initiator,
+        int unsigned addr,
+        int unsigned set,
+        int unsigned way,
+        tag_t new_tag,
+        status_t new_status,
+        byte_t new_data[CACHELINE_BYTES]
+    );
+        int fd;
+        if (first_write) fd = $fopen(this.state_file, "w");
+        else             fd = $fopen(this.state_file, "a");
+        first_write = 0;
+        $fwrite(fd, "TIME:%0t ADDR:%x INITIATOR:%0d SET:%0d WAY:%0d TAG:%x STATUS:%b DATA:[",
+                $time, addr, initiator, set, way, new_tag, new_status);
+        for (int i = 0; i < CACHELINE_BYTES; i++) begin
+            if (i == 0)
+                $fwrite(fd, "%x", new_data[i]);
+            else
+                $fwrite(fd, ",%x", new_data[i]);
+        end
+        $fwrite(fd, "]\n");
+        $fclose(fd);
+    endfunction
+
+    // Atomic function for all cache writes
+    // Cache state is saved optionally
+    // NO OTHER FUNCTION SHOULD MODIFY THE CACHE
+    // initiator = 1 when "core" modifies the cache
+    // initiator = 0 when cache is modified by snooping
+    function automatic void modify_cache(
+        tag_resp_t info, int initiator
+    );
+        data_q[info.idx][info.way]   = info.new_cline;
+        status_q[info.idx][info.way] = info.new_status;
+        tag_q[info.idx][info.way]    = info.new_tag;
+        update_lru(info);
+        log_state_change(
+            initiator,
+            info.new_addr,
+            info.idx,
+            info.way,
+            tag_q[info.idx][info.way],
+            status_q[info.idx][info.way],
+            data_q[info.idx][info.way]
+        );
+    endfunction
+
+    function automatic void update_lru(tag_resp_t info);
+        for (int way = 0; way < WAYS; way++) begin
+            if (way == info.way) begin
+                lru_rank_q[info.idx][way] = WAYS-1;
+            end else begin
+                if (lru_rank_q[info.idx][way] != '0) begin
+                    lru_rank_q[info.idx][way]--;
+                end
+            end
+        end
+    endfunction
+
+    function automatic tag_resp_t read_and_compare_tag(addr_t addr);
         tag_resp_t resp;
         tag_t lu_tag;
         status_t status;
         logic hit = '0;
         logic invalid_found = '0;
         int way;
-        int repl_way = 0;
         int i;
-        int unsigned idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
-        tag_t tag        = addr[AW-1:AW-TAG_BITS];
-        for (way = 0; way < WAYS; way++) begin
-            lu_tag = tag_q[idx][way];
-            status = status_q[idx][way];
-            if (!status[VALID_IDX]) begin
-                repl_way      = way;
+        idx_t idx = addr[BLOCK_OFFSET_BITS+INDEX_BITS-1:BLOCK_OFFSET_BITS];
+        tag_t tag = addr[AW-1:AW-TAG_BITS];
+        for (int i = 0; i < WAYS; i++) begin
+            lu_tag = tag_q[idx][i];
+            if (!status_q[idx][i][VALID_IDX]) begin
+                way           = i;
                 invalid_found = '1;
-            end else if (!invalid_found && lru_rank_q[idx][way] == 0) begin
+            end else if (!invalid_found && lru_rank_q[idx][i] == 0) begin
                 // Least recently used
-                repl_way      = way;
+                way = i;
             end
-            if (tag == lu_tag && status[VALID_IDX]) begin
+            if (tag == lu_tag && status_q[idx][i][VALID_IDX]) begin
+                way = i;
                 hit = 'b1;
                 break;
             end
         end
-        resp.hit = hit;
-        resp.idx = idx;
-        resp.way = way;
-        resp.repl_way = repl_way;
-        resp.status = hit ? status : status_q[idx][repl_way];
-        resp.tag = tag;
-        addr[BLOCK_OFFSET_BITS-1:0] = '0;
-        resp.addr = addr;
+        resp.hit        = hit;
+        resp.idx        = idx;
+        resp.way        = way;
+        resp.status     = status_q[idx][way];
+        resp.tag        = tag_q[idx][way];
+        resp.addr       = {tag_q[idx][way], idx, {BLOCK_OFFSET_BITS{1'b0}}};
+        resp.byte_idx   = addr[BLOCK_OFFSET_BITS-1:0];
+        resp.new_addr   = {addr[AW-1:BLOCK_OFFSET_BITS], {BLOCK_OFFSET_BITS{1'b0}}};
+        resp.new_tag    = tag;
+        resp.new_status = status_q[idx][way];
+        resp.new_cline  = data_q[idx][way];
         return resp;
     endfunction
 
     function automatic cache_resp cache_read(tag_resp_t info, cache_req req);
         int unsigned n_bytes = 1 << req.size;
         cache_resp resp = new;
-        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
+        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = info.byte_idx;
         for (int i = 0; i < n_bytes; i++) begin
             resp.data_q.push_back(data_q[info.idx][info.way][byte_idx]);
             byte_idx++;
@@ -173,21 +262,16 @@ class cache_scoreboard #(
         return resp;
     endfunction
 
-    function automatic cache_resp cache_write(tag_resp_t info, cache_req req);
-        int unsigned n_bytes = 1 << req.size;
-        cache_resp resp = new;
-        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
-        for (int i = 0; (i < n_bytes) && req.data_q.size() > 0; i++) begin
-            data_q[info.idx][info.way][byte_idx] = req.data_q.pop_front();
+    function automatic void cache_write(
+        ref tag_resp_t info, ref byte_t data_q[$]
+    );
+        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = info.byte_idx;
+        while (data_q.size() > 0) begin
+            info.new_cline[byte_idx] = data_q.pop_front();
             byte_idx++;
         end
-        status_q[info.idx][info.way][DIRTY_IDX] = 'b1;
-        return resp;
     endfunction
 
-    function automatic void cache_set_state(tag_resp_t info, status_t state);
-        status_q[info.idx][info.way] = state;
-    endfunction
 
     function automatic mem_req gen_write_back(tag_resp_t info);
         mem_req mem_req = new;
@@ -199,62 +283,51 @@ class cache_scoreboard #(
         for (int i = 0; i < CACHELINE_WORDS; i++) begin
             for (int j = 0; j < BYTES_PER_WORD; j++) begin
                 mem_req.data_q.push_back(
-                    data_q[info.idx][info.repl_way][i*BYTES_PER_WORD+j]);
+                    data_q[info.idx][info.way][i*BYTES_PER_WORD+j]);
             end
         end
         return mem_req;
     endfunction
 
-    function automatic mem_req gen_read_allocate(cache_req req);
+    function automatic mem_req gen_read_allocate(tag_resp_t info);
         mem_req mem_req = new;
         mem_req.size          = $clog2(BYTES_PER_WORD);
         mem_req.len           = CACHELINE_WORDS - 1;
-        mem_req.addr          = req.addr;
+        mem_req.addr          = info.new_addr;
         mem_req.op            = REQ_LOAD;
         mem_req.cacheable     = '1;
         mem_req.read_snoop_op = ace_pkg::ReadUnique;
         return mem_req;
     endfunction
 
-    function automatic void update_lru(tag_resp_t info);
-        for (int way = 0; way < WAYS; way++) begin
-            if (way == info.repl_way) begin
-                lru_rank_q[info.idx][way] = WAYS-1;
-            end else begin
-                if (lru_rank_q[info.idx][way] != '0) begin
-                    lru_rank_q[info.idx][way]--;
-                end
-            end
-        end
+    function automatic mem_req gen_clean_unique(tag_resp_t info);
+        mem_req mem_req = new;
+        mem_req.size          = $clog2(BYTES_PER_WORD);
+        mem_req.len           = CACHELINE_WORDS - 1;
+        mem_req.addr          = info.new_addr;
+        mem_req.op            = REQ_LOAD;
+        mem_req.cacheable     = '1;
+        mem_req.read_snoop_op = ace_pkg::CleanUnique;
+        return mem_req;
     endfunction
 
-    function automatic void allocate(mem_req req, mem_resp resp, tag_resp_t info);
-        int unsigned n_bytes = axi_pkg::num_bytes(req.size);
-        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = req.addr[BLOCK_OFFSET_BITS-1:0];
-        for (int i = 0; (i < (req.len + 1)) && resp.data_q.size() > 0; i++) begin
-            for (int j = 0; (j < n_bytes) && resp.data_q.size() > 0; j++) begin
-                data_q[info.idx][info.repl_way][byte_idx] =
-                    resp.data_q.pop_front();
-                byte_idx++;
-            end
-        end
-        update_lru(info);
-        tag_q[info.idx][info.repl_way]               = info.tag;
-        status_q[info.idx][info.repl_way][DIRTY_IDX] = resp.pass_dirty;
-        status_q[info.idx][info.repl_way][SHARD_IDX] = resp.is_shared;
-        status_q[info.idx][info.repl_way][VALID_IDX] = 'b1;
+    function automatic void allocate(mem_req req, mem_resp resp, ref tag_resp_t info);
+        info.new_status[DIRTY_IDX] = resp.pass_dirty;
+        info.new_status[SHARD_IDX] = resp.is_shared;
+        info.byte_idx = 0; // Cache line allocations are always cacheline-aligned
+        cache_write(info, resp.data_q);
     endfunction;
 
     task automatic snoop(input cache_snoop_req req, output cache_snoop_resp resp);
         tag_resp_t tag_lu;
-        cache_req cache_req = new;
         cache_resp cache_resp;
         resp = new;
-        cache_req.addr = req.addr;
-        cache_req.size = $clog2(CACHELINE_BYTES);
-        tag_lu = read_and_compare_tag(cache_req.addr);
+        tag_lu = read_and_compare_tag(req.addr);
         resp.snoop_resp.Error = 1'b0;
         if (tag_lu.hit) begin
+            cache_req cache_req = new;
+            cache_req.addr = req.addr;
+            cache_req.size = $clog2(CACHELINE_BYTES);
             cache_resp = cache_read(tag_lu, cache_req);
             resp.snoop_resp.WasUnique = !tag_lu.status[SHARD_IDX];
             while (cache_resp.data_q.size() > 0) begin
@@ -269,59 +342,53 @@ class cache_scoreboard #(
                 end
                 ace_pkg::ReadClean, ace_pkg::ReadNotSharedDirty: begin
                     // recommended to pass clean
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = 1'b1;
                     resp.snoop_resp.IsShared     = 1'b1;
                     resp.snoop_resp.PassDirty    = 1'b0;
-                    new_status[SHARD_IDX]        = 1'b1;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[SHARD_IDX] = 1'b1;
+                    modify_cache(tag_lu, 0);
                 end
                 ace_pkg::ReadShared: begin
                     // recommended to pass dirty
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = 1'b1;
                     resp.snoop_resp.IsShared     = 1'b1;
-                    new_status[SHARD_IDX]        = 1'b1;
+                    tag_lu.new_status[SHARD_IDX] = 1'b1;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
-                    new_status[DIRTY_IDX]        = 1'b0;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[DIRTY_IDX] = 1'b0;
+                    modify_cache(tag_lu, 0);
                 end
                 ace_pkg::ReadUnique: begin
                     // data transfer and invalidate
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = 1'b1;
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
-                    new_status[VALID_IDX]        = 1'b0;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[VALID_IDX] = 1'b0;
+                    modify_cache(tag_lu, 0);
                 end
                 ace_pkg::CleanInvalid: begin
                     // data transfer dirty and invalidate
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = tag_lu.status[DIRTY_IDX];
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
-                    new_status[VALID_IDX]        = 1'b0;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[VALID_IDX] = 1'b0;
+                    modify_cache(tag_lu, 0);
                 end
                 ace_pkg::MakeInvalid: begin
                     // invalidate
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = 1'b0;
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = 1'b0;
-                    new_status[VALID_IDX]        = 1'b0;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[VALID_IDX] = 1'b0;
+                    modify_cache(tag_lu, 0);
                 end
                 ace_pkg::CleanShared: begin
                     // pass dirty
-                    status_t new_status = tag_lu.status;
                     resp.snoop_resp.DataTransfer = tag_lu.status[DIRTY_IDX];
                     resp.snoop_resp.IsShared     = 1'b1;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
-                    new_status[DIRTY_IDX]        = 1'b0;
-                    new_status[SHARD_IDX]        = 1'b1;
-                    cache_set_state(tag_lu, new_status);
+                    tag_lu.new_status[DIRTY_IDX] = 1'b0;
+                    tag_lu.new_status[SHARD_IDX] = 1'b1;
+                    modify_cache(tag_lu, 0);
                 end
                 default: $fatal(1, "Unsupported snoop op!");
             endcase
@@ -337,6 +404,7 @@ class cache_scoreboard #(
         tag_resp_t tag_lu;
         mem_req mem_req = new;
         mem_resp mem_resp;
+        resp = new;
         mem_req.cacheable = '1;
         //cache_lookup_sem.get(1);
         tag_lu = read_and_compare_tag(req.addr);
@@ -344,7 +412,19 @@ class cache_scoreboard #(
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
-                resp = cache_write(tag_lu, req);
+                if (
+                    tag_lu.status[SHARD_IDX] &&
+                    tag_lu.status[VALID_IDX]
+                ) begin
+                    mem_req = gen_clean_unique(tag_lu);
+                    mem_req_mbx.put(mem_req);
+                    mem_resp_mbx.get(mem_resp);
+                    allocate(mem_req, mem_resp, tag_lu);
+                end
+                cache_write(tag_lu, req.data_q);
+                tag_lu.new_status[DIRTY_IDX] = 1'b1;
+            //end else if (req.op == REQ_STORE_NO_ALLOC) begin
+            //    tag_lu.new_status[VALID_IDX] = 1'b1;
             end else begin
                 $fatal("Unsupported op");
             end
@@ -358,22 +438,24 @@ class cache_scoreboard #(
                 mem_resp_mbx.get(mem_resp);
             end
             // Generate read request for new cache line
-            mem_req = gen_read_allocate(req);
+            mem_req = gen_read_allocate(tag_lu);
             // Send request and wait for response
             mem_req_mbx.put(mem_req);
             mem_resp_mbx.get(mem_resp);
             // Allocate cache line for the new entry
             allocate(mem_req, mem_resp, tag_lu);
-            tag_lu.way = tag_lu.repl_way;
             // Handle the initial cache request
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
-                resp = cache_write(tag_lu, req);
+                cache_write(tag_lu, req.data_q);
+                tag_lu.new_status[DIRTY_IDX] = 1'b1;
             end else begin
                 $fatal("Unsupported op");
             end
         end
+        modify_cache(tag_lu, 1);
+        update_lru(tag_lu);
         //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
     endtask
@@ -382,6 +464,7 @@ class cache_scoreboard #(
         cache_req req;
         cache_resp resp = new;
         cache_req_mbx.get(req);
+        @(posedge clk_if.clk_i);
         cache_fsm(req, resp);
         cache_resp_mbx.put(resp);
     endtask

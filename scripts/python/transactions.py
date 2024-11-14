@@ -136,11 +136,11 @@ class CacheTransactionSequence:
           file.write("\n")
         else:
           first = False
-        row = [
-          txn.op.name, hex(txn.addr), hex(txn.data),
-          txn.size, int(txn.cached), txn.shareability, txn.time
-        ]
-        file.write((self.separator.join(str(x) for x in row)))
+        file.write(
+          f"OPER:{txn.op.name} ADDR:{txn.addr:0{self.aw // 4}x} "
+          f"DATA:{txn.data:0{self.dw // 4}x} SIZE:{txn.size} "
+          f"CACH:{int(txn.cached)} SHAR:{txn.shareability} TIME:{txn.time}"
+        )
 
 
 if __name__ == "__main__":
