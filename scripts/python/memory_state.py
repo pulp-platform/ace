@@ -51,11 +51,11 @@ class MemoryState:
             data = int(payload, 16)
         if time > end_time:
           return time
-        if time < start_time:
+        if (time < start_time) and time != -1:
           continue
-        if addr and data:
+        if (addr is not None) and (data is not None):
           self.store(addr, data)
-        elif addr or data:
+        elif (addr is not None) or (data is not None):
           raise Exception(
             "Either data or addr provided without the other"
           )
