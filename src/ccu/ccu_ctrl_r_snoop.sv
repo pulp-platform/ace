@@ -253,7 +253,7 @@ always_comb begin
             arlen_counter_en   = r_handshake;
 
             cd_fork_ready[MEM_W_IDX] = mst_resp_i.w_ready && !aw_valid_q;
-            cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready || r_last_q;
+            cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready  && !r_last_q;
 
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = cd_ready;
@@ -269,16 +269,10 @@ always_comb begin
                 fsm_state_d = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
-            if (r_handshake && r_last && !cd_mask_q[MEM_W_IDX]) begin
-                // If no memory access, end once ACE request is handled
-                r_last_d    = 1'b1;
-                if (cd_last) begin
-                    // Move forward only if it was the last cd sample
-                    fsm_state_d = SNOOP_RESP;
-                    pop_slv_req_fifo = 1'b1;
-                end
+            if (r_handshake && r_last) begin
+                r_last_d = 1'b1;
             end
-            if (cd_last && r_last_q && !cd_mask_q[MEM_W_IDX]) begin
+            if (cd_last && (r_last_q || r_last) && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
                 fsm_state_d = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
