@@ -58,7 +58,7 @@ class cache_scoreboard #(
         // Byte index within the cache line
         logic [BLOCK_OFFSET_BITS-1:0] byte_idx;
         // New cache line to be stored
-        byte_t new_cline [CACHELINE_BYTES-1:0];
+        byte_t new_cline [CACHELINE_BYTES];
         // New status for the cache line
         status_t new_status;
         // New tag for the cache line
@@ -159,7 +159,7 @@ class cache_scoreboard #(
         int unsigned way,
         tag_t new_tag,
         status_t new_status,
-        byte_t new_data[CACHELINE_BYTES-1:0]
+        byte_t new_data[CACHELINE_BYTES]
     );
         int fd;
         if (first_write) fd = $fopen(this.state_file, "w");
@@ -247,9 +247,7 @@ class cache_scoreboard #(
         resp.new_addr   = {addr[AW-1:BLOCK_OFFSET_BITS], {BLOCK_OFFSET_BITS{1'b0}}};
         resp.new_tag    = tag;
         resp.new_status = status_q[idx][way];
-        for (int i = 0; i < CACHELINE_BYTES; i++) begin
-            resp.new_cline[i]  = data_q[idx][way][i];
-        end
+        resp.new_cline  = data_q[idx][way];
         return resp;
     endfunction
 
@@ -425,6 +423,8 @@ class cache_scoreboard #(
                 end
                 cache_write(tag_lu, req.data_q);
                 tag_lu.new_status[DIRTY_IDX] = 1'b1;
+            //end else if (req.op == REQ_STORE_NO_ALLOC) begin
+            //    tag_lu.new_status[VALID_IDX] = 1'b1;
             end else begin
                 $fatal("Unsupported op");
             end
