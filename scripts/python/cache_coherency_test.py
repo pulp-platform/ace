@@ -209,14 +209,16 @@ class CacheCoherencyTest:
       dirty = self.rand_choice(odds=0.5)
       shared = len(mst_idxs) > 1
       owner = -1
+      write_data = data
       if dirty:
         # Randomly select the owner
         owner = sample(mst_idxs, 1)[0]
+        # All cachelines have the same data
+        write_data = self.get_rand_cacheline_data()
+
       for mst_idx in mst_idxs:
-        write_data = data
         if mst_idx == owner:
           # Generate random data since data is dirty
-          write_data = self.get_rand_cacheline_data()
           if shared:
             state = CachelineState(CachelineStateEnum.OWNED)
           else:
@@ -381,9 +383,9 @@ class CacheCoherencyTest:
                 logger.error("A modified cache line in Exclusive state")
                 self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
                 import pdb; pdb.set_trace()
-              if moesi.state in \
-                [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
-                owner_found = True
+            if moesi.state in \
+              [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
+              owner_found = True
           states.append(moesi)
 
         if modified and not owner_found:
