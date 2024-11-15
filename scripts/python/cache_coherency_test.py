@@ -32,6 +32,7 @@ class CacheCoherencyTest:
       n_transactions: int,
       target_dir: str,
       check: bool,
+      debug: bool,
       **kwargs
       ):
 
@@ -47,6 +48,7 @@ class CacheCoherencyTest:
     self.n_transactions = n_transactions
     self.target_dir = target_dir
     self.check = check
+    self.debug = debug
 
     self.cacheline_bytes = \
       self.cacheline_words * self.word_width // 8
@@ -292,6 +294,7 @@ class CacheCoherencyTest:
     """Reconstruct state into Python datatypes"""
     files = []
     start_time = 0
+    errors = False
     for i in range(self.n_caches):
       files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
     while True:
@@ -302,7 +305,8 @@ class CacheCoherencyTest:
         cache.reconstruct_state(files[i], start_time, end_time)
       self.mem_state.reconstruct_mem(os.path.join(self.target_dir, "main_mem_diff.txt"), start_time, end_time)
       logger.info(f"==================== TIMESTAMP: {end_time} ====================")
-      self.check_coherency()
+      new_errors = self.check_coherency()
+      errors = errors or new_errors
       for addr in addrs:
         # Clear outstanding addresses for the ones that were handled this timestamp
         for i in range(self.n_caches):
@@ -312,6 +316,7 @@ class CacheCoherencyTest:
             logger.info("Removing address from outstanding")
             self.print_info(addr=addr[1], cache_idx=i)
       start_time = end_time
+    return errors
 
   def print_info(self, level=logging.INFO, addr=None, cache_idx=None, state=None,
                   set=None, way=None):
@@ -326,7 +331,7 @@ class CacheCoherencyTest:
     if way is not None:
       logger.log(level, msg=f"Way: {way}")
 
-  def check_coherency(self, debug=True):
+  def check_coherency(self):
     """Check that caches and main memory are coherent.
     Test cases:
       - Modified cache line must not be in Exclusive state
@@ -336,6 +341,7 @@ class CacheCoherencyTest:
 
     logger.info("Starting coherency check")
     error = False
+    debug = self.debug
 
     for mem_range in self.mem_ranges:
       for addr in range(
@@ -416,10 +422,6 @@ class CacheCoherencyTest:
               error = True
               if debug: import pdb; pdb.set_trace()
     logger.info("Coherency check finished")
-    if error:
-      logger.error("Errors found")
-    else:
-      logger.info("No errors found")
     return error
 
   def save_caches(self):
@@ -431,9 +433,12 @@ class CacheCoherencyTest:
       )
 
   def run(self):
+    errors = False
     if self.check:
       input("Press enter after simulation finishes to start coherency check")
-      self.reconstruct_state()
+      errors = self.reconstruct_state()
+    return errors
+
 
 
 class RandomTest(CacheCoherencyTest):
@@ -442,8 +447,10 @@ class RandomTest(CacheCoherencyTest):
       **kwargs
   ):
     super().__init__(**kwargs)
-    self.define_test(kwargs)
-    self.run()
+    self.define_test(**kwargs)
+    errors = self.run()
+    if errors:
+      print("Errors found")
 
   def define_test(self, **kwargs):
     self.add_memory_range(MemoryRange(
@@ -452,7 +459,7 @@ class RandomTest(CacheCoherencyTest):
     self.generate_random_memory()
     self.generate_random_transactions()
     self.generate_random_caches(n_inited_lines=100)
-    self.check_coherency(debug=kwargs["debug"])
+    self.check_coherency()
     self.save_state()
 
 class ConflictTest(CacheCoherencyTest):
