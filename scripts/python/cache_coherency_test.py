@@ -326,7 +326,7 @@ class CacheCoherencyTest:
     if way is not None:
       logger.log(level, msg=f"Way: {way}")
 
-  def check_coherency(self):
+  def check_coherency(self, debug=True):
     """Check that caches and main memory are coherent.
     Test cases:
       - Modified cache line must not be in Exclusive state
@@ -335,7 +335,7 @@ class CacheCoherencyTest:
       """
 
     logger.info("Starting coherency check")
-
+    error = False
 
     for mem_range in self.mem_ranges:
       for addr in range(
@@ -382,16 +382,18 @@ class CacheCoherencyTest:
               if moesi.state == CachelineStateEnum.EXCLUSIVE:
                 logger.error("A modified cache line in Exclusive state")
                 self.print_info(logging.ERROR, addr=addr, cache_idx=i, state=moesi.state.name, set=set, way=way)
-                import pdb; pdb.set_trace()
+                error = True
+                if debug: import pdb; pdb.set_trace()
             if moesi.state in \
               [CachelineStateEnum.OWNED, CachelineStateEnum.MODIFIED]:
               owner_found = True
           states.append(moesi)
 
         if modified and not owner_found:
+          error = True
           logger.error("A modified cache line without owner was found!")
           self.print_info(logging.ERROR, addr=addr, set=set)
-          import pdb; pdb.set_trace()
+          if debug: import pdb; pdb.set_trace()
 
         # Compare cacheline states
         for i in range(len(states)):
@@ -411,8 +413,14 @@ class CacheCoherencyTest:
                 set=(a_set, b_set),
                 way=(a_way, b_way)
               )
-              import pdb; pdb.set_trace()
+              error = True
+              if debug: import pdb; pdb.set_trace()
     logger.info("Coherency check finished")
+    if error:
+      logger.error("Errors found")
+    else:
+      logger.info("No errors found")
+    return error
 
   def save_caches(self):
     for i, cache in enumerate(self.caches):
@@ -434,17 +442,17 @@ class RandomTest(CacheCoherencyTest):
       **kwargs
   ):
     super().__init__(**kwargs)
-    self.define_test()
+    self.define_test(kwargs)
     self.run()
 
-  def define_test(self):
+  def define_test(self, **kwargs):
     self.add_memory_range(MemoryRange(
         cached=True, shared=True, start_addr=0, end_addr=0x0000_1000
     ))
     self.generate_random_memory()
     self.generate_random_transactions()
     self.generate_random_caches(n_inited_lines=100)
-    self.check_coherency()
+    self.check_coherency(debug=kwargs["debug"])
     self.save_state()
 
 class ConflictTest(CacheCoherencyTest):
@@ -543,6 +551,11 @@ if __name__ == "__main__":
     '--check',
     action='store_true',
     help="Check for coherency once prompted"
+  )
+  parser.add_argument(
+    '--debug',
+    action='store_true',
+    help="Debug mode. During coherency checking, will open pdb when error is encountered."
   )
   parsed_args = vars(parser.parse_args())
   if parsed_args.get("seed", None):
