@@ -11,8 +11,8 @@ module ace_ccu_top import ace_pkg::*;
   parameter int unsigned NoSlvPorts      = 0,
   parameter int unsigned NoSlvPerGroup   = 0,
   parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned LupAddrBase     = 0,
-  parameter int unsigned LupAddrWidth    = AxiAddrWidth,
+  parameter int unsigned CmAddrBase      = $clog2(DcacheLineWidth >> 3),
+  parameter int unsigned CmAddrWidth     = 8,
   parameter type slv_ar_chan_t           = logic,
   parameter type slv_aw_chan_t           = logic,
   parameter type slv_b_chan_t            = logic,
@@ -45,7 +45,7 @@ module ace_ccu_top import ace_pkg::*;
   input  mst_resp_t                    mst_resp_i
 );
 
-  typedef logic [LupAddrWidth-1:0] lup_addr_t;
+  typedef logic [CmAddrWidth-1:0] cm_idx_t;
 
   // Parameters to be used for testing/debugging
   // Otherwise assume they are hardcoded
@@ -62,19 +62,12 @@ module ace_ccu_top import ace_pkg::*;
   snoop_resp_t  [NoSnoopPorts-1:0] snoop_resps;
 
   // Conflict management signals
-  logic      [2*NoGroups-1:0] x_valids_in;
-  logic      [2*NoGroups-1:0] x_readies_out;
-  logic      [2*NoGroups-1:0] x_valids_out;
-  logic      [2*NoGroups-1:0] x_readies_in;
-  logic      [2*NoGroups-1:0] x_acks_out;
-  lup_addr_t [2*NoGroups-1:0] x_addr_out;
-  logic      [2*NoGroups-1:0] x_lasts_out;
-  logic                       snoop_valid_out;
-  logic                       snoop_ready_in;
-  logic                       snoop_clr_out;
-  logic                       snoop_valid_in;
-  logic                       snoop_ready_out;
-  lup_addr_t                  snoop_addr_out;
+  logic      [2*NoGroups-1:0] cm_x_req;
+  cm_idx_t   [2*NoGroups-1:0] cm_x_addr;
+  logic                       cm_snoop_valid;
+  logic                       cm_snoop_ready;
+  logic                       cm_snoop_stall;
+  cm_idx_t                    cm_snoop_addr;
 
   ace_ccu_master_path #(
     .AxiAddrWidth      (AxiAddrWidth),
@@ -84,9 +77,8 @@ module ace_ccu_top import ace_pkg::*;
     .NoSlvPorts        (NoSlvPorts),
     .NoSlvPerGroup     (NoSlvPerGroup),
     .DcacheLineWidth   (DcacheLineWidth),
-    .LupAddrBase       (LupAddrBase),
-    .LupAddrWidth      (LupAddrWidth),
-    .ConfCheck         (ConfCheck),
+    .CmAddrBase        (CmAddrBase),
+    .CmAddrWidth       (CmAddrWidth),
     .slv_ar_chan_t     (slv_ar_chan_t),
     .slv_aw_chan_t     (slv_aw_chan_t),
     .slv_b_chan_t      (slv_b_chan_t),
@@ -118,13 +110,8 @@ module ace_ccu_top import ace_pkg::*;
     .mst_resp_i        (mst_resp_i),
     .domain_set_i      (domain_set_i),
     .snoop_masks_o     (snoop_sel),
-    .x_valids_i        (x_valids_in),
-    .x_readies_o       (x_readies_out),
-    .x_valids_o        (x_valids_out),
-    .x_readies_i       (x_readies_in),
-    .x_acks_o          (x_acks_out),
-    .x_addr_o          (x_addr_out),
-    .x_lasts_o         (x_lasts_out)
+    .cm_req_o          (cm_x_req),
+    .cm_addr_o         (cm_x_addr)
   );
 
   ace_ccu_snoop_interconnect #(
@@ -134,9 +121,8 @@ module ace_ccu_top import ace_pkg::*;
     .BufferInpResp(1),
     .BufferOupReq (1),
     .BufferOupResp(1),
-    .ConfCheck    (ConfCheck),
-    .LupAddrBase  (LupAddrBase),
-    .LupAddrWidth (LupAddrWidth),
+    .CmAddrBase   (CmAddrBase),
+    .CmAddrWidth  (CmAddrWidth),
     .ac_chan_t    (snoop_ac_t),
     .cr_chan_t    (snoop_cr_t),
     .cd_chan_t    (snoop_cd_t),
@@ -150,42 +136,28 @@ module ace_ccu_top import ace_pkg::*;
     .inp_resp_o        (snoop_resps),
     .oup_req_o         (snoop_req_o),
     .oup_resp_i        (snoop_resp_i),
-    .lup_valid_o       (snoop_valid_out),
-    .lup_ready_i       (snoop_ready_in),
-    .lup_addr_o        (snoop_addr_out),
-    .lup_valid_i       (snoop_valid_in),
-    .lup_ready_o       (snoop_ready_out),
-    .lup_clr_o         (snoop_clr_out)
+    .cm_valid_o        (cm_snoop_valid),
+    .cm_ready_o        (cm_snoop_ready),
+    .cm_addr_o         (cm_snoop_addr),
+    .cm_stall_i        (cm_snoop_stall)
   );
 
-  if (ConfCheck) begin : gen_conf_mng
-
-    ace_ccu_conflict_manager #(
-      .AxiAddrWidth  (AxiAddrWidth),
-      .NoRespPorts   (2*NoGroups),
-      .MaxRespTrans  (8),
-      .MaxSnoopTrans (8),
-      .LupAddrBase   (LupAddrBase),
-      .LupAddrWidth  (LupAddrWidth)
-    ) i_conflict_manager (
-      .clk_i,
-      .rst_ni,
-      .x_valid_i     (x_valids_out),
-      .x_ready_o     (x_readies_in),
-      .x_addr_i      (x_addr_out),
-      .x_valid_o     (x_valids_in),
-      .x_ready_i     (x_readies_out),
-      .x_ack_i       (x_acks_out),
-      .x_lasts_i     (x_lasts_out),
-      .snoop_valid_i (snoop_valid_out),
-      .snoop_ready_o (snoop_ready_in),
-      .snoop_clr_i   (snoop_clr_out),
-      .snoop_addr_i  (snoop_addr_out),
-      .snoop_valid_o (snoop_valid_in),
-      .snoop_ready_i (snoop_ready_out)
-    );
-
-  end
+  ace_ccu_conflict_manager #(
+    .AxiAddrWidth  (AxiAddrWidth),
+    .NoRespPorts   (2*NoGroups),
+    .MaxRespTrans  (8),
+    .MaxSnoopTrans (8),
+    .CmAddrWidth   (CmAddrWidth)
+  ) i_conflict_manager (
+    .clk_i,
+    .rst_ni,
+    .cm_snoop_valid_i (cm_snoop_valid),
+    .cm_snoop_ready_i (cm_snoop_ready),
+    .cm_snoop_addr_i  (cm_snoop_addr),
+    .cm_snoop_stall_o (cm_snoop_stall),
+    .cm_x_req_i       (cm_x_req),
+    .cm_x_addr_i      (cm_x_addr)
+  );
 
 endmodule
 
