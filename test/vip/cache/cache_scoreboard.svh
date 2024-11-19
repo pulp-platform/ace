@@ -314,6 +314,7 @@ class cache_scoreboard #(
     function automatic void allocate(mem_req req, mem_resp resp, ref tag_resp_t info);
         info.new_status[DIRTY_IDX] = resp.pass_dirty;
         info.new_status[SHARD_IDX] = resp.is_shared;
+        info.new_status[VALID_IDX] = 1'b1;
         info.byte_idx = 0; // Cache line allocations are always cacheline-aligned
         cache_write(info, resp.data_q);
     endfunction;
