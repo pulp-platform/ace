@@ -11,8 +11,8 @@ module ace_ccu_master_path import ace_pkg::*;
   parameter int unsigned NoSlvPorts      = 0,
   parameter int unsigned NoSlvPerGroup   = 0,
   parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned LupAddrBase     = 0,
-  parameter int unsigned LupAddrWidth    = 0,
+  parameter int unsigned CmIdxBase       = 0,
+  parameter int unsigned CmIdxWidth      = 0,
   parameter bit          ConfCheck       = 0,
   parameter type slv_ar_chan_t           = logic,
   parameter type slv_aw_chan_t           = logic,
@@ -38,7 +38,7 @@ module ace_ccu_master_path import ace_pkg::*;
   localparam int unsigned NoGroups             = NoSlvPorts / NoSlvPerGroup,
   localparam int unsigned NoSnoopPortsPerGroup = 2,
   localparam int unsigned NoSnoopPorts         = NoSnoopPortsPerGroup * NoGroups,
-  localparam type lup_addr_t                   = logic [LupAddrWidth-1:0]
+  localparam type cm_idx_t                     = logic [CmIdxWidth-1:0]
 ) (
   input  logic                           clk_i,
   input  logic                           rst_ni,
@@ -51,13 +51,8 @@ module ace_ccu_master_path import ace_pkg::*;
   output mst_req_t                       mst_req_o,
   input  mst_resp_t                      mst_resp_i,
 
-  input  logic      [2*NoGroups-1:0] x_valids_i,
-  output logic      [2*NoGroups-1:0] x_readies_o,
-  output logic      [2*NoGroups-1:0] x_valids_o,
-  input  logic      [2*NoGroups-1:0] x_readies_i,
-  output logic      [2*NoGroups-1:0] x_acks_o,
-  output lup_addr_t [2*NoGroups-1:0] x_addr_o,
-  output logic      [2*NoGroups-1:0] x_lasts_o
+  output logic      [2*NoGroups-1:0]     cm_req_o,
+  output cm_idx_t   [2*NoGroups-1:0]     cm_addr_o
 );
 
   typedef logic [AxiAddrWidth -1:0]  addr_t;
@@ -206,42 +201,6 @@ module ace_ccu_master_path import ace_pkg::*;
     logic aw_queue_valid, aw_queue_ready;
     logic ar_queue_valid, ar_queue_ready;
 
-    `ACE_ASSIGN_AW_STRUCT(ace_snooping_forked_req.aw, ace_snooping_muxed_req.aw)
-    `ACE_ASSIGN_AR_STRUCT(ace_snooping_forked_req.ar, ace_snooping_muxed_req.ar)
-    `AXI_ASSIGN_W_STRUCT (ace_snooping_forked_req.w, ace_snooping_muxed_req.w)
-    assign ace_snooping_forked_req.w_valid = ace_snooping_muxed_req.w_valid;
-    assign ace_snooping_muxed_resp.w_ready = ace_snooping_forked_resp.w_ready;
-
-    `ACE_ASSIGN_R_STRUCT(ace_snooping_muxed_resp.r, ace_snooping_forked_resp.r)
-    `AXI_ASSIGN_B_STRUCT(ace_snooping_muxed_resp.b, ace_snooping_forked_resp.b)
-
-    if (ConfCheck) begin
-      assign x_valids_o  [2*i  ] = ace_snooping_forked_resp.b_valid;
-      assign x_valids_o  [2*i+1] = ace_snooping_forked_resp.r_valid;
-      assign ace_snooping_forked_req.b_ready = x_readies_i[2*i  ];
-      assign ace_snooping_forked_req.r_ready = x_readies_i[2*i+1];
-      assign ace_snooping_muxed_resp.b_valid = x_valids_i [2*i  ];
-      assign ace_snooping_muxed_resp.r_valid = x_valids_i [2*i+1];
-      assign x_readies_o [2*i  ] = ace_snooping_muxed_req.b_ready;
-      assign x_readies_o [2*i+1] = ace_snooping_muxed_req.r_ready;
-      assign x_acks_o    [2*i  ] = ace_snooping_muxed_req.wack;
-      assign x_acks_o    [2*i+1] = ace_snooping_muxed_req.rack;
-      assign x_lasts_o   [2*i  ] = 1'b1;
-      assign x_lasts_o   [2*i+1] = ace_snooping_forked_resp.r.last;
-    end else begin
-      assign x_valids_o  [2*i+:2] = '0;
-      assign x_readies_o [2*i+:2] = '0;
-      assign x_acks_o    [2*i+:2] = '0;
-      assign x_lasts_o   [2*i+:2] = '0;
-      assign ace_snooping_muxed_resp.b_valid = ace_snooping_forked_resp.b_valid;
-      assign ace_snooping_muxed_resp.r_valid = ace_snooping_forked_resp.r_valid;
-      assign ace_snooping_forked_req.b_ready = ace_snooping_muxed_req.b_ready;
-      assign ace_snooping_forked_req.r_ready = ace_snooping_muxed_req.r_ready;
-    end
-
-    assign ace_snooping_forked_req.wack = 1'b0;
-    assign ace_snooping_forked_req.rack = 1'b0;
-
     stream_fork #(
       .N_OUP (2)
     ) i_aw_fork (
@@ -264,17 +223,22 @@ module ace_ccu_master_path import ace_pkg::*;
       .ready_i ({ace_snooping_forked_resp.ar_ready, ar_queue_ready})
     );
 
+    logic w_fifo_full;
+    logic w_fifo_push, w_fifo_pop;
+
+    logic [AxiIntIdWidth-1:0] w_fifo_id_in, w_fifo_id_out;
+
     id_queue #(
       .ID_WIDTH            (AxiIntIdWidth),
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
-      .data_t              (lup_addr_t)
+      .data_t              (cm_idx_t)
     ) i_w_queue (
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.aw.id),
-      .inp_data_i       (ace_snooping_muxed_req.aw.addr[LupAddrBase+:LupAddrWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.aw.addr[CmIdxBase+:CmIdxWidth]),
       .inp_req_i        (aw_queue_valid),
       .inp_gnt_o        (aw_queue_ready),
       .exists_data_i    ('0),
@@ -282,26 +246,54 @@ module ace_ccu_master_path import ace_pkg::*;
       .exists_req_i     ('0),
       .exists_o         (),
       .exists_gnt_o     (),
-      .oup_id_i         (ace_snooping_forked_resp.b.id),
-      .oup_pop_i        (ace_snooping_forked_resp.b_valid &&
-                         ace_snooping_forked_req.b_ready),
-      .oup_req_i        (ace_snooping_forked_resp.b_valid),
-      .oup_data_o       (x_addr_o[2*i]),
+      .oup_id_i         (w_fifo_id_out),
+      .oup_pop_i        (1'b1),
+      .oup_req_i        (ace_snooping_muxed_req.wack),
+      .oup_data_o       (cm_addr_o[2*i]),
       .oup_data_valid_o (),
       .oup_gnt_o        ()
     );
+
+    assign w_fifo_push  = ace_snooping_forked_resp.b_valid &&
+                          ace_snooping_muxed_req.b_ready   &&
+                          !w_fifo_full;
+    assign w_fifo_pop   = ace_snooping_muxed_req.wack;
+    assign w_fifo_id_in = ace_snooping_forked_resp.b.id;
+
+    fifo_v3 #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (2),
+        .DATA_WIDTH   (AxiIntIdWidth)
+    ) i_w_addr_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (w_fifo_full),
+        .empty_o    (),
+        .usage_o    (),
+        .data_i     (w_fifo_id_in),
+        .push_i     (w_fifo_push),
+        .data_o     (w_fifo_id_out),
+        .pop_i      (w_fifo_pop)
+    );
+
+    logic r_fifo_full;
+    logic r_fifo_push, r_fifo_pop;
+
+    logic [AxiIntIdWidth-1:0] r_fifo_id_in, r_fifo_id_out;
 
     id_queue #(
       .ID_WIDTH            (AxiIntIdWidth),
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
-      .data_t              (lup_addr_t)
+      .data_t              (cm_idx_t)
     ) i_r_queue (
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.ar.id),
-      .inp_data_i       (ace_snooping_muxed_req.ar.addr[LupAddrBase+:LupAddrWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.ar.addr[CmIdxBase+:CmIdxWidth]),
       .inp_req_i        (ar_queue_valid),
       .inp_gnt_o        (ar_queue_ready),
       .exists_data_i    ('0),
@@ -309,15 +301,58 @@ module ace_ccu_master_path import ace_pkg::*;
       .exists_req_i     ('0),
       .exists_o         (),
       .exists_gnt_o     (),
-      .oup_id_i         (ace_snooping_forked_resp.r.id),
-      .oup_pop_i        (ace_snooping_forked_resp.r_valid &&
-                         ace_snooping_forked_req.r_ready  &&
-                         ace_snooping_forked_resp.r.last),
-      .oup_req_i        (ace_snooping_forked_resp.r_valid),
-      .oup_data_o       (x_addr_o[2*i+1]),
+      .oup_id_i         (r_fifo_id_out),
+      .oup_pop_i        (1'b1),
+      .oup_req_i        (ace_snooping_muxed_req.rack),
+      .oup_data_o       (cm_addr_o[2*i+1]),
       .oup_data_valid_o (),
       .oup_gnt_o        ()
     );
+
+    assign r_fifo_push  = ace_snooping_forked_resp.r_valid &&
+                          ace_snooping_muxed_req.r_ready   &&
+                          ace_snooping_forked_resp.r.last  &&
+                          !r_fifo_full;
+    assign r_fifo_pop   = ace_snooping_muxed_req.rack;
+    assign r_fifo_id_in = ace_snooping_forked_resp.r.id;
+
+    fifo_v3 #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (2),
+        .DATA_WIDTH   (AxiIntIdWidth)
+    ) i_r_addr_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (r_fifo_full),
+        .empty_o    (),
+        .usage_o    (),
+        .data_i     (r_fifo_id_in),
+        .push_i     (r_fifo_push),
+        .data_o     (r_fifo_id_out),
+        .pop_i      (r_fifo_pop)
+    );
+
+    `ACE_ASSIGN_AW_STRUCT(ace_snooping_forked_req.aw, ace_snooping_muxed_req.aw)
+    `ACE_ASSIGN_AR_STRUCT(ace_snooping_forked_req.ar, ace_snooping_muxed_req.ar)
+    `AXI_ASSIGN_W_STRUCT (ace_snooping_forked_req.w, ace_snooping_muxed_req.w)
+    `ACE_ASSIGN_R_STRUCT(ace_snooping_muxed_resp.r, ace_snooping_forked_resp.r)
+    `AXI_ASSIGN_B_STRUCT(ace_snooping_muxed_resp.b, ace_snooping_forked_resp.b)
+    assign ace_snooping_forked_req.w_valid = ace_snooping_muxed_req.w_valid;
+    assign ace_snooping_muxed_resp.w_ready = ace_snooping_forked_resp.w_ready;
+
+    assign ace_snooping_muxed_resp.b_valid = !w_fifo_full && ace_snooping_forked_resp.b_valid;
+    assign ace_snooping_muxed_resp.r_valid = !r_fifo_full && ace_snooping_forked_resp.r_valid;
+    assign ace_snooping_forked_req.b_ready = !w_fifo_full && ace_snooping_muxed_req.b_ready;
+    assign ace_snooping_forked_req.r_ready = !r_fifo_full && ace_snooping_muxed_req.r_ready;
+
+    assign cm_req_o   [2*i  ] = ace_snooping_muxed_req.wack;
+    assign cm_req_o   [2*i+1] = ace_snooping_muxed_req.rack;
+
+    assign ace_snooping_forked_req.wack = ace_snooping_muxed_req.wack;
+    assign ace_snooping_forked_req.rack = ace_snooping_muxed_req.rack;
+
 
     ////////////////
     // SNOOP PATH //
