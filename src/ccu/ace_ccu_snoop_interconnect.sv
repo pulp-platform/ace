@@ -6,9 +6,8 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     parameter bit           BufferOupResp = 1,
     parameter bit           BufferInpReq  = 1,
     parameter bit           BufferInpResp = 1,
-    parameter int unsigned  LupAddrBase   = 0,
-    parameter int unsigned  LupAddrWidth  = 0,
-    parameter bit           ConfCheck     = 1,
+    parameter int unsigned  CmAddrWidth   = 0,
+    parameter int unsigned  CmAddrBase    = 0,
     parameter type          ac_chan_t     = logic,
     parameter type          cr_chan_t     = logic,
     parameter type          cd_chan_t     = logic,
@@ -16,7 +15,7 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     parameter type          snoop_resp_t  = logic,
 
     localparam type         oup_sel_t     = logic [NumOup-1:0],
-    localparam type         lup_addr_t    = logic [LupAddrWidth-1:0]
+    localparam type         cm_addr_t     = logic [CmAddrWidth-1:0]
 ) (
 
     input  logic                     clk_i,
@@ -28,12 +27,10 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     output snoop_req_t  [NumOup-1:0] oup_req_o,
     input  snoop_resp_t [NumOup-1:0] oup_resp_i,
 
-    output logic                     lup_valid_o,
-    input  logic                     lup_ready_i,
-    output lup_addr_t                lup_addr_o,
-    input  logic                     lup_valid_i,
-    output logic                     lup_ready_o,
-    output logic                     lup_clr_o
+    output  logic                    cm_valid_o,
+    output  logic                    cm_ready_o,
+    output  cm_addr_t                cm_addr_o,
+    input   logic                    cm_stall_i
 );
 
     typedef logic [$clog2(NumInp)-1:0] inp_idx_t;
@@ -241,21 +238,11 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
         .ctrl_o          (req_ctrl)
     );
 
-    if (ConfCheck) begin
-        assign oup_ac_valid = lup_valid_i;
-        assign lup_ready_o  = oup_ac_ready;
-        assign lup_valid_o  = ac_valid;
-        assign ac_ready     = lup_ready_i;
-        assign lup_addr_o   = ac_chan.addr[LupAddrBase+:LupAddrWidth];
-        assign lup_clr_o    = cr_valid && cr_ready;
-    end else begin
-        assign oup_ac_valid = ac_valid;
-        assign ac_ready     = oup_ac_ready;
-        assign lup_valid_o  = 1'b0;
-        assign lup_ready_o  = 1'b0;
-        assign lup_addr_o   = '0;
-        assign lup_clr_o    = 1'b0;
-    end
+    assign cm_valid_o    = ac_valid;
+    assign cm_ready_o    = oup_ac_ready;
+    assign cm_addr_o     = ac_chan.addr[CmAddrBase+:CmAddrWidth];
+    assign ac_ready      = oup_ac_ready && !cm_stall_i;
+    assign oup_ac_valid  = ac_valid     && !cm_stall_i;
 
     stream_fifo_optimal_wrap #(
         .Depth  (2),
