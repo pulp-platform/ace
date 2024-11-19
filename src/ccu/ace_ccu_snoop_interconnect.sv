@@ -6,8 +6,8 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     parameter bit           BufferOupResp = 1,
     parameter bit           BufferInpReq  = 1,
     parameter bit           BufferInpResp = 1,
-    parameter int unsigned  CmIdxWidth    = 0,
-    parameter int unsigned  CmIdxBase     = 0,
+    parameter int unsigned  CmAddrWidth   = 0,
+    parameter int unsigned  CmAddrBase    = 0,
     parameter type          ac_chan_t     = logic,
     parameter type          cr_chan_t     = logic,
     parameter type          cd_chan_t     = logic,
@@ -15,7 +15,7 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     parameter type          snoop_resp_t  = logic,
 
     localparam type         oup_sel_t     = logic [NumOup-1:0],
-    localparam type         cm_idx_t      = logic [CmIdxWidth-1:0]
+    localparam type         cm_addr_t     = logic [CmAddrWidth-1:0]
 ) (
 
     input  logic                     clk_i,
@@ -27,8 +27,9 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     output snoop_req_t  [NumOup-1:0] oup_req_o,
     input  snoop_resp_t [NumOup-1:0] oup_resp_i,
 
-    output  logic                    cm_req_o,
-    output  cm_idx_t                 cm_addr_o,
+    output  logic                    cm_valid_o,
+    output  logic                    cm_ready_o,
+    output  cm_addr_t                cm_addr_o,
     input   logic                    cm_stall_i
 );
 
@@ -237,8 +238,9 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
         .ctrl_o          (req_ctrl)
     );
 
-    assign cm_req_o      = ac_valid && oup_ac_ready;
-    assign cm_addr_o     = ac_chan.addr[CmIdxBase+:CmIdxWidth];
+    assign cm_valid_o    = ac_valid;
+    assign cm_ready_o    = oup_ac_ready;
+    assign cm_addr_o     = ac_chan.addr[CmAddrBase+:CmAddrWidth];
     assign ac_ready      = oup_ac_ready && !cm_stall_i;
     assign oup_ac_valid  = ac_valid     && !cm_stall_i;
 

@@ -11,8 +11,8 @@ module ace_ccu_master_path import ace_pkg::*;
   parameter int unsigned NoSlvPorts      = 0,
   parameter int unsigned NoSlvPerGroup   = 0,
   parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned CmIdxBase       = 0,
-  parameter int unsigned CmIdxWidth      = 0,
+  parameter int unsigned CmAddrBase      = 0,
+  parameter int unsigned CmAddrWidth     = 0,
   parameter bit          ConfCheck       = 0,
   parameter type slv_ar_chan_t           = logic,
   parameter type slv_aw_chan_t           = logic,
@@ -38,7 +38,7 @@ module ace_ccu_master_path import ace_pkg::*;
   localparam int unsigned NoGroups             = NoSlvPorts / NoSlvPerGroup,
   localparam int unsigned NoSnoopPortsPerGroup = 2,
   localparam int unsigned NoSnoopPorts         = NoSnoopPortsPerGroup * NoGroups,
-  localparam type cm_idx_t                     = logic [CmIdxWidth-1:0]
+  localparam type cm_addr_t                    = logic [CmAddrWidth-1:0]
 ) (
   input  logic                           clk_i,
   input  logic                           rst_ni,
@@ -52,7 +52,7 @@ module ace_ccu_master_path import ace_pkg::*;
   input  mst_resp_t                      mst_resp_i,
 
   output logic      [2*NoGroups-1:0]     cm_req_o,
-  output cm_idx_t   [2*NoGroups-1:0]     cm_addr_o
+  output cm_addr_t  [2*NoGroups-1:0]     cm_addr_o
 );
 
   typedef logic [AxiAddrWidth -1:0]  addr_t;
@@ -233,12 +233,12 @@ module ace_ccu_master_path import ace_pkg::*;
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
-      .data_t              (cm_idx_t)
+      .data_t              (cm_addr_t)
     ) i_w_queue (
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.aw.id),
-      .inp_data_i       (ace_snooping_muxed_req.aw.addr[CmIdxBase+:CmIdxWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.aw.addr[CmAddrBase+:CmAddrWidth]),
       .inp_req_i        (aw_queue_valid),
       .inp_gnt_o        (aw_queue_ready),
       .exists_data_i    ('0),
@@ -288,12 +288,12 @@ module ace_ccu_master_path import ace_pkg::*;
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
-      .data_t              (cm_idx_t)
+      .data_t              (cm_addr_t)
     ) i_r_queue (
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.ar.id),
-      .inp_data_i       (ace_snooping_muxed_req.ar.addr[CmIdxBase+:CmIdxWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.ar.addr[CmAddrBase+:CmAddrWidth]),
       .inp_req_i        (ar_queue_valid),
       .inp_gnt_o        (ar_queue_ready),
       .exists_data_i    ('0),

@@ -11,8 +11,8 @@ module ace_ccu_top import ace_pkg::*;
   parameter int unsigned NoSlvPorts      = 0,
   parameter int unsigned NoSlvPerGroup   = 0,
   parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned CmIdxBase       = $clog2(DcacheLineWidth >> 3),
-  parameter int unsigned CmIdxWidth      = 6,
+  parameter int unsigned CmAddrBase      = $clog2(DcacheLineWidth >> 3),
+  parameter int unsigned CmAddrWidth     = 8,
   parameter type slv_ar_chan_t           = logic,
   parameter type slv_aw_chan_t           = logic,
   parameter type slv_b_chan_t            = logic,
@@ -45,7 +45,7 @@ module ace_ccu_top import ace_pkg::*;
   input  mst_resp_t                    mst_resp_i
 );
 
-  typedef logic [CmIdxWidth-1:0] cm_idx_t;
+  typedef logic [CmAddrWidth-1:0] cm_idx_t;
 
   // Parameters to be used for testing/debugging
   // Otherwise assume they are hardcoded
@@ -64,7 +64,8 @@ module ace_ccu_top import ace_pkg::*;
   // Conflict management signals
   logic      [2*NoGroups-1:0] cm_x_req;
   cm_idx_t   [2*NoGroups-1:0] cm_x_addr;
-  logic                       cm_snoop_req;
+  logic                       cm_snoop_valid;
+  logic                       cm_snoop_ready;
   logic                       cm_snoop_stall;
   cm_idx_t                    cm_snoop_addr;
 
@@ -76,8 +77,8 @@ module ace_ccu_top import ace_pkg::*;
     .NoSlvPorts        (NoSlvPorts),
     .NoSlvPerGroup     (NoSlvPerGroup),
     .DcacheLineWidth   (DcacheLineWidth),
-    .CmIdxBase         (CmIdxBase),
-    .CmIdxWidth        (CmIdxWidth),
+    .CmAddrBase        (CmAddrBase),
+    .CmAddrWidth       (CmAddrWidth),
     .slv_ar_chan_t     (slv_ar_chan_t),
     .slv_aw_chan_t     (slv_aw_chan_t),
     .slv_b_chan_t      (slv_b_chan_t),
@@ -120,8 +121,8 @@ module ace_ccu_top import ace_pkg::*;
     .BufferInpResp(1),
     .BufferOupReq (1),
     .BufferOupResp(1),
-    .CmIdxBase    (CmIdxBase),
-    .CmIdxWidth   (CmIdxWidth),
+    .CmAddrBase   (CmAddrBase),
+    .CmAddrWidth  (CmAddrWidth),
     .ac_chan_t    (snoop_ac_t),
     .cr_chan_t    (snoop_cr_t),
     .cd_chan_t    (snoop_cd_t),
@@ -135,7 +136,8 @@ module ace_ccu_top import ace_pkg::*;
     .inp_resp_o        (snoop_resps),
     .oup_req_o         (snoop_req_o),
     .oup_resp_i        (snoop_resp_i),
-    .cm_req_o          (cm_snoop_req),
+    .cm_valid_o        (cm_snoop_valid),
+    .cm_ready_o        (cm_snoop_ready),
     .cm_addr_o         (cm_snoop_addr),
     .cm_stall_i        (cm_snoop_stall)
   );
@@ -145,12 +147,12 @@ module ace_ccu_top import ace_pkg::*;
     .NoRespPorts   (2*NoGroups),
     .MaxRespTrans  (8),
     .MaxSnoopTrans (8),
-    .CmIdxBase     (CmIdxBase),
-    .CmIdxWidth    (CmIdxWidth)
+    .CmAddrWidth   (CmAddrWidth)
   ) i_conflict_manager (
     .clk_i,
     .rst_ni,
-    .cm_snoop_req_i   (cm_snoop_req),
+    .cm_snoop_valid_i (cm_snoop_valid),
+    .cm_snoop_ready_i (cm_snoop_ready),
     .cm_snoop_addr_i  (cm_snoop_addr),
     .cm_snoop_stall_o (cm_snoop_stall),
     .cm_x_req_i       (cm_x_req),
