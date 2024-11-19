@@ -272,6 +272,10 @@ class cache_scoreboard #(
         end
     endfunction
 
+    function automatic void cache_evict(ref tag_resp_t info);
+        info.new_status[VALID_IDX] = 1'b0;
+    endfunction
+
 
     function automatic mem_req gen_write_back(tag_resp_t info);
         mem_req mem_req = new;
@@ -294,7 +298,7 @@ class cache_scoreboard #(
         mem_req.size          = $clog2(BYTES_PER_WORD);
         mem_req.len           = CACHELINE_WORDS - 1;
         mem_req.addr          = info.new_addr;
-        mem_req.op            = REQ_LOAD;
+        mem_req.op            = MEM_READ;
         mem_req.cacheable     = '1;
         mem_req.read_snoop_op = ace_pkg::ReadUnique;
         return mem_req;
@@ -305,15 +309,55 @@ class cache_scoreboard #(
         mem_req.size          = $clog2(BYTES_PER_WORD);
         mem_req.len           = CACHELINE_WORDS - 1;
         mem_req.addr          = info.new_addr;
-        mem_req.op            = REQ_LOAD;
+        mem_req.op            = MEM_READ;
         mem_req.cacheable     = '1;
         mem_req.read_snoop_op = ace_pkg::CleanUnique;
+        return mem_req;
+    endfunction
+
+    function automatic mem_req gen_write_line_unique(tag_resp_t info, cache_req req);
+        // Merge with write word
+        mem_req mem_req = new;
+        logic [BLOCK_OFFSET_BITS-1:0] byte_idx = info.byte_idx;
+        mem_req.size          = $clog2(BYTES_PER_WORD);
+        mem_req.len           = CACHELINE_WORDS - 1;
+        mem_req.addr          = info.new_addr;
+        mem_req.op            = MEM_WRITE;
+        mem_req.cacheable     = '1;
+        mem_req.write_snoop_op = ace_pkg::WriteLineUnique;
+        // Merge write data with cacheline data
+        for (int i = 0; i < BYTES_PER_WORD; i++) begin
+            data_q[info.idx][info.way][byte_idx] = req.data_q.pop_front();
+            byte_idx++;
+        end
+        // Push cache line data
+        for (int i = 0; i < CACHELINE_WORDS; i++) begin
+            for (int j = 0; j < BYTES_PER_WORD; j++) begin
+                mem_req.data_q.push_back(
+                    data_q[info.idx][info.way][i*BYTES_PER_WORD+j]);
+            end
+        end
+        return mem_req;
+    endfunction
+
+    function automatic mem_req gen_write_unique(cache_req req);
+        mem_req mem_req = new;
+        mem_req.size          = $clog2(BYTES_PER_WORD);
+        mem_req.len           = 1;
+        mem_req.addr          = req.addr;
+        mem_req.op            = MEM_WRITE;
+        mem_req.cacheable     = '1;
+        mem_req.write_snoop_op = ace_pkg::WriteUnique;
+        for (int i = 0; i < BYTES_PER_WORD; i++) begin
+            mem_req.data_q.push_back(req.data_q.pop_front());
+        end
         return mem_req;
     endfunction
 
     function automatic void allocate(mem_req req, mem_resp resp, ref tag_resp_t info);
         info.new_status[DIRTY_IDX] = resp.pass_dirty;
         info.new_status[SHARD_IDX] = resp.is_shared;
+        info.new_status[VALID_IDX] = 1'b1;
         info.byte_idx = 0; // Cache line allocations are always cacheline-aligned
         cache_write(info, resp.data_q);
     endfunction;
@@ -412,50 +456,58 @@ class cache_scoreboard #(
             if (req.op == REQ_LOAD) begin
                 resp = cache_read(tag_lu, req);
             end else if (req.op == REQ_STORE) begin
-                if (
-                    tag_lu.status[SHARD_IDX] &&
-                    tag_lu.status[VALID_IDX]
-                ) begin
+                if (req.cached && tag_lu.status[SHARD_IDX]) begin
+                    // Make unique
                     mem_req = gen_clean_unique(tag_lu);
                     mem_req_mbx.put(mem_req);
                     mem_resp_mbx.get(mem_resp);
                     allocate(mem_req, mem_resp, tag_lu);
                 end
                 cache_write(tag_lu, req.data_q);
-                tag_lu.new_status[DIRTY_IDX] = 1'b1;
-            //end else if (req.op == REQ_STORE_NO_ALLOC) begin
-            //    tag_lu.new_status[VALID_IDX] = 1'b1;
+                if (req.cached) begin
+                    tag_lu.new_status[DIRTY_IDX] = 1'b1;
+                end else begin
+                    mem_req = gen_write_line_unique(tag_lu, req);
+                    mem_req_mbx.put(mem_req);
+                    mem_resp_mbx.get(mem_resp);
+                    cache_evict(tag_lu);
+                end
             end else begin
                 $fatal("Unsupported op");
             end
         end else begin
-            if (tag_lu.status[DIRTY_IDX] &&
-                tag_lu.status[VALID_IDX]) begin
-                // Generate write-back request
-                mem_req = gen_write_back(tag_lu);
+            if (req.cached) begin
+                if (tag_lu.status[DIRTY_IDX] &&
+                    tag_lu.status[VALID_IDX]) begin
+                    // Generate write-back request
+                    mem_req = gen_write_back(tag_lu);
+                    // Send request and wait for response
+                    mem_req_mbx.put(mem_req);
+                    mem_resp_mbx.get(mem_resp);
+                end
+                // Generate read request for new cache line
+                mem_req = gen_read_allocate(tag_lu);
                 // Send request and wait for response
                 mem_req_mbx.put(mem_req);
                 mem_resp_mbx.get(mem_resp);
-            end
-            // Generate read request for new cache line
-            mem_req = gen_read_allocate(tag_lu);
-            // Send request and wait for response
-            mem_req_mbx.put(mem_req);
-            mem_resp_mbx.get(mem_resp);
-            // Allocate cache line for the new entry
-            allocate(mem_req, mem_resp, tag_lu);
-            // Handle the initial cache request
-            if (req.op == REQ_LOAD) begin
-                resp = cache_read(tag_lu, req);
-            end else if (req.op == REQ_STORE) begin
-                cache_write(tag_lu, req.data_q);
-                tag_lu.new_status[DIRTY_IDX] = 1'b1;
+                // Allocate cache line for the new entry
+                allocate(mem_req, mem_resp, tag_lu);
+                // Handle the initial cache request
+                if (req.op == REQ_LOAD) begin
+                    resp = cache_read(tag_lu, req);
+                end else if (req.op == REQ_STORE) begin
+                    cache_write(tag_lu, req.data_q);
+                    tag_lu.new_status[DIRTY_IDX] = 1'b1;
+                end else begin
+                    $fatal("Unsupported op");
+                end
             end else begin
-                $fatal("Unsupported op");
+                mem_req = gen_write_unique(req);
+                mem_req_mbx.put(mem_req);
+                mem_resp_mbx.get(mem_resp);
             end
         end
         modify_cache(tag_lu, 1);
-        update_lru(tag_lu);
         //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
     endtask
