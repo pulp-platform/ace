@@ -21,7 +21,11 @@ module ccu_ctrl_wr_snoop #(
     /// Domain masks set for each master
     parameter type domain_set_t       = logic,
     /// Domain mask type
-    parameter type domain_mask_t      = logic
+    parameter type domain_mask_t      = logic,
+    /// Fixed value for AXLEN for write back
+    parameter int unsigned AXLEN      = 0,
+    /// Fixed value for AXSIZE for write back
+    parameter int unsigned AXSIZE     = 0
 ) (
     /// Clock
     input                               clk_i,
@@ -48,13 +52,9 @@ module ccu_ctrl_wr_snoop #(
     output domain_mask_t                domain_mask_o
 );
 
-logic illegal_trs;
-logic snoop_trs;
-
 slv_aw_chan_t aw_holder_q;
 logic load_aw_holder;
 acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
-logic aw_holder_valid, aw_holder_ready, w_holder_valid, w_holder_ready;
 logic ac_start;
 logic ac_handshake, cd_handshake, w_slv_handshake;
 logic aw_valid_d, aw_valid_q;
@@ -171,14 +171,16 @@ always_comb begin
         WRITE_CD: begin
             // Snooped data is provided wrap-bursted
             mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
+            mst_req_o.aw.len     = AXLEN;
+            mst_req_o.aw.size    = AXSIZE;
             if (!cd_last_q && !ignore_cd_q) begin
                 mst_req_o.w_valid = snoop_resp_i.cd_valid;
             end
             mst_req_o.w.data     = snoop_resp_i.cd.data;
             mst_req_o.w.strb     = '1;
             mst_req_o.w.last     = snoop_resp_i.cd.last;
-            mst_req_o.w.user     = '0; // What to put here?
-            mst_req_o.b_ready    = 1'b1;
+            mst_req_o.w.user     = '0;
+            mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = mst_resp_i.w_ready || ignore_cd_q;
             slv_resp_o.b         = mst_resp_i.b;
             if (cd_handshake && snoop_resp_i.cd.last) begin
@@ -187,7 +189,6 @@ always_comb begin
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
-            // TODO: monitor B handshakes outside the FSM
             if (b_handshake || (cd_last_q && ignore_cd_q)) begin
                 aw_valid_d  = 1'b1;
                 fsm_state_d = WRITE_W;
