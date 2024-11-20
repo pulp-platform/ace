@@ -72,7 +72,7 @@ logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
-logic arlen_counter_en, arlen_counting, arlen_counter_clear;
+logic arlen_counter_en, arlen_counter_clear;
 logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
@@ -189,7 +189,6 @@ always_comb begin
     fsm_state_d          = fsm_state_q;
     cd_mask_d            = cd_mask_q;
     rresp_d[3:2]         = rresp_q[3:2];
-    arlen_counting       = 1'b0;
     arlen_counter_clear  = 1'b0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.r_ready    = 1'b0;
@@ -246,7 +245,6 @@ always_comb begin
         // Write CD
         // To memory and/or to initiating master
         WRITE_CD: begin
-            arlen_counting     = cd_mask_q[MST_R_IDX];
             mst_req_o.w_valid  = cd_fork_valid[MEM_W_IDX] && !aw_valid_q;
             slv_resp_o.r.data  = snoop_resp_i.cd.data;
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
