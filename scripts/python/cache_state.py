@@ -144,12 +144,12 @@ class CacheState:
     state = CachelineState()
     tag_bits = self.get_tag(addr)
     for way in range(self.ways):
-      if self.cache_tag[set][way] == tag_bits:
+      if ((self.cache_tag[set][way] == tag_bits) and
+          (self.cache_status[set][way][StateBits.VALID_IDX.value])):
         hit = self.cache_status[set][way][StateBits.VALID_IDX.value]
         data = self.cache_data[set][way]
         state.from_state_bits(self.cache_status[set][way])
         final_way = way
-        break
     return hit, data, state, set, final_way
 
   def get_free_way(self, set):
