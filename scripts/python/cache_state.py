@@ -271,6 +271,7 @@ class CacheState:
         tag = None
         status = None
         data = None
+        modify = True
         for word in words:
           time_idx = word.find("TIME:")
           initiator_idx = word.find("INITIATOR:")
@@ -299,14 +300,20 @@ class CacheState:
           if data_idx != -1:
             data = [int(x, 16) for x in payload.strip("[]").split(",")]
         if None in [time,initiator,set,way,tag,status,data]:
-          print("Unexpected state")
-          import pdb; pdb.set_trace()
+          # A row with only time and address present indicates
+          # a finished transaction which wasn't cached but might've
+          # modified other cache lines by snooping
+          if None in [time, addr]:
+            print("Unexpected state")
+            import pdb; pdb.set_trace()
+          modify = False
         if time > end_time:
           return time
         if time <= start_time:
           continue
-        self.cache_data[set][way] = data
-        self.cache_tag[set][way] = tag
-        self.cache_status[set][way] = status
+        if modify:
+          self.cache_data[set][way] = data
+          self.cache_tag[set][way] = tag
+          self.cache_status[set][way] = status
         if not initiator:
           self.outstanding.append(addr)

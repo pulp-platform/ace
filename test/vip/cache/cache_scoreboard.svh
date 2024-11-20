@@ -159,21 +159,26 @@ class cache_scoreboard #(
         int unsigned way,
         tag_t new_tag,
         status_t new_status,
-        byte_t new_data[CACHELINE_BYTES]
+        byte_t new_data[CACHELINE_BYTES],
+        bit modify
     );
         int fd;
         if (first_write) fd = $fopen(this.state_file, "w");
         else             fd = $fopen(this.state_file, "a");
         first_write = 0;
-        $fwrite(fd, "TIME:%0t ADDR:%x INITIATOR:%0d SET:%0d WAY:%0d TAG:%x STATUS:%b DATA:[",
-                $time, addr, initiator, set, way, new_tag, new_status);
-        for (int i = 0; i < CACHELINE_BYTES; i++) begin
-            if (i == 0)
-                $fwrite(fd, "%x", new_data[i]);
-            else
-                $fwrite(fd, ",%x", new_data[i]);
+        $fwrite(fd, "TIME:%0t ADDR:%x INITIATOR:%0d", $time, addr, initiator);
+        if (modify) begin
+            $fwrite(fd, " SET:%0d WAY:%0d TAG:%x STATUS:%b DATA:[",
+                    set, way, new_tag, new_status);
+            for (int i = 0; i < CACHELINE_BYTES; i++) begin
+                if (i == 0)
+                    $fwrite(fd, "%x", new_data[i]);
+                else
+                    $fwrite(fd, ",%x", new_data[i]);
+            end
+            $fwrite(fd, "]");
         end
-        $fwrite(fd, "]\n");
+        $fwrite(fd, "\n");
         $fclose(fd);
     endfunction
 
@@ -183,12 +188,14 @@ class cache_scoreboard #(
     // initiator = 1 when "core" modifies the cache
     // initiator = 0 when cache is modified by snooping
     function automatic void modify_cache(
-        tag_resp_t info, int initiator
+        tag_resp_t info, bit initiator, bit modify
     );
-        data_q[info.idx][info.way]   = info.new_cline;
-        status_q[info.idx][info.way] = info.new_status;
-        tag_q[info.idx][info.way]    = info.new_tag;
-        update_lru(info);
+        if (modify) begin
+            data_q[info.idx][info.way]   = info.new_cline;
+            status_q[info.idx][info.way] = info.new_status;
+            tag_q[info.idx][info.way]    = info.new_tag;
+            update_lru(info);
+        end
         log_state_change(
             initiator,
             info.new_addr,
@@ -196,7 +203,8 @@ class cache_scoreboard #(
             info.way,
             tag_q[info.idx][info.way],
             status_q[info.idx][info.way],
-            data_q[info.idx][info.way]
+            data_q[info.idx][info.way],
+            modify
         );
     endfunction
 
@@ -388,7 +396,7 @@ class cache_scoreboard #(
                     resp.snoop_resp.IsShared     = 1'b1;
                     resp.snoop_resp.PassDirty    = 1'b0;
                     tag_lu.new_status[SHARD_IDX] = 1'b1;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 ace_pkg::ReadShared: begin
                     // recommended to pass dirty
@@ -397,7 +405,7 @@ class cache_scoreboard #(
                     tag_lu.new_status[SHARD_IDX] = 1'b1;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
                     tag_lu.new_status[DIRTY_IDX] = 1'b0;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 ace_pkg::ReadUnique: begin
                     // data transfer and invalidate
@@ -405,7 +413,7 @@ class cache_scoreboard #(
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
                     tag_lu.new_status[VALID_IDX] = 1'b0;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 ace_pkg::CleanInvalid: begin
                     // data transfer dirty and invalidate
@@ -413,7 +421,7 @@ class cache_scoreboard #(
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
                     tag_lu.new_status[VALID_IDX] = 1'b0;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 ace_pkg::MakeInvalid: begin
                     // invalidate
@@ -421,7 +429,7 @@ class cache_scoreboard #(
                     resp.snoop_resp.IsShared     = 1'b0;
                     resp.snoop_resp.PassDirty    = 1'b0;
                     tag_lu.new_status[VALID_IDX] = 1'b0;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 ace_pkg::CleanShared: begin
                     // pass dirty
@@ -430,7 +438,7 @@ class cache_scoreboard #(
                     resp.snoop_resp.PassDirty    = tag_lu.status[DIRTY_IDX];
                     tag_lu.new_status[DIRTY_IDX] = 1'b0;
                     tag_lu.new_status[SHARD_IDX] = 1'b1;
-                    modify_cache(tag_lu, 0);
+                    modify_cache(tag_lu, 0, 1);
                 end
                 default: $fatal(1, "Unsupported snoop op!");
             endcase
@@ -507,7 +515,7 @@ class cache_scoreboard #(
                 mem_resp_mbx.get(mem_resp);
             end
         end
-        if (cache_modified) modify_cache(tag_lu, 1);
+        modify_cache(tag_lu, 1, cache_modified);
         //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
     endtask
