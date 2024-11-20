@@ -5,27 +5,29 @@ import ace_pkg::*;
 // Non-snooping transactions should be handled outside
 module ccu_ctrl_r_snoop #(
     /// Request channel type towards cached master
-    parameter type slv_req_t         = logic,
+    parameter type slv_req_t          = logic,
     /// Response channel type towards cached master
-    parameter type slv_resp_t        = logic,
+    parameter type slv_resp_t         = logic,
     /// Request channel type towards memory
-    parameter type mst_req_t         = logic,
+    parameter type mst_req_t          = logic,
     /// Response channel type towards memory
-    parameter type mst_resp_t        = logic,
+    parameter type mst_resp_t         = logic,
     /// AR channel type towards cached master
-    parameter type slv_ar_chan_t     = logic,
+    parameter type slv_ar_chan_t      = logic,
     /// Snoop request type
-    parameter type mst_snoop_req_t   = logic,
+    parameter type mst_snoop_req_t    = logic,
     /// Snoop response type
-    parameter type mst_snoop_resp_t  = logic,
+    parameter type mst_snoop_resp_t   = logic,
     /// Domain masks set for each master
-    parameter type domain_set_t      = logic,
+    parameter type domain_set_t       = logic,
     /// Domain mask type
-    parameter type domain_mask_t     = logic,
+    parameter type domain_mask_t      = logic,
     /// Fixed value for AXLEN for write back
-    parameter int unsigned AXLEN = 0,
+    parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
-    parameter int unsigned AXSIZE = 0
+    parameter int unsigned AXSIZE     = 0,
+    /// Depth of FIFO that stores AR requests
+    parameter int unsigned FIFO_DEPTH = 2
 ) (
     /// Clock
     input                               clk_i,
@@ -298,7 +300,7 @@ end
 
 // FIFO for storing AR requests
 stream_fifo_optimal_wrap #(
-    .Depth  (2),
+    .Depth  (FIFO_DEPTH),
     .type_t (slv_req_s)
 ) i_slv_req_fifo (
     .clk_i      (clk_i),
