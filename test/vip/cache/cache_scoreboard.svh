@@ -293,14 +293,18 @@ class cache_scoreboard #(
         return mem_req;
     endfunction
 
-    function automatic mem_req gen_read_allocate(tag_resp_t info);
+    function automatic mem_req gen_read_allocate(tag_resp_t info, cache_req req);
         mem_req mem_req = new;
         mem_req.size          = $clog2(BYTES_PER_WORD);
         mem_req.len           = CACHELINE_WORDS - 1;
         mem_req.addr          = info.new_addr;
         mem_req.op            = MEM_READ;
         mem_req.cacheable     = '1;
-        mem_req.read_snoop_op = ace_pkg::ReadUnique;
+        if (req.op == REQ_STORE) begin
+            mem_req.read_snoop_op = ace_pkg::ReadUnique;
+        end else begin
+            mem_req.read_snoop_op = ace_pkg::ReadShared;
+        end
         return mem_req;
     endfunction
 
@@ -481,7 +485,7 @@ class cache_scoreboard #(
                     mem_resp_mbx.get(mem_resp);
                 end
                 // Generate read request for new cache line
-                mem_req = gen_read_allocate(tag_lu);
+                mem_req = gen_read_allocate(tag_lu, req);
                 // Send request and wait for response
                 mem_req_mbx.put(mem_req);
                 mem_resp_mbx.get(mem_resp);
