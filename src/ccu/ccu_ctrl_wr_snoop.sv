@@ -12,7 +12,7 @@ module ccu_ctrl_wr_snoop #(
     parameter type mst_req_t          = logic,
     /// Response channel type towards memory
     parameter type mst_resp_t         = logic,
-    // /// AW channel type towards cached master
+    /// AW channel type towards cached master
     parameter type slv_aw_chan_t      = logic,
     /// Snoop request type
     parameter type mst_snoop_req_t    = logic,
@@ -25,7 +25,9 @@ module ccu_ctrl_wr_snoop #(
     /// Fixed value for AXLEN for write back
     parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
-    parameter int unsigned AXSIZE     = 0
+    parameter int unsigned AXSIZE     = 0,
+    /// Depth of FIFO that stores AW requests
+    parameter int unsigned FIFO_DEPTH = 2
 ) (
     /// Clock
     input                               clk_i,
@@ -52,22 +54,41 @@ module ccu_ctrl_wr_snoop #(
     output domain_mask_t                domain_mask_o
 );
 
-slv_aw_chan_t aw_holder_q;
-logic load_aw_holder;
-acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
-logic ac_start;
-logic ac_handshake, cd_handshake, w_slv_handshake;
-logic aw_valid_d, aw_valid_q;
-logic w_last_d, w_last_q;
-logic cd_last_d, cd_last_q;
-logic ignore_cd_d, ignore_cd_q;
+// Data structure to store AW request and decoded snoop transaction
+typedef struct packed {
+    slv_aw_chan_t aw;
+    acsnoop_t snoop_trs;
+} slv_req_s;
 
-typedef enum logic [1:0] { SNOOP_REQ, SNOOP_RESP, WRITE_CD, WRITE_W } wr_fsm_t;
+// FSM states
+typedef enum logic [1:0] { SNOOP_RESP, WRITE_CD, WRITE_W } wr_fsm_t;
+
+logic cd_last_d, cd_last_q;
+logic aw_valid_d, aw_valid_q;
+logic ac_handshake, cd_handshake, w_slv_handshake;
+acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
+logic w_last_d, w_last_q;
+logic ignore_cd_d, ignore_cd_q;
+slv_req_s slv_req, slv_req_holder;
+logic slv_req_fifo_not_full;
+logic slv_req_fifo_valid;
+logic pop_slv_req_fifo;
+logic write_back_source; // 0 - CD, 1 - Cache
 wr_fsm_t fsm_state_d, fsm_state_q;
+
+
+assign slv_req.aw        = slv_req_i.aw;
+assign slv_req.snoop_trs = snoop_trs_i;
+assign ac_handshake      = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
+assign cd_handshake      = snoop_resp_i.cd_valid && snoop_req_o.cd_ready;
+assign b_handshake       = mst_req_o.b_ready && mst_resp_i.b_valid;
+assign w_slv_handshake   = slv_req_i.w_valid && slv_resp_o.w_ready;
+
+
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
-        fsm_state_q <= SNOOP_REQ;
+        fsm_state_q <= SNOOP_RESP;
         aw_valid_q  <= 1'b0;
         w_last_q    <= 1'b0;
         cd_last_q   <= 1'b0;
@@ -81,75 +102,68 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
     end
 end
 
-always_ff @(posedge clk_i, negedge rst_ni) begin
-    if (!rst_ni) begin
-        aw_holder_q        <= '0;
-        snoop_trs_holder_q <= '0;
+// AC request
+always_comb begin
+    snoop_req_o.ac_valid = slv_req_i.aw_valid && slv_req_fifo_not_full;
+    snoop_req_o.ac.addr  = slv_req.aw.addr;
+    snoop_req_o.ac.snoop = slv_req.snoop_trs;
+    snoop_req_o.ac.prot  = slv_req.aw.prot;
+    slv_resp_o.aw_ready  = snoop_resp_i.ac_ready && slv_req_fifo_not_full;
+end
+
+// Read channel signals not used
+always_comb begin
+    slv_resp_o.ar_ready = 1'b0;
+    slv_resp_o.r_valid  = 1'b0;
+    slv_resp_o.r        = '0;
+    mst_req_o.ar        = '0;
+    mst_req_o.ar_valid  = 1'b0;
+    mst_req_o.r_ready   = 1'b0;
+    mst_req_o.rack      = 1'b0;
+    mst_req_o.wack      = 1'b0;
+end
+
+// Write channel
+always_comb begin
+    slv_resp_o.b       = mst_resp_i.b;
+    mst_req_o.aw       = slv_req_holder.aw;
+    mst_req_o.aw_valid = aw_valid_q;
+    if (write_back_source) begin
+        mst_req_o.w = slv_req_i.w;
     end else begin
-        if (load_aw_holder) begin
-            aw_holder_q        <= slv_req_i.aw;
-            snoop_trs_holder_q <= snoop_trs_i;
-        end
+        mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
+        mst_req_o.aw.len   = AXLEN;
+        mst_req_o.aw.size  = AXSIZE;
+        mst_req_o.w.data   = snoop_resp_i.cd.data;
+        mst_req_o.w.strb   = '1;
+        mst_req_o.w.last   = snoop_resp_i.cd.last;
+        mst_req_o.w.user   = '0;
     end
 end
 
-assign cd_handshake = snoop_resp_i.cd_valid && snoop_req_o.cd_ready;
-assign ac_handshake = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
-assign b_handshake = mst_req_o.b_ready && mst_resp_i.b_valid;
-assign w_slv_handshake = slv_req_i.w_valid && slv_resp_o.w_ready;
-
-assign snoop_req_o.ac.addr = slv_req_i.aw.addr;
-assign snoop_req_o.ac.snoop = snoop_trs_i;
-assign snoop_req_o.ac.prot = slv_req_i.aw.prot;
-
-assign mst_req_o.aw_valid = aw_valid_q;
-
 always_comb begin
-    ac_start             = 1'b0;
     aw_valid_d           = aw_valid_q;
     fsm_state_d          = fsm_state_q;
     w_last_d             = w_last_q;
     cd_last_d            = cd_last_q;
     ignore_cd_d          = ignore_cd_q;
-    load_aw_holder       = 1'b0;
-    snoop_req_o.ac_valid = 1'b0;
+    pop_slv_req_fifo     = 1'b0;
+    write_back_source    = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
     snoop_req_o.cd_ready = 1'b0;
-    slv_resp_o.aw_ready  = 1'b0;
-    slv_resp_o.ar_ready  = 1'b0;
     slv_resp_o.w_ready   = 1'b0;
-    slv_resp_o.r_valid   = 1'b0;
-    slv_resp_o.r         = '0;
     slv_resp_o.b_valid   = 1'b0;
-    slv_resp_o.b         = '0;
-    mst_req_o.aw         = aw_holder_q;
-    mst_req_o.w          = '0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.b_ready    = 1'b0;
-    mst_req_o.ar         = '0;
-    mst_req_o.ar_valid   = 1'b0;
-    mst_req_o.r_ready    = 1'b0;
-    mst_req_o.rack       = 1'b0;
-    mst_req_o.wack       = 1'b0;
 
     case(fsm_state_q)
-        // Forward AW channel into a snoop request on the
-        // AC channel
-        SNOOP_REQ: begin
-            w_last_d = 1'b0;
-            cd_last_d = 1'b0;
-            ignore_cd_d = 1'b0;
-            snoop_req_o.ac_valid = slv_req_i.aw_valid;
-            slv_resp_o.aw_ready  = snoop_resp_i.ac_ready;
-            if (ac_handshake) begin
-                fsm_state_d    = SNOOP_RESP;
-                load_aw_holder = 1'b1;
-            end
-        end
         // Receive snoop response and either write CD data or
         // move to writing to main memory
         SNOOP_RESP: begin
-            snoop_req_o.cr_ready = 1'b1;
+            w_last_d             = 1'b0;
+            cd_last_d            = 1'b0;
+            ignore_cd_d          = 1'b0;
+            snoop_req_o.cr_ready = slv_req_fifo_valid;
             if (snoop_resp_i.cr_valid) begin
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
                     // If received data is erronous or clean,
@@ -162,27 +176,18 @@ always_comb begin
                     end
                     fsm_state_d = WRITE_CD;
                 end else begin
-                    aw_valid_d = 1'b1;
+                    aw_valid_d  = 1'b1;
                     fsm_state_d = WRITE_W;
                 end
             end
         end
         // Write CD data back to memory
         WRITE_CD: begin
-            // Snooped data is provided wrap-bursted
-            mst_req_o.aw.burst   = axi_pkg::BURST_WRAP;
-            mst_req_o.aw.len     = AXLEN;
-            mst_req_o.aw.size    = AXSIZE;
             if (!cd_last_q && !ignore_cd_q) begin
                 mst_req_o.w_valid = snoop_resp_i.cd_valid;
             end
-            mst_req_o.w.data     = snoop_resp_i.cd.data;
-            mst_req_o.w.strb     = '1;
-            mst_req_o.w.last     = snoop_resp_i.cd.last;
-            mst_req_o.w.user     = '0;
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = mst_resp_i.w_ready || ignore_cd_q;
-            slv_resp_o.b         = mst_resp_i.b;
             if (cd_handshake && snoop_resp_i.cd.last) begin
                 cd_last_d = 1'b1;
             end
@@ -196,6 +201,7 @@ always_comb begin
         end
         // Write data to memory
         WRITE_W: begin
+            write_back_source = 1'b1;
             if (!w_last_q) begin
                 mst_req_o.w_valid  = slv_req_i.w_valid;
                 slv_resp_o.w_ready = mst_resp_i.w_ready;
@@ -203,15 +209,14 @@ always_comb begin
             if (w_slv_handshake && slv_req_i.w.last) begin
                 w_last_d = 1'b1;
             end
-            mst_req_o.w        = slv_req_i.w;
             mst_req_o.b_ready  = slv_req_i.b_ready;
             slv_resp_o.b_valid = mst_resp_i.b_valid;
-            slv_resp_o.b       = mst_resp_i.b;
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
             if (b_handshake) begin
-                fsm_state_d = SNOOP_REQ;
+                fsm_state_d      = SNOOP_RESP;
+                pop_slv_req_fifo = 1'b1;
             end
         end
     endcase
@@ -228,5 +233,23 @@ always_comb begin
       System:         domain_mask_o = ~domain_set_i.initiator;
     endcase
 end
+
+// FIFO for storing AW requests
+stream_fifo_optimal_wrap #(
+    .Depth  (FIFO_DEPTH),
+    .type_t (slv_req_s)
+) i_slv_req_fifo (
+    .clk_i      (clk_i),
+    .rst_ni     (rst_ni),
+    .flush_i    (1'b0),
+    .testmode_i (1'b0),
+    .usage_o    (),
+    .valid_i    (ac_handshake),
+    .ready_o    (slv_req_fifo_not_full),
+    .data_i     (slv_req),
+    .valid_o    (slv_req_fifo_valid),
+    .ready_i    (pop_slv_req_fifo),
+    .data_o     (slv_req_holder)
+);
 
 endmodule
