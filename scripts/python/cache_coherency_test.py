@@ -447,12 +447,12 @@ class RandomTest(CacheCoherencyTest):
       **kwargs
   ):
     super().__init__(**kwargs)
-    self.define_test(**kwargs)
+    self.define_test()
     errors = self.run()
     if errors:
       print("Errors found")
 
-  def define_test(self, **kwargs):
+  def define_test(self):
     self.add_memory_range(MemoryRange(
         cached=True, shared=True, start_addr=0, end_addr=0x0000_1000
     ))
