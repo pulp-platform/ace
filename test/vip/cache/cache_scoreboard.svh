@@ -325,12 +325,6 @@ class cache_scoreboard #(
         mem_req.op            = MEM_WRITE;
         mem_req.cacheable     = '1;
         mem_req.write_snoop_op = ace_pkg::WriteLineUnique;
-        // Merge write data with cacheline data
-        for (int i = 0; i < BYTES_PER_WORD; i++) begin
-            data_q[info.idx][info.way][byte_idx] = req.data_q.pop_front();
-            byte_idx++;
-        end
-        // Push cache line data
         for (int i = 0; i < CACHELINE_WORDS; i++) begin
             for (int j = 0; j < BYTES_PER_WORD; j++) begin
                 mem_req.data_q.push_back(
@@ -343,7 +337,7 @@ class cache_scoreboard #(
     function automatic mem_req gen_write_unique(cache_req req);
         mem_req mem_req = new;
         mem_req.size          = $clog2(BYTES_PER_WORD);
-        mem_req.len           = 1;
+        mem_req.len           = 0;
         mem_req.addr          = req.addr;
         mem_req.op            = MEM_WRITE;
         mem_req.cacheable     = '1;
@@ -445,6 +439,7 @@ class cache_scoreboard #(
     endtask
 
     task automatic cache_fsm(input cache_req req, output cache_resp resp);
+        bit cache_modified = 1;
         tag_resp_t tag_lu;
         mem_req mem_req = new;
         mem_resp mem_resp;
@@ -502,12 +497,13 @@ class cache_scoreboard #(
                     $fatal("Unsupported op");
                 end
             end else begin
+                cache_modified = 0;
                 mem_req = gen_write_unique(req);
                 mem_req_mbx.put(mem_req);
                 mem_resp_mbx.get(mem_resp);
             end
         end
-        modify_cache(tag_lu, 1);
+        if (cache_modified) modify_cache(tag_lu, 1);
         //cache_resp_mbx.put(resp);
         //cache_lookup_sem.put(1);
     endtask
