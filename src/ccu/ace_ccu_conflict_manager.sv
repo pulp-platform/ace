@@ -98,10 +98,12 @@ always_comb begin
     clear = '0;
 
     for (int unsigned r = 0; r < NoRespPorts; r++) begin
-        for (int unsigned w = 0; w < NumWays; w++) begin
-            if (entries_q[w][x_addr[r].idx].valid &&
-                entries_q[w][x_addr[r].idx].tag == x_addr[r].tag) begin
-                clear[w][x_addr[r].idx] = 1'b1;
+        if (cm_x_req_i[r]) begin
+            for (int unsigned w = 0; w < NumWays; w++) begin
+                if (entries_q[w][x_addr[r].idx].valid &&
+                    entries_q[w][x_addr[r].idx].tag == x_addr[r].tag) begin
+                    clear[w][x_addr[r].idx] = 1'b1;
+                end
             end
         end
     end
