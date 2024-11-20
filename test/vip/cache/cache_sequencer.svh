@@ -33,7 +33,6 @@ class cache_sequencer #(
     function automatic int parse_op(string op);
         if      (op == "REQ_LOAD")        return REQ_LOAD;
         else if (op == "REQ_STORE")       return REQ_STORE;
-        else if (op == "CMO_FLUSH_NLINE") return CMO_FLUSH_NLINE;
         else $fatal(1, "Illegal operation type found");
     endfunction
 
