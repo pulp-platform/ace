@@ -219,6 +219,9 @@ always_comb begin
                 pop_slv_req_fifo = 1'b1;
             end
         end
+        default: begin
+            fsm_state_d = SNOOP_RESP;
+        end
     endcase
 end
 
