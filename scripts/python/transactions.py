@@ -118,8 +118,8 @@ class CacheTransactionSequence:
     if op == CacheReqOp.REQ_LOAD:
       cached = True
     else:
+      # 20% chance to generate uncached request
       cached = choices([True, False], weights=[80, 20], k=1)[0]
-      #cached = True
     data = self.get_rand_data()
     size = int(log2(self.dw))
     return CacheTransaction(
