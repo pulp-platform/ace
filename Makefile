@@ -40,7 +40,7 @@ SETS 						?= 16
 # Number of cached masters
 NMASTERS 				?= 4
 # Number of master groups
-NGROUPS 				?= 1
+NGROUPS 				?= 2
 # Number of transactions to be generated per master
 NTRANSACTIONS 	?= 100
 # Location of the generated files
@@ -49,6 +49,8 @@ MEM_DIR 				?= $(PWD)/build/mem
 SEED						?= 10
 # Run coherency check after simulation
 CHECK 					?= 0
+# Debug mode for coherency checking
+DEBUG 					?= 1
 
 export ADDR_WIDTH
 export DATA_WIDTH
@@ -102,7 +104,8 @@ init_mem: build/mem
 	--n_transactions ${NTRANSACTIONS} \
 	--target_dir $(MEM_DIR) \
 	--seed $(SEED) \
-	$(if $(filter 1, $(CHECK)),--check)
+	$(if $(filter 1, $(CHECK)),--check) \
+	$(if $(filter 1, $(DEBUG)),--debug)
 
 
 elab.log: Bender.yml | build

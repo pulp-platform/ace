@@ -5,27 +5,29 @@ import ace_pkg::*;
 // Non-snooping transactions should be handled outside
 module ccu_ctrl_r_snoop #(
     /// Request channel type towards cached master
-    parameter type slv_req_t         = logic,
+    parameter type slv_req_t          = logic,
     /// Response channel type towards cached master
-    parameter type slv_resp_t        = logic,
+    parameter type slv_resp_t         = logic,
     /// Request channel type towards memory
-    parameter type mst_req_t         = logic,
+    parameter type mst_req_t          = logic,
     /// Response channel type towards memory
-    parameter type mst_resp_t        = logic,
+    parameter type mst_resp_t         = logic,
     /// AR channel type towards cached master
-    parameter type slv_ar_chan_t     = logic,
+    parameter type slv_ar_chan_t      = logic,
     /// Snoop request type
-    parameter type mst_snoop_req_t   = logic,
+    parameter type mst_snoop_req_t    = logic,
     /// Snoop response type
-    parameter type mst_snoop_resp_t  = logic,
+    parameter type mst_snoop_resp_t   = logic,
     /// Domain masks set for each master
-    parameter type domain_set_t      = logic,
+    parameter type domain_set_t       = logic,
     /// Domain mask type
-    parameter type domain_mask_t     = logic,
+    parameter type domain_mask_t      = logic,
     /// Fixed value for AXLEN for write back
-    parameter int unsigned AXLEN = 0,
+    parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
-    parameter int unsigned AXSIZE = 0
+    parameter int unsigned AXSIZE     = 0,
+    /// Depth of FIFO that stores AR requests
+    parameter int unsigned FIFO_DEPTH = 2
 ) (
     /// Clock
     input                               clk_i,
@@ -70,7 +72,7 @@ logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter;
-logic arlen_counter_en, arlen_counting, arlen_counter_clear;
+logic arlen_counter_en, arlen_counter_clear;
 logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
@@ -187,7 +189,6 @@ always_comb begin
     fsm_state_d          = fsm_state_q;
     cd_mask_d            = cd_mask_q;
     rresp_d[3:2]         = rresp_q[3:2];
-    arlen_counting       = 1'b0;
     arlen_counter_clear  = 1'b0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.r_ready    = 1'b0;
@@ -206,10 +207,10 @@ always_comb begin
         // Receive snoop response
         // Move to receiving CD response or reading from memory
         SNOOP_RESP: begin
-            r_last_d = 1'b0;
-            cd_mask_d = '0;
-            cd_last_d = 1'b0;
-            arlen_counter_clear = 1'b1;
+            r_last_d             = 1'b0;
+            cd_mask_d            = '0;
+            cd_last_d            = 1'b0;
+            arlen_counter_clear  = 1'b1;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
             if (snoop_resp_i.cr_valid) begin
                 rresp_d[2] = resp_dirty;
@@ -234,7 +235,7 @@ always_comb begin
         end
         // Ignore CD if data is erronous
         IGNORE_CD: begin
-            cd_fork_ready = '1;
+            cd_fork_ready        = '1;
             snoop_req_o.cd_ready = cd_ready;
             if (cd_handshake && snoop_resp_i.cd.last) begin
                 fsm_state_d = READ_R;
@@ -244,7 +245,6 @@ always_comb begin
         // Write CD
         // To memory and/or to initiating master
         WRITE_CD: begin
-            arlen_counting     = cd_mask_q[MST_R_IDX];
             mst_req_o.w_valid  = cd_fork_valid[MEM_W_IDX] && !aw_valid_q;
             slv_resp_o.r.data  = snoop_resp_i.cd.data;
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
@@ -266,7 +266,7 @@ always_comb begin
             end
             if (b_handshake) begin
                 // If memory access, end on b handshake
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
             if (r_handshake && r_last) begin
@@ -274,7 +274,7 @@ always_comb begin
             end
             if (cd_last && (r_last_q || r_last) && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
         end
@@ -287,7 +287,7 @@ always_comb begin
             slv_resp_o.r_valid = mst_resp_i.r_valid;
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
         end
@@ -298,7 +298,7 @@ end
 
 // FIFO for storing AR requests
 stream_fifo_optimal_wrap #(
-    .Depth  (2),
+    .Depth  (FIFO_DEPTH),
     .type_t (slv_req_s)
 ) i_slv_req_fifo (
     .clk_i      (clk_i),
@@ -321,15 +321,15 @@ stream_fifo_optimal_wrap #(
 stream_fork_dynamic #(
     .N_OUP(2)
 ) stream_fork (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .valid_i(snoop_resp_i.cd_valid),
-    .ready_o(cd_ready),
-    .sel_i(cd_mask_q),
-    .sel_valid_i(cd_mask_valid),
-    .sel_ready_o(),
-    .valid_o(cd_fork_valid),
-    .ready_i(cd_fork_ready)
+    .clk_i       (clk_i),
+    .rst_ni      (rst_ni),
+    .valid_i     (snoop_resp_i.cd_valid),
+    .ready_o     (cd_ready),
+    .sel_i       (cd_mask_q),
+    .sel_valid_i (cd_mask_valid),
+    .sel_ready_o (),
+    .valid_o     (cd_fork_valid),
+    .ready_i     (cd_fork_ready)
 );
 
 // Domain mask generation

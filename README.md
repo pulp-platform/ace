@@ -35,7 +35,7 @@ Next, open another terminal and simulate the top level design with
 ```
 make -B sim-ace_ccu_top.log
 ```
-Once the simulation finishes, press enter on the coherency check prompt. A coherency check will be run. A log file is generated called `cache_python.log`. Search with keyword `ERROR` to find whether coherency was broken during the simulation.
+Once the simulation finishes, press enter on the coherency check prompt. A coherency check will be run. A log file is generated called `cache_python.log`. Search with keyword `ERROR` to find whether coherency was broken during the simulation. When run with `DEBUG=1` (the default option), a pdb session is opened the moment a coherency problem is found.
 
 ## License
 

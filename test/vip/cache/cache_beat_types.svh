@@ -4,9 +4,8 @@
 
 
 // Cache Requester operations
-localparam int REQ_LOAD        = 5'b00000;
-localparam int REQ_STORE       = 5'b00001;
-localparam int CMO_FLUSH_NLINE = 5'b10100;
+localparam int REQ_LOAD           = 5'b00000;
+localparam int REQ_STORE          = 5'b00001;
 
 // Cache Memory operations
 localparam int MEM_READ        = 3'b000;

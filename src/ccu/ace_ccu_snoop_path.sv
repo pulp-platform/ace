@@ -39,6 +39,9 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     req_t  slv_read_req, slv_write_req;
     resp_t slv_read_resp, slv_write_resp;
 
+    localparam WB_AXLEN  = DcacheLineWidth/AxiDataWidth-1;
+    localparam WB_AXSIZE = $clog2(AxiDataWidth/8);
+
     ///////////
     // SPLIT //
     ///////////
@@ -87,7 +90,10 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .mst_snoop_req_t     (snoop_req_t),
         .mst_snoop_resp_t    (snoop_resp_t),
         .domain_set_t        (domain_set_t),
-        .domain_mask_t       (domain_mask_t)
+        .domain_mask_t       (domain_mask_t),
+        .AXLEN               (WB_AXLEN),
+        .AXSIZE              (WB_AXSIZE),
+        .FIFO_DEPTH          (2)
     ) i_ccu_ctrl_wr_snoop (
         .clk_i         (clk_i),
         .rst_ni        (rst_ni),
@@ -105,9 +111,6 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     ///////////////
     // READ PATH //
     ///////////////
-
-    localparam WB_AXLEN  = DcacheLineWidth/AxiDataWidth-1;
-    localparam WB_AXSIZE = $clog2(AxiDataWidth/8);
 
     snoop_info_t read_snoop_info;
     rule_idx_t   read_rule_idx;
@@ -137,7 +140,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .domain_set_t        (domain_set_t),
         .domain_mask_t       (domain_mask_t),
         .AXLEN               (WB_AXLEN),
-        .AXSIZE              (WB_AXSIZE)
+        .AXSIZE              (WB_AXSIZE),
+        .FIFO_DEPTH          (2)
     ) i_ccu_ctrl_r_snoop (
         .clk_i         (clk_i),
         .rst_ni        (rst_ni),

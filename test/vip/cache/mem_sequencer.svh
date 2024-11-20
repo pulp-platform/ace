@@ -38,7 +38,7 @@ class mem_sequencer #(
         if (!req.cacheable) begin
             return '0;
         end else begin
-            return axi_pkg::CACHE_BUFFERABLE | 
+            return axi_pkg::CACHE_BUFFERABLE |
                    axi_pkg::CACHE_MODIFIABLE;
         end
     endfunction
@@ -70,7 +70,7 @@ class mem_sequencer #(
         aw_beat.len    = req.len;
         aw_beat.size   = req.size;
         aw_beat.snoop  = req.write_snoop_op;
-        aw_beat.burst  = axi_pkg::BURST_WRAP;
+        aw_beat.burst  = (req.len > 0) ? axi_pkg::BURST_WRAP : axi_pkg::BURST_INCR;
         aw_beat.domain = calc_domain(req);
         aw_beat.cache  = calc_cache(req);
         aw_mbx_o.put(aw_beat);

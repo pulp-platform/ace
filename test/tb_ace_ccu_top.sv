@@ -113,24 +113,24 @@ module tb_ace_ccu_top #(
         .AXI_DATA_WIDTH ( AxiDataWidth      ),
         .AXI_ID_WIDTH   ( AxiIdWidthMasters ),
         .AXI_USER_WIDTH ( AxiIdWidthMasters )
-    ) ace_dv_intf [TbNumMst] (clk);
+    ) ace_dv_intf [TbNumMst-1:0] (clk);
 
     ACE_BUS #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth      ),
         .AXI_DATA_WIDTH ( AxiDataWidth      ),
         .AXI_ID_WIDTH   ( AxiIdWidthMasters ),
         .AXI_USER_WIDTH ( AxiIdWidthMasters )
-    ) ace_intf [TbNumMst]();
+    ) ace_intf [TbNumMst-1:0]();
 
     SNOOP_BUS_DV #(
         .SNOOP_ADDR_WIDTH ( AxiAddrWidth ),
         .SNOOP_DATA_WIDTH ( AxiDataWidth )
-    ) snoop_dv_intf [TbNumMst](clk);
+    ) snoop_dv_intf [TbNumMst-1:0](clk);
 
     SNOOP_BUS #(
         .SNOOP_ADDR_WIDTH ( AxiAddrWidth ),
         .SNOOP_DATA_WIDTH ( AxiDataWidth )
-    ) snoop_intf [TbNumMst]();
+    ) snoop_intf [TbNumMst-1:0]();
 
     AXI_BUS_DV #(
         .AXI_ADDR_WIDTH ( AxiAddrWidth     ),
@@ -213,7 +213,7 @@ module tb_ace_ccu_top #(
         .ace_bus_t       (ace_bus_v_t),
         .snoop_bus_t     (snoop_bus_v_t),
         .clk_if_t        (clk_if_v_t)
-    ) ace_master [TbNumMst];
+    ) ace_master [TbNumMst-1:0];
 
     for (genvar i = 0; i < TbNumMst; i++) begin : gen_conn_cache_agents
         `ACE_ASSIGN(ace_intf[i], ace_dv_intf[i]);

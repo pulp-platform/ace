@@ -1,4 +1,4 @@
-from random import choice, randrange, random
+from random import choice, randrange, choices
 from enum import Enum
 from math import log2
 from common import MemoryRange
@@ -114,8 +114,12 @@ class CacheTransactionSequence:
     mem_range = self.get_rand_mem_range()
     addr = mem_range.get_rand_cached_shared_addr(self.dw // 8)
     shareability = 1
-    cached = True
     op = choice(list(CacheReqOp))
+    if op == CacheReqOp.REQ_LOAD:
+      cached = True
+    else:
+      # 20% chance to generate uncached request
+      cached = choices([True, False], weights=[80, 20], k=1)[0]
     data = self.get_rand_data()
     size = int(log2(self.dw))
     return CacheTransaction(
