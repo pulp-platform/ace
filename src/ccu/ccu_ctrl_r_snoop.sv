@@ -208,10 +208,10 @@ always_comb begin
         // Receive snoop response
         // Move to receiving CD response or reading from memory
         SNOOP_RESP: begin
-            r_last_d = 1'b0;
-            cd_mask_d = '0;
-            cd_last_d = 1'b0;
-            arlen_counter_clear = 1'b1;
+            r_last_d             = 1'b0;
+            cd_mask_d            = '0;
+            cd_last_d            = 1'b0;
+            arlen_counter_clear  = 1'b1;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
             if (snoop_resp_i.cr_valid) begin
                 rresp_d[2] = resp_dirty;
@@ -236,7 +236,7 @@ always_comb begin
         end
         // Ignore CD if data is erronous
         IGNORE_CD: begin
-            cd_fork_ready = '1;
+            cd_fork_ready        = '1;
             snoop_req_o.cd_ready = cd_ready;
             if (cd_handshake && snoop_resp_i.cd.last) begin
                 fsm_state_d = READ_R;
@@ -268,7 +268,7 @@ always_comb begin
             end
             if (b_handshake) begin
                 // If memory access, end on b handshake
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
             if (r_handshake && r_last) begin
@@ -276,7 +276,7 @@ always_comb begin
             end
             if (cd_last && (r_last_q || r_last) && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
         end
@@ -289,7 +289,7 @@ always_comb begin
             slv_resp_o.r_valid = mst_resp_i.r_valid;
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
-                fsm_state_d = SNOOP_RESP;
+                fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
         end
@@ -323,15 +323,15 @@ stream_fifo_optimal_wrap #(
 stream_fork_dynamic #(
     .N_OUP(2)
 ) stream_fork (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .valid_i(snoop_resp_i.cd_valid),
-    .ready_o(cd_ready),
-    .sel_i(cd_mask_q),
-    .sel_valid_i(cd_mask_valid),
-    .sel_ready_o(),
-    .valid_o(cd_fork_valid),
-    .ready_i(cd_fork_ready)
+    .clk_i       (clk_i),
+    .rst_ni      (rst_ni),
+    .valid_i     (snoop_resp_i.cd_valid),
+    .ready_o     (cd_ready),
+    .sel_i       (cd_mask_q),
+    .sel_valid_i (cd_mask_valid),
+    .sel_ready_o (),
+    .valid_o     (cd_fork_valid),
+    .ready_i     (cd_fork_ready)
 );
 
 // Domain mask generation
