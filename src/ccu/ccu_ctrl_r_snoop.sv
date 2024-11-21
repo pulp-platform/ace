@@ -208,7 +208,6 @@ always_comb begin
         // Move to receiving CD response or reading from memory
         SNOOP_RESP: begin
             r_last_d             = 1'b0;
-            cd_mask_d            = '0;
             cd_last_d            = 1'b0;
             arlen_counter_clear  = 1'b1;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
@@ -267,6 +266,7 @@ always_comb begin
             if (b_handshake) begin
                 // If memory access, end on b handshake
                 fsm_state_d      = SNOOP_RESP;
+                cd_mask_d        = '0;
                 pop_slv_req_fifo = 1'b1;
             end
             if (r_handshake && r_last) begin
@@ -275,6 +275,7 @@ always_comb begin
             if (cd_last && (r_last_q || r_last) && !cd_mask_q[MEM_W_IDX]) begin
                 // Move forward after all CD data has come
                 fsm_state_d      = SNOOP_RESP;
+                cd_mask_d        = '0;
                 pop_slv_req_fifo = 1'b1;
             end
         end
@@ -288,6 +289,7 @@ always_comb begin
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
                 fsm_state_d      = SNOOP_RESP;
+                cd_mask_d        = '0;
                 pop_slv_req_fifo = 1'b1;
             end
         end
