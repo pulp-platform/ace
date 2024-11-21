@@ -320,8 +320,6 @@ class CacheCoherencyTest:
       logger.info(f"==================== TIMESTAMP: {end_time} ====================")
       new_errors = self.check_coherency()
       errors = errors or new_errors
-      if end_time == 22600:
-        import pdb; pdb.set_trace()
       for addr in addrs:
         # Clear outstanding addresses for the ones that were handled this timestamp
         for i in range(self.n_caches):
