@@ -266,6 +266,7 @@ class CacheCoherencyTest:
       with open(file, "r") as cache_file:
         for _ in range(prev_line_idxs[i]):
           next(cache_file)
+        line_i = None
         for line_i, line in enumerate(cache_file):
           words = line.split()
           time = None
@@ -298,7 +299,9 @@ class CacheCoherencyTest:
               addrs.append(addr)
               idxs.append(i)
               break
-      line_idxs.append(line_i + 1)
+      if line_i is None:
+        line_i = 0
+      line_idxs.append(prev_line_idxs[i] + line_i + 1)
     finish = False
     next_tstamp = 0
     if timestamps == []:
