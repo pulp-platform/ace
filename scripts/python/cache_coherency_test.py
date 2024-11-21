@@ -243,51 +243,64 @@ class CacheCoherencyTest:
   def get_next_timestamp(self, files, cur_time):
     """
     Returns (finish, next_tstamp, addrs_w_same_tstamp).
-    If finish == True, it means there are no more timestamps
-    addrs_w_same_tstamp is a list of (idx, addr), which indicates
+    If finish == True, it means there are no more timestamps\n
+    `addrs_w_same_tstamp` is a list of (idx, addr), which indicates
     the cache index that retires a transaction on this timestamp, and
     the address it retires.
     """
+    # Store:
+    #  - Timestamps that were found
+    #  - Corresponding address
+    #  - Corresponding master index
+    # There might be situations where some masters have run out of
+    # transactions while other ones still have outstanding ones,
+    # so this type of tracking is needed
     timestamps = []
     addrs = []
+    idxs = []
     addrs_w_tstamp = []
-    for file in files:
+    for i, file in enumerate(files):
       with open(file, "r") as cache_file:
         for line in cache_file:
           words = line.split()
           time = None
           initiator = None
           addr = None
+          # Iterate over words (separated by whitespace)
           for word in words:
-            # Find timestamp
-            # Skip if not the initiator
+            # Check which keyword the word is
+            # The keywords must appear in the line in this order
             t_idx = word.find("TIME:")
             i_idx = word.find("INITIATOR:")
             a_idx = word.find("ADDR:")
             payload = word.split(":")[1]
             if t_idx != -1:
-              if initiator != False:
-                time = int(payload)
+              time = int(payload)
             if i_idx != -1:
               initiator = bool(int(payload))
               if not initiator:
+                # Don't store the time of this timestamp marks an
+                # outstanding transaction
                 time = None
             if a_idx != -1:
               addr = int(payload, 16)
+          # Add to the list only if a transaction was retired on this
+          # timestamp
           if time:
             if time > cur_time:
               timestamps.append(time)
               addrs.append(addr)
+              idxs.append(i)
               break
     finish = False
     next_tstamp = 0
-    try:
+    if all(x == float("inf") for x in timestamps):
+      finish = True
+    else:
       next_tstamp = min(timestamps)
       idx_w_same_tstamp = [i for i, x in enumerate(timestamps) if x == next_tstamp]
       for i in idx_w_same_tstamp:
-        addrs_w_tstamp.append((i, addrs[i]))
-    except ValueError:
-      finish = True
+        addrs_w_tstamp.append((idxs[i], addrs[i]))
     return finish, next_tstamp, addrs_w_tstamp
 
   def reconstruct_state(self):
@@ -307,6 +320,8 @@ class CacheCoherencyTest:
       logger.info(f"==================== TIMESTAMP: {end_time} ====================")
       new_errors = self.check_coherency()
       errors = errors or new_errors
+      if end_time == 22600:
+        import pdb; pdb.set_trace()
       for addr in addrs:
         # Clear outstanding addresses for the ones that were handled this timestamp
         for i in range(self.n_caches):
