@@ -240,17 +240,14 @@ class CacheCoherencyTest:
         except CacheSetFullException:
           pass
 
-  def get_next_timestamp(self, files, cur_time, prev_line_idxs):
+  def get_next_timestamp(self, files, cur_time):
     """
-    Returns (finish, next_tstamp, addrs_w_same_tstamp, line_idxs).
+    Returns (finish, next_tstamp, addrs_w_same_tstamp).
     If finish == True, it means there are no more timestamps\n
     `addrs_w_same_tstamp` is a list of (idx, addr), which indicates
     the cache index that retires a transaction on this timestamp, and
-    the address it retires.\n
-    `line_idxs` returns the line index from where the timestamp was found.
-    This can be used to skip the already-read lines.
+    the address it retires.
     """
-    line_idxs = []
     # Store:
     #  - Timestamps that were found
     #  - Corresponding address
@@ -264,9 +261,7 @@ class CacheCoherencyTest:
     addrs_w_tstamp = []
     for i, file in enumerate(files):
       with open(file, "r") as cache_file:
-        for _ in range(prev_line_idxs[i]):
-          next(cache_file)
-        for line_i, line in enumerate(cache_file):
+        for line in cache_file:
           words = line.split()
           time = None
           initiator = None
@@ -284,7 +279,7 @@ class CacheCoherencyTest:
             if i_idx != -1:
               initiator = bool(int(payload))
               if not initiator:
-                # Don't store the time, as this timestamp marks an
+                # Don't store the time of this timestamp marks an
                 # outstanding transaction
                 time = None
             if a_idx != -1:
@@ -292,36 +287,31 @@ class CacheCoherencyTest:
           # Add to the list only if a transaction was retired on this
           # timestamp
           if time:
-            # Finish when we are above the current time
             if time > cur_time:
               timestamps.append(time)
               addrs.append(addr)
               idxs.append(i)
               break
-      line_idxs.append(line_i + 1)
     finish = False
     next_tstamp = 0
-    if timestamps == []:
+    if all(x == float("inf") for x in timestamps):
       finish = True
     else:
       next_tstamp = min(timestamps)
       idx_w_same_tstamp = [i for i, x in enumerate(timestamps) if x == next_tstamp]
       for i in idx_w_same_tstamp:
         addrs_w_tstamp.append((idxs[i], addrs[i]))
-    return finish, next_tstamp, addrs_w_tstamp, line_idxs
+    return finish, next_tstamp, addrs_w_tstamp
 
   def reconstruct_state(self):
     """Reconstruct state into Python datatypes"""
     files = []
-    line_idxs = self.n_caches*[0]
-    new_line_idxs = self.n_caches*[0]
     start_time = 0
     errors = False
     for i in range(self.n_caches):
       files.append(os.path.join(self.target_dir, f"cache_diff_{i}.txt"))
     while True:
-      finish, end_time, addrs, new_line_idxs = self.get_next_timestamp(files, start_time, line_idxs)
-      line_idxs = new_line_idxs
+      finish, end_time, addrs = self.get_next_timestamp(files, start_time)
       if finish:
         break
       for i, cache in enumerate(self.caches):
@@ -330,6 +320,8 @@ class CacheCoherencyTest:
       logger.info(f"==================== TIMESTAMP: {end_time} ====================")
       new_errors = self.check_coherency()
       errors = errors or new_errors
+      if end_time == 22600:
+        import pdb; pdb.set_trace()
       for addr in addrs:
         # Clear outstanding addresses for the ones that were handled this timestamp
         for i in range(self.n_caches):
