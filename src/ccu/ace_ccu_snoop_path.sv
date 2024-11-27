@@ -25,14 +25,15 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     input  logic                       rst_ni,
     input  req_t                       slv_req_i,
     output resp_t                      slv_resp_o,
-    output req_t         [1:0]         mst_reqs_o,
-    input  resp_t        [1:0]         mst_resps_i,
+    output req_t                       mst_req_o,
+    input  resp_t                      mst_resp_i,
     input  domain_set_t  [NoRules-1:0] domain_set_i,
     output snoop_req_t   [1:0]         snoop_reqs_o,
     input  snoop_resp_t  [1:0]         snoop_resps_i,
     output domain_mask_t [1:0]         snoop_masks_o
 );
-
+    req_t  [1:0] mst_reqs;
+    resp_t [1:0] mst_resps;
     localparam RuleIdBits = $clog2(NoRules);
     typedef logic [RuleIdBits-1:0] rule_idx_t;
 
@@ -100,8 +101,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_req_i     (slv_write_req),
         .slv_resp_o    (slv_write_resp),
         .snoop_trs_i   (write_acsnoop),
-        .mst_req_o     (mst_reqs_o     [0]),
-        .mst_resp_i    (mst_resps_i    [0]),
+        .mst_req_o     (mst_reqs       [0]),
+        .mst_resp_i    (mst_resps      [0]),
         .snoop_req_o   (snoop_reqs_o   [0]),
         .snoop_resp_i  (snoop_resps_i  [0]),
         .domain_set_i  (domain_set_i[write_rule_idx]),
@@ -148,12 +149,29 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_req_i     (slv_read_req),
         .slv_resp_o    (slv_read_resp),
         .snoop_info_i  (read_snoop_info),
-        .mst_req_o     (mst_reqs_o     [1]),
-        .mst_resp_i    (mst_resps_i    [1]),
+        .mst_req_o     (mst_reqs       [1]),
+        .mst_resp_i    (mst_resps      [1]),
         .snoop_req_o   (snoop_reqs_o   [1]),
         .snoop_resp_i  (snoop_resps_i  [1]),
         .domain_set_i  (domain_set_i[read_rule_idx]),
         .domain_mask_o (snoop_masks_o  [1])
     );
+
+    ccu_mem_ctrl #(
+        .AxiIdWidth (),
+        .slv_req_t (req_t),
+        .slv_resp_t (resp_t),
+        .mst_req_t (),
+        .mst_resp_t ()
+    ) i_ccu_mem_ctrl (
+        .clk_i,
+        .rst_ni,
+        .wr_mst_req_i (mst_reqs[1]),
+        .wr_mst_resp_o (mst_resps[1]),
+        .r_mst_req_i (mst_reqs[0]),
+        .r_mst_resp_o (mst_resps[0]),
+        .mst_req_o,
+        .mst_resp_i
+    )
 
 endmodule
