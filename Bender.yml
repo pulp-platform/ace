@@ -32,7 +32,7 @@ sources:
   - src/ccu/ace_ccu_lock_reg.sv
   - src/ccu/ccu_ctrl_wr_snoop.sv
   - src/ccu/ccu_ctrl_r_snoop.sv
-  - src/ccu/ccu_ctrl_mem.sv
+  - src/ccu/ccu_mem_ctrl.sv
   - src/ccu/ace_ccu_snoop_path.sv
   - src/ccu/ace_ccu_snoop_resp.sv
   - src/ccu/ace_ccu_snoop_req.sv
