@@ -2,6 +2,7 @@
 `include "ace/assign.svh"
 
 module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
+    parameter bit          LEGACY          = 0,
     parameter int unsigned NoRules         = 0,
     parameter int unsigned DcacheLineWidth = 0,
     parameter int unsigned AxiDataWidth    = 0,
@@ -142,6 +143,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         assign read_rule_idx = slv_read_req.ar.id[AxiSlvIdWidth+:RuleIdBits];
 
     ace_ar_transaction_decoder #(
+        .LEGACY    (LEGACY),
         .ar_chan_t (ace_ar_chan_t)
     ) i_read_decoder (
         .ar_i          (slv_read_req.ar),

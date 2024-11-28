@@ -4,6 +4,7 @@
 
 module ace_ccu_master_path import ace_pkg::*;
 #(
+  parameter bit          LEGACY          = 0,
   parameter int unsigned AxiAddrWidth    = 0,
   parameter int unsigned AxiDataWidth    = 0,
   parameter int unsigned AxiUserWidth    = 0,
@@ -108,6 +109,7 @@ module ace_ccu_master_path import ace_pkg::*;
     );
 
     ace_ar_transaction_decoder #(
+        .LEGACY    (LEGACY),
         .ar_chan_t (slv_ar_chan_t)
     ) i_read_decoder (
         .ar_i          (slv_req_i[i].ar),
@@ -363,6 +365,7 @@ module ace_ccu_master_path import ace_pkg::*;
     ////////////////
 
     ace_ccu_snoop_path #(
+      .LEGACY          (LEGACY),
       .NoRules         (NoSlvPerGroup),
       .DcacheLineWidth (DcacheLineWidth),
       .AxiDataWidth    (AxiDataWidth),

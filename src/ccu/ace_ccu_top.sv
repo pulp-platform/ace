@@ -4,6 +4,7 @@
 
 module ace_ccu_top import ace_pkg::*;
 #(
+  parameter bit          LEGACY          = 0,
   parameter int unsigned AxiAddrWidth    = 0,
   parameter int unsigned AxiDataWidth    = 0,
   parameter int unsigned AxiUserWidth    = 0,
@@ -70,6 +71,7 @@ module ace_ccu_top import ace_pkg::*;
   cm_idx_t                    cm_snoop_addr;
 
   ace_ccu_master_path #(
+    .LEGACY            (LEGACY),
     .AxiAddrWidth      (AxiAddrWidth),
     .AxiDataWidth      (AxiDataWidth),
     .AxiUserWidth      (AxiUserWidth),
@@ -162,6 +164,7 @@ module ace_ccu_top import ace_pkg::*;
 endmodule
 
 module ace_ccu_top_intf #(
+  parameter bit          LEGACY            = 0,
   parameter int unsigned AXI_ADDR_WIDTH    = 0,
   parameter int unsigned AXI_DATA_WIDTH    = 0,
   parameter int unsigned AXI_USER_WIDTH    = 0,
@@ -234,6 +237,7 @@ module ace_ccu_top_intf #(
   `AXI_ASSIGN_TO_RESP(mst_resp, mst_port)
 
   ace_ccu_top #(
+    .LEGACY          (LEGACY           ),
     .AxiAddrWidth    (AXI_ADDR_WIDTH   ),
     .AxiDataWidth    (AXI_DATA_WIDTH   ),
     .AxiUserWidth    (AXI_USER_WIDTH   ),
