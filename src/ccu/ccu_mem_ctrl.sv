@@ -1,20 +1,32 @@
 `include "axi/assign.svh"
+// Memory controller
+// Mux the two AW channel and keep locked until last W beat
+// Add two bits to the ID to encode where response should be routed
+// RID: 10 -> W FSM, else R FSM
+// BID: 01 -> R FSM, else W FSM
+// 00 is used for LR/SC sequence, where AWID and ARID must be the same
 module ccu_mem_ctrl import ace_pkg::*; #(
-    parameter type slv_req_t = logic,
+    parameter type slv_req_t  = logic,
     parameter type slv_resp_t = logic,
-    parameter type mst_req_t = logic,
+    parameter type mst_req_t  = logic,
     parameter type mst_resp_t = logic,
-    parameter type aw_chan_t = logic,
-    parameter type w_chan_t = logic
+    parameter type aw_chan_t  = logic,
+    parameter type w_chan_t   = logic
 )(
-    input clk_i,
-    input rst_ni,
-    input slv_req_t wr_mst_req_i,
+    input             clk_i,
+    input             rst_ni,
+    /// AXI request from W FSM
+    input  slv_req_t  wr_mst_req_i,
+    /// AXI response to W FSM
     output slv_resp_t wr_mst_resp_o,
-    input slv_req_t r_mst_req_i,
+    /// AXI request from R FSM
+    input  slv_req_t  r_mst_req_i,
+    /// AXI response to R FSM
     output slv_resp_t r_mst_resp_o,
-    output mst_req_t mst_req_o,
-    input mst_resp_t mst_resp_i
+    /// AXI request to main memory
+    output mst_req_t  mst_req_o,
+    /// AXI response from main memory
+    input  mst_resp_t mst_resp_i
 );
 
 localparam int unsigned FIFO_DEPTH = 4;
@@ -34,9 +46,6 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
         aw_lock_q <= aw_lock_d;
     end
 end
-
-// Index 0 - W FSM
-// Index 1 - R FSM
 
 // AW Channel
 stream_arbiter #(
@@ -79,6 +88,8 @@ always_comb begin
 end
 
 // W Channel
+// Index 0 - W FSM
+// Index 1 - R FSM
 stream_mux #(
     .DATA_T(w_chan_t),
     .N_INP (2)
@@ -157,7 +168,7 @@ end
 
 // pragma translate_off
 `ifndef VERILATOR
-initial begin : p_assert
+initial begin : b_assert
     assert(($bits(mst_req_o.aw.id) - $bits(r_mst_req_i.aw.id)) == 2)
         else $fatal(1, "Difference in AW ID widths should be 2");
     assert(($bits(mst_req_o.ar.id) - $bits(r_mst_req_i.ar.id)) == 2)

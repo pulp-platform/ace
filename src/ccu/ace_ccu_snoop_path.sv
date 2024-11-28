@@ -2,21 +2,20 @@
 `include "ace/assign.svh"
 
 module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
-    parameter bit          LEGACY          = 0,
+    parameter bit          LEGACY          = 0,     // Support legacy WB cache
     parameter int unsigned NoRules         = 0,
     parameter int unsigned DcacheLineWidth = 0,
     parameter int unsigned AxiDataWidth    = 0,
     parameter int unsigned AxiSlvIdWidth   = 0,
     parameter int unsigned AxiAddrWidth    = 0,
     parameter int unsigned AxiUserWidth    = 0,
-    parameter type ace_aw_chan_t           = logic, // AW Channel Type
-    parameter type ace_ar_chan_t           = logic, // AR Channel Type
-    parameter type ace_req_t               = logic, // Request type, without FSM route bits
-    parameter type ace_resp_t              = logic, // Response type, without FSM route bits
-    parameter type axi_aw_chan_t           = logic, // AW Channel Type
+    parameter type ace_aw_chan_t           = logic, // AW Channel Type, ACE, without FSM route bits
+    parameter type ace_ar_chan_t           = logic, // AR Channel Type, ACE, without FSM route bits
+    parameter type ace_req_t               = logic, // Request type, ACE, without FSM route bits
+    parameter type ace_resp_t              = logic, // Response type, ACE, without FSM route bits
     parameter type w_chan_t                = logic, // W Channel Type
-    parameter type axi_req_t               = logic, // Request type, with FSM route bits
-    parameter type axi_resp_t              = logic, // Response type, with FSM route bits
+    parameter type axi_req_t               = logic, // Request type, AXI, with FSM route bits
+    parameter type axi_resp_t              = logic, // Response type, AXI, with FSM route bits
     parameter type snoop_ac_t              = logic, // AC channel, snoop port
     parameter type snoop_cr_t              = logic, // CR channel, snoop port
     parameter type snoop_cd_t              = logic, // CD channel, snoop port

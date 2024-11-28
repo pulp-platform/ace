@@ -159,7 +159,7 @@ always_comb begin
     mst_req_o.aw.prot     = slv_req_holder.ar.prot;
     mst_req_o.aw.qos      = slv_req_holder.ar.qos;
     mst_req_o.aw.region   = slv_req_holder.ar.region;
-    mst_req_o.aw.atop     = '0; // TODO
+    mst_req_o.aw.atop     = '0;
     mst_req_o.aw.user     = slv_req_holder.ar.user;
 
     mst_req_o.w.data  = snoop_resp_i.cd.data;
