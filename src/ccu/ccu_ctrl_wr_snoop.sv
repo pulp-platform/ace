@@ -1,3 +1,4 @@
+`include "axi/assign.svh"
 import ace_pkg::*;
 
 // FSM to control write snoop transactions
@@ -124,10 +125,13 @@ end
 // Write channel
 always_comb begin
     slv_resp_o.b       = mst_resp_i.b;
-    mst_req_o.aw       = slv_req_holder.aw;
+    `AXI_SET_AW_STRUCT(mst_req_o.aw, slv_req_holder.aw)
     mst_req_o.aw_valid = aw_valid_q;
     if (write_back_source) begin
-        mst_req_o.w = slv_req_i.w;
+        mst_req_o.w.data = slv_req_i.w.data;
+        mst_req_o.w.strb = slv_req_i.w.strb;
+        mst_req_o.w.last = slv_req_i.w.last;
+        mst_req_o.w.user = slv_req_i.w.user;
     end else begin
         mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
         mst_req_o.aw.len   = AXLEN;

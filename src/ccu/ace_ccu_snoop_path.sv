@@ -6,12 +6,14 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     parameter int unsigned DcacheLineWidth = 0,
     parameter int unsigned AxiDataWidth    = 0,
     parameter int unsigned AxiSlvIdWidth   = 0,
+    parameter int unsigned AxiAddrWidth    = 0,
+    parameter int unsigned AxiUserWidth    = 0,
     parameter type ace_aw_chan_t           = logic, // AW Channel Type
     parameter type ace_ar_chan_t           = logic, // AR Channel Type
     parameter type ace_req_t               = logic, // Request type, without FSM route bits
     parameter type ace_resp_t              = logic, // Response type, without FSM route bits
     parameter type axi_aw_chan_t           = logic, // AW Channel Type
-    parameter type axi_w_chan_t            = logic, // AW Channel Type
+    parameter type w_chan_t                = logic, // W Channel Type
     parameter type axi_req_t               = logic, // Request type, with FSM route bits
     parameter type axi_resp_t              = logic, // Response type, with FSM route bits
     parameter type snoop_ac_t              = logic, // AC channel, snoop port
@@ -33,17 +35,34 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     input  snoop_resp_t  [1:0]         snoop_resps_i,
     output domain_mask_t [1:0]         snoop_masks_o
 );
-    axi_req_t  [1:0] mst_reqs;
-    axi_resp_t [1:0] mst_resps;
     localparam RuleIdBits = $clog2(NoRules);
     typedef logic [RuleIdBits-1:0] rule_idx_t;
+
+    typedef logic [AxiAddrWidth-1:0]   addr_t;
+    typedef logic [AxiDataWidth-1:0]   data_t;
+    typedef logic [AxiUserWidth-1:0]   user_t;
+
+    // ID width after FSM
+    localparam PostFSMIdWidth = AxiSlvIdWidth + RuleIdBits;
+    typedef logic [PostFSMIdWidth-1:0] pf_id_t;
+
+    // Datatypes for between FSMs and ccu_mem_ctrl
+    `AXI_TYPEDEF_AW_CHAN_T(int_axi_aw_chan_t, addr_t, pf_id_t, user_t)
+    `AXI_TYPEDEF_B_CHAN_T (int_axi_b_chan_t, pf_id_t, user_t)
+    `AXI_TYPEDEF_AR_CHAN_T(int_axi_ar_chan_t, addr_t, pf_id_t, user_t)
+    `AXI_TYPEDEF_R_CHAN_T (int_axi_r_chan_t, data_t, pf_id_t, user_t)
+    `AXI_TYPEDEF_REQ_T    (int_axi_req_t, int_axi_aw_chan_t, w_chan_t, int_axi_ar_chan_t)
+    `AXI_TYPEDEF_RESP_T   (int_axi_resp_t, int_axi_b_chan_t, int_axi_r_chan_t)
+
+    int_axi_req_t  [1:0] mst_reqs;
+    int_axi_resp_t [1:0] mst_resps;
 
     ace_req_t  slv_read_req, slv_write_req;
     ace_resp_t slv_read_resp, slv_write_resp;
 
     localparam WB_AXLEN  = DcacheLineWidth/AxiDataWidth-1;
     localparam WB_AXSIZE = $clog2(AxiDataWidth/8);
-    localparam ID_WIDTH  = AxiSlvIdWidth + RuleIdBits;
+
     ///////////
     // SPLIT //
     ///////////
@@ -87,8 +106,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_req_t           (ace_req_t),
         .slv_resp_t          (ace_resp_t),
         .slv_aw_chan_t       (ace_aw_chan_t),
-        .mst_req_t           (axi_req_t),
-        .mst_resp_t          (axi_resp_t),
+        .mst_req_t           (int_axi_req_t),
+        .mst_resp_t          (int_axi_resp_t),
         .mst_snoop_req_t     (snoop_req_t),
         .mst_snoop_resp_t    (snoop_resp_t),
         .domain_set_t        (domain_set_t),
@@ -135,8 +154,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_req_t           (ace_req_t),
         .slv_resp_t          (ace_resp_t),
         .slv_ar_chan_t       (ace_ar_chan_t),
-        .mst_req_t           (axi_req_t),
-        .mst_resp_t          (axi_resp_t),
+        .mst_req_t           (int_axi_req_t),
+        .mst_resp_t          (int_axi_resp_t),
         .mst_snoop_req_t     (snoop_req_t),
         .mst_snoop_resp_t    (snoop_resp_t),
         .domain_set_t        (domain_set_t),
@@ -159,18 +178,19 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     );
 
     ccu_mem_ctrl #(
-        .AxiIdWidth (ID_WIDTH),
-        .req_t      (axi_req_t),
-        .resp_t     (axi_resp_t),
-        .aw_chan_t  (axi_aw_chan_t),
-        .w_chan_t   (axi_w_chan_t)
+        .slv_req_t  (int_axi_req_t),
+        .slv_resp_t (int_axi_resp_t),
+        .mst_req_t  (axi_req_t),
+        .mst_resp_t (axi_resp_t),
+        .aw_chan_t  (int_axi_aw_chan_t),
+        .w_chan_t   (w_chan_t)
     ) i_ccu_mem_ctrl (
         .clk_i,
         .rst_ni,
-        .wr_mst_req_i  (mst_reqs[1]),
-        .wr_mst_resp_o (mst_resps[1]),
-        .r_mst_req_i   (mst_reqs[0]),
-        .r_mst_resp_o  (mst_resps[0]),
+        .wr_mst_req_i  (mst_reqs[0]),
+        .wr_mst_resp_o (mst_resps[0]),
+        .r_mst_req_i   (mst_reqs[1]),
+        .r_mst_resp_o  (mst_resps[1]),
         .mst_req_o,
         .mst_resp_i
     );

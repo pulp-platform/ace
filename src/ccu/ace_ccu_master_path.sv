@@ -57,26 +57,30 @@ module ace_ccu_master_path import ace_pkg::*;
 
   typedef logic [AxiAddrWidth -1:0]  addr_t;
   typedef logic [AxiDataWidth-1:0]   data_t;
-  typedef logic [AxiDataWidth/8-1:0] strb_t;
   typedef logic [AxiUserWidth-1:0]   user_t;
 
   slv_req_t  [NoSlvPorts-1:0] ace_snooping_req,  ace_nonsnooping_req;
   slv_resp_t [NoSlvPorts-1:0] ace_snooping_resp, ace_nonsnooping_resp;
 
-  localparam AxiIntIdWidth = AxiSlvIdWidth + $clog2(NoSlvPerGroup);
-  typedef logic [AxiIntIdWidth-1:0] int_id_t;
+  // ID width after ACE mux
+  localparam PostMuxIdWidth = AxiSlvIdWidth + $clog2(NoSlvPerGroup);
+  typedef logic [PostMuxIdWidth-1:0] pm_id_t;
 
-  `ACE_TYPEDEF_AW_CHAN_T(int_ace_aw_chan_t, addr_t, int_id_t, user_t)
-  `AXI_TYPEDEF_B_CHAN_T (int_ace_b_chan_t, int_id_t, user_t)
-  `ACE_TYPEDEF_AR_CHAN_T(int_ace_ar_chan_t, addr_t, int_id_t, user_t)
-  `ACE_TYPEDEF_R_CHAN_T (int_ace_r_chan_t, data_t, int_id_t, user_t)
+  // ID width after snoop_path (adds 2 bits)
+  localparam PostSnpIdWidth = PostMuxIdWidth + 2;
+  typedef logic [PostSnpIdWidth-1:0] ps_id_t;
+
+  `ACE_TYPEDEF_AW_CHAN_T(int_ace_aw_chan_t, addr_t, pm_id_t, user_t)
+  `AXI_TYPEDEF_B_CHAN_T (int_ace_b_chan_t, pm_id_t, user_t)
+  `ACE_TYPEDEF_AR_CHAN_T(int_ace_ar_chan_t, addr_t, pm_id_t, user_t)
+  `ACE_TYPEDEF_R_CHAN_T (int_ace_r_chan_t, data_t, pm_id_t, user_t)
   `ACE_TYPEDEF_REQ_T    (int_ace_req_t, int_ace_aw_chan_t, w_chan_t, int_ace_ar_chan_t)
   `ACE_TYPEDEF_RESP_T   (int_ace_resp_t, int_ace_b_chan_t, int_ace_r_chan_t)
 
-  `AXI_TYPEDEF_AW_CHAN_T(int_axi_aw_chan_t, addr_t, int_id_t, user_t)
-  `AXI_TYPEDEF_B_CHAN_T (int_axi_b_chan_t, int_id_t, user_t)
-  `AXI_TYPEDEF_AR_CHAN_T(int_axi_ar_chan_t, addr_t, int_id_t, user_t)
-  `AXI_TYPEDEF_R_CHAN_T (int_axi_r_chan_t, data_t, int_id_t, user_t)
+  `AXI_TYPEDEF_AW_CHAN_T(int_axi_aw_chan_t, addr_t, ps_id_t, user_t)
+  `AXI_TYPEDEF_B_CHAN_T (int_axi_b_chan_t, ps_id_t, user_t)
+  `AXI_TYPEDEF_AR_CHAN_T(int_axi_ar_chan_t, addr_t, ps_id_t, user_t)
+  `AXI_TYPEDEF_R_CHAN_T (int_axi_r_chan_t, data_t, ps_id_t, user_t)
   `AXI_TYPEDEF_REQ_T    (int_axi_req_t, int_axi_aw_chan_t, w_chan_t, int_axi_ar_chan_t)
   `AXI_TYPEDEF_RESP_T   (int_axi_resp_t, int_axi_b_chan_t, int_axi_r_chan_t)
 
@@ -226,10 +230,10 @@ module ace_ccu_master_path import ace_pkg::*;
     logic w_fifo_full;
     logic w_fifo_push, w_fifo_pop;
 
-    logic [AxiIntIdWidth-1:0] w_fifo_id_in, w_fifo_id_out;
+    logic [PostMuxIdWidth-1:0] w_fifo_id_in, w_fifo_id_out;
 
     id_queue #(
-      .ID_WIDTH            (AxiIntIdWidth),
+      .ID_WIDTH            (PostMuxIdWidth),
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
@@ -263,7 +267,7 @@ module ace_ccu_master_path import ace_pkg::*;
     fifo_v3 #(
         .FALL_THROUGH (1'b0),
         .DEPTH        (2),
-        .DATA_WIDTH   (AxiIntIdWidth)
+        .DATA_WIDTH   (PostMuxIdWidth)
     ) i_w_addr_fifo (
         .clk_i,
         .rst_ni,
@@ -281,10 +285,10 @@ module ace_ccu_master_path import ace_pkg::*;
     logic r_fifo_full;
     logic r_fifo_push, r_fifo_pop;
 
-    logic [AxiIntIdWidth-1:0] r_fifo_id_in, r_fifo_id_out;
+    logic [PostMuxIdWidth-1:0] r_fifo_id_in, r_fifo_id_out;
 
     id_queue #(
-      .ID_WIDTH            (AxiIntIdWidth),
+      .ID_WIDTH            (PostMuxIdWidth),
       .CAPACITY            (8),
       .FULL_BW             (1'b1),
       .CUT_OUP_POP_INP_GNT (1'b1),
@@ -319,7 +323,7 @@ module ace_ccu_master_path import ace_pkg::*;
     fifo_v3 #(
         .FALL_THROUGH (1'b0),
         .DEPTH        (2),
-        .DATA_WIDTH   (AxiIntIdWidth)
+        .DATA_WIDTH   (PostMuxIdWidth)
     ) i_r_addr_fifo (
         .clk_i,
         .rst_ni,
@@ -363,12 +367,14 @@ module ace_ccu_master_path import ace_pkg::*;
       .DcacheLineWidth (DcacheLineWidth),
       .AxiDataWidth    (AxiDataWidth),
       .AxiSlvIdWidth   (AxiSlvIdWidth),
+      .AxiAddrWidth    (AxiAddrWidth),
+      .AxiUserWidth    (AxiUserWidth),
       .ace_aw_chan_t   (int_ace_aw_chan_t),
       .ace_ar_chan_t   (int_ace_ar_chan_t),
       .ace_req_t       (int_ace_req_t),
       .ace_resp_t      (int_ace_resp_t),
       .axi_aw_chan_t   (int_axi_aw_chan_t),
-      .axi_w_chan_t    (w_chan_t),
+      .w_chan_t        (w_chan_t),
       .axi_req_t       (int_axi_req_t),
       .axi_resp_t      (int_axi_resp_t),
       .snoop_ac_t      (snoop_ac_t),
@@ -449,7 +455,7 @@ module ace_ccu_master_path import ace_pkg::*;
   ///////////////
 
   axi_mux #(
-    .SlvAxiIDWidth (AxiIntIdWidth),
+    .SlvAxiIDWidth (PostSnpIdWidth),
     .slv_aw_chan_t (int_axi_aw_chan_t),
     .slv_b_chan_t  (int_axi_b_chan_t),
     .slv_ar_chan_t (int_axi_ar_chan_t),

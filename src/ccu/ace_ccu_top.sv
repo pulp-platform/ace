@@ -183,7 +183,7 @@ module ace_ccu_top_intf #(
   localparam NO_GROUPS = NO_SLV_PORTS/NO_SLV_PER_GROUPS;
   localparam AXI_ID_MST_WIDTH = AXI_SLV_ID_WIDTH          + // Initial ID width
                                 $clog2(NO_SLV_PER_GROUPS) + // Internal MUX additional bits
-                                $clog2(3*NO_GROUPS);        // Final MUX additional bits
+                                $clog2(3*NO_GROUPS) + 1;    // Final MUX additional bits
 
   typedef logic [AXI_SLV_ID_WIDTH-1:0] id_slv_t;
   typedef logic [AXI_ID_MST_WIDTH-1:0] id_mst_t;
