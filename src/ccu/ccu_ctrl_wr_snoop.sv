@@ -119,8 +119,6 @@ always_comb begin
     mst_req_o.ar        = '0;
     mst_req_o.ar_valid  = 1'b0;
     mst_req_o.r_ready   = 1'b0;
-    mst_req_o.rack      = 1'b0;
-    mst_req_o.wack      = 1'b0;
 end
 
 // Write channel

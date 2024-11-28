@@ -1,25 +1,28 @@
 module ccu_mem_ctrl import ace_pkg::*; #(
     parameter int unsigned AxiIdWidth = 0,
-    parameter type slv_req_t = logic,
-    parameter type slv_resp_t = logic,
-    parameter type mst_req_t = logic,
-    parameter type mst_resp_t = logic
+    parameter type req_t = logic,
+    parameter type resp_t = logic,
+    parameter type aw_chan_t = logic,
+    parameter type w_chan_t = logic
 )(
     input clk_i,
     input rst_ni,
-    input slv_req_t wr_mst_req_i,
-    output slv_resp_t wr_mst_resp_o,
-    input slv_req_t r_mst_req_i,
-    output slv_resp_t r_mst_resp_o,
-    output mst_req_t mst_req_o,
-    input mst_resp_t mst_resp_i
+    input req_t wr_mst_req_i,
+    output resp_t wr_mst_resp_o,
+    input req_t r_mst_req_i,
+    output resp_t r_mst_resp_o,
+    output req_t mst_req_o,
+    input resp_t mst_resp_i
 );
+
+localparam int unsigned FIFO_DEPTH = 4;
 
 logic w_select, w_fifo_push, w_fifo_pop, w_fifo_empty, w_fifo_full;
 logic w_select_fifo;
+logic [$clog2(FIFO_DEPTH)-1:0] w_fifo_usage;
 logic w_valid, w_ready;
 logic aw_lock_d, aw_lock_q;
-mst_req_t mst_req;
+req_t mst_req;
 
 always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
@@ -34,7 +37,7 @@ end
 
 // AW Channel
 stream_arbiter #(
-    .DATA_T(axi_aw_chan_t),
+    .DATA_T(aw_chan_t),
     .N_INP (2)
 ) i_stream_arbiter_aw (
     .clk_i,
@@ -55,22 +58,23 @@ assign r_mst_resp_o.ar_ready = mst_resp_i.ar_ready;
 // ID Prepending
 // Ensure that restrictive accesses get the same ID
 always_comb begin
-    mst_req_o = mst_req;
+    mst_req_o.aw = mst_req.aw;
+    mst_req_o.ar = mst_req.ar;
     if (mst_req.aw.lock) begin
-        mst_req_o.aw.id = {2'b00, mst_req.aw.id};
+        mst_req_o.aw.id = {2'b00, mst_req.aw.id[AxiIdWidth-1:0]};
     end else begin
-        mst_req_o.aw.id = {!w_select, w_select, mst_req.aw.id};
+        mst_req_o.aw.id = {!w_select, w_select, mst_req.aw.id[AxiIdWidth-1:0]};
     end
     if (mst_req.ar.lock) begin
-        mst_req_o.ar.id = {2'b00, mst_req.ar.id};
+        mst_req_o.ar.id = {2'b00, mst_req.ar.id[AxiIdWidth-1:0]};
     end else begin
-        mst_req_o.ar.id = {2'b01, mst_req.ar.id};
+        mst_req_o.ar.id = {2'b01, mst_req.ar.id[AxiIdWidth-1:0]};
     end
 end
 
 // W Channel
 stream_mux #(
-    .DATA_T(axi_w_chan_t),
+    .DATA_T(w_chan_t),
     .N_INP (2)
 ) i_stream_mux_w (
     .inp_data_i ({r_mst_req_i.w, wr_mst_req_i.w}),
@@ -85,7 +89,8 @@ stream_mux #(
 // W index
 fifo_v3 #(
     .FALL_THROUGH   (1'b1),
-    .DEPTH          (2)
+    .DATA_WIDTH     (1),
+    .DEPTH          (FIFO_DEPTH)
 ) i_w_cmd_fifo (
     .clk_i      (clk_i),
     .rst_ni     (rst_ni),
@@ -93,7 +98,7 @@ fifo_v3 #(
     .testmode_i (1'b0),
     .full_o     (w_fifo_full),
     .empty_o    (),
-    .usage_o    (),
+    .usage_o    (w_fifo_usage),
     .data_i     (w_select),
     .push_i     (w_fifo_push),
     .data_o     (w_select_fifo),
@@ -120,8 +125,8 @@ always_comb begin
         mst_req_o.b_ready    = r_mst_req_i.b_ready;
     end
     else begin
-        w_mst_resp_o.b_valid = mst_resp_i.b_valid
-        mst_req_o.b_ready    = w_mst_resp_o.b_ready;
+        wr_mst_resp_o.b_valid = mst_resp_i.b_valid;
+        mst_req_o.b_ready     = wr_mst_req_i.b_ready;
     end
 end
 

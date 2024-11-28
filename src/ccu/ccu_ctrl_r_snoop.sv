@@ -1,4 +1,5 @@
 import ace_pkg::*;
+`include "axi/assign.svh"
 
 // FSM to control read snoop transactions
 // This module assumes that snooping happens
@@ -94,8 +95,8 @@ assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
 assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
 assign r_last             = (arlen_counter == slv_req_holder.ar.len);
 assign cd_last            = cd_handshake && snoop_resp_i.cd.last;
-assign mst_req_o.ar       = slv_req_holder.ar;
 assign mst_req_o.ar_valid = ar_valid_q;
+`AXI_ASSIGN_AR_STRUCT(mst_req_o.ar, slv_req_holder.ar)
 
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
@@ -153,24 +154,18 @@ always_comb begin
     mst_req_o.aw.len      = AXLEN;
     mst_req_o.aw.size     = AXSIZE;
     mst_req_o.aw.burst    = axi_pkg::BURST_WRAP;
-    mst_req_o.aw.domain   = slv_req_holder.ar.domain;
-    mst_req_o.aw.snoop    = ace_pkg::WriteBack;
-    mst_req_o.aw.lock     = 1'b0; // TODO
+    mst_req_o.aw.lock     = 1'b0;
     mst_req_o.aw.cache    = axi_pkg::CACHE_MODIFIABLE;
     mst_req_o.aw.prot     = slv_req_holder.ar.prot;
     mst_req_o.aw.qos      = slv_req_holder.ar.qos;
     mst_req_o.aw.region   = slv_req_holder.ar.region;
     mst_req_o.aw.atop     = '0; // TODO
     mst_req_o.aw.user     = slv_req_holder.ar.user;
-    mst_req_o.aw.bar      = '0;
-    mst_req_o.aw.awunique = 1'b0;
 
     mst_req_o.w.data  = snoop_resp_i.cd.data;
     mst_req_o.w.strb  = '1;
     mst_req_o.w.last  = snoop_resp_i.cd.last;
     mst_req_o.w.user  = slv_req_holder.ar.user;
-    mst_req_o.rack    = 1'b0;
-    mst_req_o.wack    = 1'b0;
 end
 
 // Determine whether write-back is needed and what the
@@ -284,7 +279,10 @@ always_comb begin
             if (mst_resp_i.ar_ready) begin
                 ar_valid_d = 1'b0;
             end
-            slv_resp_o.r       = mst_resp_i.r;
+            slv_resp_o.r.data = mst_resp_i.r.data;
+            slv_resp_o.r.resp = {2'b00, mst_resp_i.r.resp};
+            slv_resp_o.r.last = mst_resp_i.r.last;
+            slv_resp_o.r.user = mst_resp_i.r.user;
             slv_resp_o.r_valid = mst_resp_i.r_valid;
             mst_req_o.r_ready  = slv_req_i.r_ready;
             if (r_handshake && slv_resp_o.r.last) begin
