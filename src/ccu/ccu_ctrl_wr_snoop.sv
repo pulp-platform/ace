@@ -66,7 +66,11 @@ typedef enum logic [1:0] { SNOOP_RESP, WRITE_CD, WRITE_W } wr_fsm_t;
 
 logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q;
-logic ac_handshake, cd_handshake, w_slv_handshake;
+logic b_done_d, b_done_q;
+logic r_last_d, r_last_q;
+logic recv_r, finish;
+logic ac_handshake, cd_handshake, w_slv_handshake, r_slv_handshake;
+logic r_last;
 acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
 logic w_last_d, w_last_q;
 logic ignore_cd_d, ignore_cd_q;
@@ -83,7 +87,10 @@ assign slv_req.snoop_trs = snoop_trs_i;
 assign ac_handshake      = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign cd_handshake      = snoop_resp_i.cd_valid && snoop_req_o.cd_ready;
 assign b_handshake       = mst_req_o.b_ready && mst_resp_i.b_valid;
+assign r_slv_handshake   = slv_resp_o.r_valid && slv_req_i.r_ready;
+assign r_last            = r_slv_handshake && slv_resp_o.r.last;
 assign w_slv_handshake   = slv_req_i.w_valid && slv_resp_o.w_ready;
+assign recv_r            = slv_req_holder.aw.atop[5];
 
 
 
@@ -94,12 +101,16 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         w_last_q    <= 1'b0;
         cd_last_q   <= 1'b0;
         ignore_cd_q <= 1'b0;
+        b_done_q    <= 1'b0;
+        r_last_q    <= 1'b0;
     end else begin
         fsm_state_q <= fsm_state_d;
         aw_valid_q  <= aw_valid_d;
         w_last_q    <= w_last_d;
         cd_last_q   <= cd_last_d;
         ignore_cd_q <= ignore_cd_d;
+        b_done_q    <= b_done_d;
+        r_last_q    <= r_last_d;
     end
 end
 
@@ -115,11 +126,8 @@ end
 // Read channel signals not used
 always_comb begin
     slv_resp_o.ar_ready = 1'b0;
-    slv_resp_o.r_valid  = 1'b0;
-    slv_resp_o.r        = '0;
     mst_req_o.ar        = '0;
     mst_req_o.ar_valid  = 1'b0;
-    mst_req_o.r_ready   = 1'b0;
 end
 
 // Write channel
@@ -157,11 +165,17 @@ always_comb begin
     slv_resp_o.b_valid   = 1'b0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.b_ready    = 1'b0;
+    slv_resp_o.r_valid   = 1'b0;
+    slv_resp_o.r         = '0;
+    mst_req_o.r_ready    = 1'b0;
+    finish               = 1'b0;
 
     case(fsm_state_q)
         // Receive snoop response and either write CD data or
         // move to writing to main memory
         SNOOP_RESP: begin
+            b_done_d             = 1'b0;
+            r_last_d             = 1'b0;
             w_last_d             = 1'b0;
             cd_last_d            = 1'b0;
             ignore_cd_d          = 1'b0;
@@ -204,6 +218,8 @@ always_comb begin
         // Write data to memory
         WRITE_W: begin
             write_back_source = 1'b1;
+            r_last_d = r_last_q || r_last;
+            b_done_d = b_done_q || b_handshake;
             if (!w_last_q) begin
                 mst_req_o.w_valid  = slv_req_i.w_valid;
                 slv_resp_o.w_ready = mst_resp_i.w_ready;
@@ -213,10 +229,24 @@ always_comb begin
             end
             mst_req_o.b_ready  = slv_req_i.b_ready;
             slv_resp_o.b_valid = mst_resp_i.b_valid;
+            if (recv_r) begin
+                mst_req_o.r_ready  = slv_req_i.r_ready;
+                slv_resp_o.r_valid = mst_resp_i.r_valid;
+                `AXI_SET_R_STRUCT(slv_resp_o.r, mst_resp_i.r)
+            end
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
             end
-            if (b_handshake) begin
+            if (b_handshake || b_done_q) begin
+                if (recv_r) begin
+                    if (r_last || r_last_q) begin
+                        finish = 1'b1;
+                    end
+                end else begin
+                    finish = 1'b1;
+                end
+            end
+            if (finish) begin
                 fsm_state_d      = SNOOP_RESP;
                 pop_slv_req_fifo = 1'b1;
             end
