@@ -1,16 +1,17 @@
 module ace_ar_transaction_decoder import ace_pkg::*; #(
+    parameter bit  LEGACY    = 0,
     parameter type ar_chan_t = logic
 )(
     // Input channel
     input  ar_chan_t ar_i,
     // Control signals
-    /* TBD */
     output logic        snooping_o,
     output snoop_info_t snoop_info_o,
     output logic        illegal_trs_o
 );
 
 arsnoop_t arsnoop;
+logic     lock;
 
 logic     is_shareable;
 logic     is_system;
@@ -32,6 +33,7 @@ logic dvm_complete;
 logic dvm_message;
 
 assign arsnoop      = ar_i.snoop;
+assign lock         = ar_i.lock;
 
 assign is_shareable = ar_i.domain inside {InnerShareable, OuterShareable};
 assign is_system    = ar_i.domain inside {System};
@@ -65,6 +67,8 @@ always_comb begin
         end
         read_once: begin
             snoop_info_o.accepts_shared       = 1'b1;
+            if (LEGACY && lock)
+                snoop_info_o.snoop_trs = acsnoop_t'(CleanInvalid);
         end
         read_shared: begin
             snoop_info_o.accepts_dirty        = 1'b1;

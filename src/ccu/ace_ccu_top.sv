@@ -4,6 +4,7 @@
 
 module ace_ccu_top import ace_pkg::*;
 #(
+  parameter bit          LEGACY          = 0,
   parameter int unsigned AxiAddrWidth    = 0,
   parameter int unsigned AxiDataWidth    = 0,
   parameter int unsigned AxiUserWidth    = 0,
@@ -70,6 +71,7 @@ module ace_ccu_top import ace_pkg::*;
   cm_idx_t                    cm_snoop_addr;
 
   ace_ccu_master_path #(
+    .LEGACY            (LEGACY),
     .AxiAddrWidth      (AxiAddrWidth),
     .AxiDataWidth      (AxiDataWidth),
     .AxiUserWidth      (AxiUserWidth),
@@ -162,6 +164,7 @@ module ace_ccu_top import ace_pkg::*;
 endmodule
 
 module ace_ccu_top_intf #(
+  parameter bit          LEGACY            = 0,
   parameter int unsigned AXI_ADDR_WIDTH    = 0,
   parameter int unsigned AXI_DATA_WIDTH    = 0,
   parameter int unsigned AXI_USER_WIDTH    = 0,
@@ -183,7 +186,7 @@ module ace_ccu_top_intf #(
   localparam NO_GROUPS = NO_SLV_PORTS/NO_SLV_PER_GROUPS;
   localparam AXI_ID_MST_WIDTH = AXI_SLV_ID_WIDTH          + // Initial ID width
                                 $clog2(NO_SLV_PER_GROUPS) + // Internal MUX additional bits
-                                $clog2(3*NO_GROUPS);        // Final MUX additional bits
+                                $clog2(3*NO_GROUPS) + 1;    // Final MUX additional bits
 
   typedef logic [AXI_SLV_ID_WIDTH-1:0] id_slv_t;
   typedef logic [AXI_ID_MST_WIDTH-1:0] id_mst_t;
@@ -234,6 +237,7 @@ module ace_ccu_top_intf #(
   `AXI_ASSIGN_TO_RESP(mst_resp, mst_port)
 
   ace_ccu_top #(
+    .LEGACY          (LEGACY           ),
     .AxiAddrWidth    (AXI_ADDR_WIDTH   ),
     .AxiDataWidth    (AXI_DATA_WIDTH   ),
     .AxiUserWidth    (AXI_USER_WIDTH   ),

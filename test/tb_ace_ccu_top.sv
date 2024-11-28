@@ -41,7 +41,8 @@ module tb_ace_ccu_top #(
     localparam int unsigned AxiIdUsed         =  3;
     localparam int unsigned AxiIdWidthSlave   =  AxiIdWidthMasters
                                                  + $clog2(MstPerGroup)
-                                                 + $clog2(3*NoGroups);
+                                                 + $clog2(3*NoGroups)
+                                                 + 1; // R/W FSM encoding
     localparam int unsigned AxiAddrWidth      =  AddrWidth;
     localparam int unsigned AxiDataWidth      =  DataWidth;
     localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
@@ -310,6 +311,7 @@ module tb_ace_ccu_top #(
         .DCACHE_LINE_WIDTH    (CachelineBits),
         .domain_mask_t        (domain_mask_t),
         .domain_set_t         (domain_set_t)
+        //.LEGACY(1)
     ) ccu (
         .clk_i                (clk),
         .rst_ni               (rst_n),
