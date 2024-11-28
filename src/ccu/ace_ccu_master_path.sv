@@ -376,7 +376,6 @@ module ace_ccu_master_path import ace_pkg::*;
       .ace_ar_chan_t   (int_ace_ar_chan_t),
       .ace_req_t       (int_ace_req_t),
       .ace_resp_t      (int_ace_resp_t),
-      .axi_aw_chan_t   (int_axi_aw_chan_t),
       .w_chan_t        (w_chan_t),
       .axi_req_t       (int_axi_req_t),
       .axi_resp_t      (int_axi_resp_t),
