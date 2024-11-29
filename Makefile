@@ -93,7 +93,7 @@ build/mem: build
 	mkdir -p $@
 
 init_mem: build/mem
-	python3 scripts/python/cache_coherency_test.py \
+	python3 test/vip/python/cache_coherency_test.py \
 	--addr_width ${ADDR_WIDTH} \
 	--data_width ${DATA_WIDTH} \
 	--word_width ${WORD_WIDTH} \
