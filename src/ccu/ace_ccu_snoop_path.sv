@@ -11,6 +11,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     parameter int unsigned AxiUserWidth    = 0,
     parameter type ace_aw_chan_t           = logic, // AW Channel Type, ACE, without FSM route bits
     parameter type ace_ar_chan_t           = logic, // AR Channel Type, ACE, without FSM route bits
+    parameter type ace_r_chan_t            = logic,
     parameter type ace_req_t               = logic, // Request type, ACE, without FSM route bits
     parameter type ace_resp_t              = logic, // Response type, ACE, without FSM route bits
     parameter type w_chan_t                = logic, // W Channel Type
@@ -67,18 +68,43 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
     // SPLIT //
     ///////////
 
-    ace_rw_split #(
-        .axi_req_t  (ace_req_t),
-        .axi_resp_t (ace_resp_t)
-    ) i_snoop_rw_split (
-        .clk_i            (clk_i),
-        .rst_ni           (rst_ni),
-        .slv_req_i        (slv_req_i),
-        .slv_resp_o       (slv_resp_o),
-        .mst_read_req_o   (slv_read_req),
-        .mst_read_resp_i  (slv_read_resp),
-        .mst_write_req_o  (slv_write_req),
-        .mst_write_resp_i (slv_write_resp)
+    `ACE_ASSIGN_AR_STRUCT (slv_read_req.ar, slv_req_i.ar)
+    assign slv_read_req.ar_valid = slv_req_i.ar_valid;
+    assign slv_resp_o.ar_ready   = slv_read_resp.ar_ready;
+    assign slv_read_req.aw       = '0;
+    assign slv_read_req.w        = '0;
+    assign slv_read_req.aw_valid = 1'b0;
+    assign slv_read_req.w_valid  = 1'b0;
+    assign slv_read_req.b_ready  = 1'b0;
+
+    `ACE_ASSIGN_AW_STRUCT ( slv_write_req.aw , slv_req_i.aw       )
+    `AXI_ASSIGN_W_STRUCT  ( slv_write_req.w  , slv_req_i.w        )
+    `AXI_ASSIGN_B_STRUCT  ( slv_resp_o.b     , slv_write_resp.b )
+    assign slv_write_req.aw_valid = slv_req_i.aw_valid;
+    assign slv_write_req.w_valid  = slv_req_i.w_valid;
+    assign slv_write_req.b_ready  = slv_req_i.b_ready;
+    assign slv_resp_o.aw_ready    = slv_write_resp.aw_ready;
+    assign slv_resp_o.w_ready     = slv_write_resp.w_ready;
+    assign slv_resp_o.b_valid     = slv_write_resp.b_valid;
+    assign slv_write_req.ar_valid = 1'b0;
+
+    // Arbiter to mux between R responses from W FSM and R FSM
+    // This is fine because W FSM provides only R responses from
+    // atomic transactions, and they must have different ID than
+    // any outstanding transaction (AXI Issue J A7.4.4)
+    stream_arbiter #(
+        .DATA_T  (ace_r_chan_t),
+        .N_INP   (2),
+        .ARBITER ("rr")
+    ) i_r_arbiter (
+        .clk_i,
+        .rst_ni,
+        .inp_data_i ({slv_write_resp.r, slv_read_resp.r}),
+        .inp_valid_i({slv_write_resp.r_valid, slv_read_resp.r_valid}),
+        .inp_ready_o({slv_write_req.r_ready, slv_read_req.r_ready}),
+        .oup_data_o (slv_resp_o.r),
+        .oup_valid_o(slv_resp_o.r_valid),
+        .oup_ready_i(slv_req_i.r_ready)
     );
 
     ////////////////

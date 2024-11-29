@@ -374,6 +374,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .AxiUserWidth    (AxiUserWidth),
       .ace_aw_chan_t   (int_ace_aw_chan_t),
       .ace_ar_chan_t   (int_ace_ar_chan_t),
+      .ace_r_chan_t    (int_ace_r_chan_t),
       .ace_req_t       (int_ace_req_t),
       .ace_resp_t      (int_ace_resp_t),
       .w_chan_t        (w_chan_t),
