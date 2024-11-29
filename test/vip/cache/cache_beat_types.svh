@@ -10,10 +10,7 @@ localparam int REQ_STORE          = 5'b00001;
 // Cache Memory operations
 localparam int MEM_READ        = 3'b000;
 localparam int MEM_WRITE       = 3'b001;
-localparam int MEM_ATOMIC      = 3'b010;
-
-localparam int WR_POLICY_WB   = 3'b010;
-localparam int WR_POLICY_WT   = 3'b100;
+//localparam int MEM_ATOMIC      = 3'b010;
 
 /// Datatype to orchestrate cache read and write requests
 class cache_req;
