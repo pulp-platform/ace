@@ -157,6 +157,8 @@ always_comb begin
     w_last_d             = w_last_q;
     cd_last_d            = cd_last_q;
     ignore_cd_d          = ignore_cd_q;
+    b_done_d             = b_done_q;
+    r_last_d             = r_last_q;
     pop_slv_req_fifo     = 1'b0;
     write_back_source    = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
