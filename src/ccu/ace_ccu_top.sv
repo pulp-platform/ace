@@ -179,7 +179,7 @@ module ace_ccu_top_intf #(
   input logic                           rst_ni,
   input domain_set_t [NO_SLV_PORTS-1:0] domain_set_i,
   ACE_BUS.Slave                         slv_ports   [NO_SLV_PORTS-1:0],
-  SNOOP_BUS.Master                      snoop_ports [NO_SLV_PORTS-1:0],
+  SNOOP_BUS.Slave                       snoop_ports [NO_SLV_PORTS-1:0],
   AXI_BUS.Master                        mst_port
 );
 
