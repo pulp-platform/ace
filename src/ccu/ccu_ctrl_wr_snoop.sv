@@ -72,7 +72,6 @@ logic r_last_d, r_last_q;
 logic recv_r, finish;
 logic ac_handshake, cd_handshake, w_slv_handshake, r_slv_handshake;
 logic r_last;
-acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
 logic w_last_d, w_last_q;
 logic ignore_cd_d, ignore_cd_q;
 slv_req_s slv_req, slv_req_holder;
