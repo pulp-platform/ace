@@ -144,6 +144,7 @@ always_comb begin
         mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
         mst_req_o.aw.len   = AXLEN;
         mst_req_o.aw.size  = AXSIZE;
+        mst_req_o.aw.atop  = '0;
         mst_req_o.w.data   = snoop_resp_i.cd.data;
         mst_req_o.w.strb   = '1;
         mst_req_o.w.last   = snoop_resp_i.cd.last;
