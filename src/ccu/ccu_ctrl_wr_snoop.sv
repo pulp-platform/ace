@@ -1,4 +1,5 @@
 `include "axi/assign.svh"
+`include "ace/convert.svh"
 import ace_pkg::*;
 
 // FSM to control write snoop transactions
@@ -235,7 +236,7 @@ always_comb begin
             if (recv_r) begin
                 mst_req_o.r_ready  = slv_req_i.r_ready;
                 slv_resp_o.r_valid = mst_resp_i.r_valid;
-                `AXI_SET_R_STRUCT(slv_resp_o.r, mst_resp_i.r)
+                `AXI_TO_ACE_SET_R_STRUCT(slv_resp_o.r, mst_resp_i.r)
             end
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
