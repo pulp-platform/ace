@@ -1,0 +1,609 @@
+From fe8534abfb864a9585d43a0302c4f80f7b394716 Mon Sep 17 00:00:00 2001
+From: Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
+Date: Wed, 4 Dec 2024 15:51:59 +0100
+Subject: [PATCH] Initial commit of ACE extended AXI IPs
+
+---
+ axi_demux.sv        |  56 ++++++++++------
+ axi_demux_simple.sv |  88 ++++++++++++++++++++++---
+ axi_mux.sv          | 153 +++++++++++++++++++++++++++++++++++---------
+ 3 files changed, 239 insertions(+), 58 deletions(-)
+
+diff --git a/axi_demux.sv b/axi_demux.sv
+index 899d8352..dbcf0ce6 100644
+--- a/axi_demux.sv
++++ b/axi_demux.sv
+@@ -39,7 +39,7 @@
+ ///
+ /// Beats on the B and R channel are multiplexed from the master ports to the slave port with
+ /// a round-robin arbitration tree.
+-module axi_demux #(
++module ace_demux #(
+   parameter int unsigned AxiIdWidth     = 32'd0,
+   parameter bit          AtopSupport    = 1'b1,
+   parameter type         aw_chan_t      = logic,
+@@ -58,6 +58,7 @@ module axi_demux #(
+   parameter bit          SpillB         = 1'b0,
+   parameter bit          SpillAr        = 1'b1,
+   parameter bit          SpillR         = 1'b0,
++  parameter bit          RegAck         = 1'b0,
+   // Dependent parameters, DO NOT OVERRIDE!
+   parameter int unsigned SelectWidth    = (NoMstPorts > 32'd1) ? $clog2(NoMstPorts) : 32'd1,
+   parameter type         select_t       = logic [SelectWidth-1:0]
+@@ -186,7 +187,22 @@ module axi_demux #(
+     .data_o  ( slv_resp_o.r         )
+   );
+ 
+-  axi_demux_simple #(
++  if (RegAck) begin : gen_xack_regs
++    always_ff @(posedge clk_i or negedge rst_ni) begin
++      if (!rst_ni) begin
++        slv_req_cut.rack <= 1'b0;
++        slv_req_cut.wack <= 1'b0;
++      end else begin
++        slv_req_cut.rack <= slv_req_i.rack;
++        slv_req_cut.wack <= slv_req_i.wack;
++      end
++    end
++  end else begin : gen_no_xack_reg
++    assign slv_req_cut.rack = slv_req_i.rack;
++    assign slv_req_cut.wack = slv_req_i.wack;
++  end
++
++  ace_demux_simple #(
+     .AxiIdWidth ( AxiIdWidth  ),
+     .AtopSupport( AtopSupport ),
+     .axi_req_t  ( axi_req_t   ),
+@@ -211,9 +227,9 @@ module axi_demux #(
+ endmodule
+ 
+ // interface wrapper
+-`include "axi/assign.svh"
+-`include "axi/typedef.svh"
+-module axi_demux_intf #(
++`include "ace/assign.svh"
++`include "ace/typedef.svh"
++module ace_demux_intf #(
+   parameter int unsigned AXI_ID_WIDTH     = 32'd0, // Synopsys DC requires default value for params
+   parameter bit          ATOP_SUPPORT     = 1'b1,
+   parameter int unsigned AXI_ADDR_WIDTH   = 32'd0,
+@@ -228,6 +244,7 @@ module axi_demux_intf #(
+   parameter bit          SPILL_B          = 1'b0,
+   parameter bit          SPILL_AR         = 1'b1,
+   parameter bit          SPILL_R          = 1'b0,
++  parameter bit          ACE_REG_ACK      = 1'b0,
+   // Dependent parameters, DO NOT OVERRIDE!
+   parameter int unsigned SELECT_WIDTH   = (NO_MST_PORTS > 32'd1) ? $clog2(NO_MST_PORTS) : 32'd1,
+   parameter type         select_t       = logic [SELECT_WIDTH-1:0] // MST port select type
+@@ -237,8 +254,8 @@ module axi_demux_intf #(
+   input  logic    test_i,                // Testmode enable
+   input  select_t slv_aw_select_i,       // has to be stable, when aw_valid
+   input  select_t slv_ar_select_i,       // has to be stable, when ar_valid
+-  AXI_BUS.Slave   slv,                   // slave port
+-  AXI_BUS.Master  mst [NO_MST_PORTS-1:0] // master ports
++  ACE_BUS.Slave   slv,                   // slave port
++  ACE_BUS.Master  mst [NO_MST_PORTS-1:0] // master ports
+ );
+ 
+   typedef logic [AXI_ID_WIDTH-1:0]       id_t;
+@@ -246,28 +263,28 @@ module axi_demux_intf #(
+   typedef logic [AXI_DATA_WIDTH-1:0]   data_t;
+   typedef logic [AXI_DATA_WIDTH/8-1:0] strb_t;
+   typedef logic [AXI_USER_WIDTH-1:0]   user_t;
+-  `AXI_TYPEDEF_AW_CHAN_T(aw_chan_t, addr_t, id_t, user_t)
++  `ACE_TYPEDEF_AW_CHAN_T(aw_chan_t, addr_t, id_t, user_t)
+   `AXI_TYPEDEF_W_CHAN_T(w_chan_t, data_t, strb_t, user_t)
+   `AXI_TYPEDEF_B_CHAN_T(b_chan_t, id_t, user_t)
+-  `AXI_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)
+-  `AXI_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)
+-  `AXI_TYPEDEF_REQ_T(axi_req_t, aw_chan_t, w_chan_t, ar_chan_t)
+-  `AXI_TYPEDEF_RESP_T(axi_resp_t, b_chan_t, r_chan_t)
++  `ACE_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)
++  `ACE_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)
++  `ACE_TYPEDEF_REQ_T(axi_req_t, aw_chan_t, w_chan_t, ar_chan_t)
++  `ACE_TYPEDEF_RESP_T(axi_resp_t, b_chan_t, r_chan_t)
+ 
+   axi_req_t                     slv_req;
+   axi_resp_t                    slv_resp;
+   axi_req_t  [NO_MST_PORTS-1:0] mst_req;
+   axi_resp_t [NO_MST_PORTS-1:0] mst_resp;
+ 
+-  `AXI_ASSIGN_TO_REQ(slv_req, slv)
+-  `AXI_ASSIGN_FROM_RESP(slv, slv_resp)
++  `ACE_ASSIGN_TO_REQ(slv_req, slv)
++  `ACE_ASSIGN_FROM_RESP(slv, slv_resp)
+ 
+   for (genvar i = 0; i < NO_MST_PORTS; i++) begin : gen_assign_mst_ports
+-    `AXI_ASSIGN_FROM_REQ(mst[i], mst_req[i])
+-    `AXI_ASSIGN_TO_RESP(mst_resp[i], mst[i])
++    `ACE_ASSIGN_FROM_REQ(mst[i], mst_req[i])
++    `ACE_ASSIGN_TO_RESP(mst_resp[i], mst[i])
+   end
+ 
+-  axi_demux #(
++  ace_demux #(
+     .AxiIdWidth     ( AXI_ID_WIDTH  ), // ID Width
+     .AtopSupport    ( ATOP_SUPPORT  ),
+     .aw_chan_t      (  aw_chan_t    ), // AW Channel Type
+@@ -285,8 +302,9 @@ module axi_demux_intf #(
+     .SpillW         ( SPILL_W       ),
+     .SpillB         ( SPILL_B       ),
+     .SpillAr        ( SPILL_AR      ),
+-    .SpillR         ( SPILL_R       )
+-  ) i_axi_demux (
++    .SpillR         ( SPILL_R       ),
++    .AceRegAck      ( ACE_REG_ACK   )
++  ) i_ace_demux (
+     .clk_i,   // Clock
+     .rst_ni,  // Asynchronous reset active low
+     .test_i,  // Testmode enable
+diff --git a/axi_demux_simple.sv b/axi_demux_simple.sv
+index 1c11f794..6536c6d8 100644
+--- a/axi_demux_simple.sv
++++ b/axi_demux_simple.sv
+@@ -17,6 +17,7 @@
+ `include "common_cells/assertions.svh"
+ `include "common_cells/registers.svh"
+ `include "axi/assign.svh"
++`include "ace/assign.svh"
+ 
+ `ifdef QUESTA
+ // Derive `TARGET_VSIM`, which is used for tool-specific workarounds in this file, from `QUESTA`,
+@@ -40,7 +41,7 @@
+ ///
+ /// Beats on the B and R channel are multiplexed from the master ports to the slave port with
+ /// a round-robin arbitration tree.
+-module axi_demux_simple #(
++module ace_demux_simple #(
+   parameter int unsigned AxiIdWidth     = 32'd0,
+   parameter bit          AtopSupport    = 1'b1,
+   parameter type         axi_req_t      = logic,
+@@ -71,8 +72,8 @@ module axi_demux_simple #(
+ 
+   // pass through if only one master port
+   if (NoMstPorts == 32'h1) begin : gen_no_demux
+-    `AXI_ASSIGN_REQ_STRUCT(mst_reqs_o[0], slv_req_i)
+-    `AXI_ASSIGN_RESP_STRUCT(slv_resp_o, mst_resps_i[0])
++    `ACE_ASSIGN_REQ_STRUCT(mst_reqs_o[0], slv_req_i)
++    `ACE_ASSIGN_RESP_STRUCT(slv_resp_o, mst_resps_i[0])
+   end else begin
+ 
+     //--------------------------------------
+@@ -104,6 +105,10 @@ module axi_demux_simple #(
+     // B channles input into the arbitration
+     logic    [NoMstPorts-1:0] mst_b_valids,       mst_b_readies;
+ 
++    // WACK
++    logic                     wack_fifo_full;
++    logic    [NoMstPorts-1:0] mst_wacks;
++
+     //--------------------------------------
+     // Read Transaction
+     //--------------------------------------
+@@ -119,6 +124,10 @@ module axi_demux_simple #(
+ 
+     logic    [NoMstPorts-1:0] mst_r_valids, mst_r_readies;
+ 
++    // RACK
++    logic                     rack_fifo_full;
++    logic    [NoMstPorts-1:0] mst_racks;
++
+ 
+ 
+ 
+@@ -260,6 +269,10 @@ module axi_demux_simple #(
+     //  B Channel
+     //--------------------------------------
+     logic [cf_math_pkg::idx_width(NoMstPorts)-1:0] b_idx;
++    logic slv_b_ready, slv_b_valid;
++
++    assign slv_b_ready        = slv_req_i.b_ready && !wack_fifo_full;
++    assign slv_resp_o.b_valid = slv_b_valid       && !wack_fifo_full;
+ 
+     // Arbitration of the different B responses
+     rr_arb_tree #(
+@@ -275,8 +288,8 @@ module axi_demux_simple #(
+       .req_i  ( mst_b_valids  ),
+       .gnt_o  ( mst_b_readies ),
+       .data_i ( '0   ),
+-      .gnt_i  ( slv_req_i.b_ready  ),
+-      .req_o  ( slv_resp_o.b_valid ),
++      .gnt_i  ( slv_b_ready   ),
++      .req_o  ( slv_b_valid   ),
+       .data_o (        ),
+       .idx_o  ( b_idx              )
+     );
+@@ -378,6 +391,10 @@ module axi_demux_simple #(
+     //--------------------------------------
+ 
+     logic [cf_math_pkg::idx_width(NoMstPorts)-1:0] r_idx;
++    logic slv_r_ready, slv_r_valid;
++
++    assign slv_r_ready        = slv_req_i.r_ready && !rack_fifo_full;
++    assign slv_resp_o.r_valid = slv_r_valid       && !rack_fifo_full;
+ 
+     // Arbitration of the different r responses
+     rr_arb_tree #(
+@@ -393,15 +410,15 @@ module axi_demux_simple #(
+       .req_i  ( mst_r_valids  ),
+       .gnt_o  ( mst_r_readies ),
+       .data_i ( '0            ),
+-      .gnt_i  ( slv_req_i.r_ready   ),
+-      .req_o  ( slv_resp_o.r_valid   ),
++      .gnt_i  ( slv_r_ready   ),
++      .req_o  ( slv_r_valid   ),
+       .data_o (),
+       .idx_o  ( r_idx              )
+     );
+ 
+     always_comb begin
+       if (slv_resp_o.r_valid) begin
+-        `AXI_SET_R_STRUCT(slv_resp_o.r, mst_resps_i[r_idx].r)
++        `ACE_SET_R_STRUCT(slv_resp_o.r, mst_resps_i[r_idx].r)
+       end else begin
+         slv_resp_o.r = '0;
+       end
+@@ -447,6 +464,10 @@ module axi_demux_simple #(
+ 
+         //  R channel
+         mst_reqs_o[i].r_ready = mst_r_readies[i];
++
++        // xACKs
++        mst_reqs_o[i].wack = mst_wacks[i];
++        mst_reqs_o[i].rack = mst_racks[i];
+       end
+     end
+     // unpack the response B and R channels for the arbitration
+@@ -457,6 +478,57 @@ module axi_demux_simple #(
+       assign mst_r_valids[i]       = mst_resps_i[i].r_valid;
+     end
+ 
++    //--------------------------------------
++    //  xACKs
++    //--------------------------------------
++
++    fifo_v3 #(
++        .FALL_THROUGH (1'b0),
++        .DEPTH        (MaxTrans),
++        .dtype        (select_t)
++    ) i_switch_w_fifo (
++        .clk_i,
++        .rst_ni,
++        .flush_i    (1'b0),
++        .testmode_i (1'b0),
++        .full_o     (wack_fifo_full),
++        .empty_o    (),
++        .usage_o    (),
++        .data_i     (b_idx),
++        .push_i     (slv_resp_o.b_valid && slv_req_i.b_ready),
++        .data_o     (wack_idx),
++        .pop_i      (slv_req_i.wack)
++    );
++
++    fifo_v3 #(
++        .FALL_THROUGH (1'b0),
++        .DEPTH        (MaxTrans),
++        .dtype        (select_t)
++    ) i_switch_r_fifo (
++        .clk_i,
++        .rst_ni,
++        .flush_i    (1'b0),
++        .testmode_i (1'b0),
++        .full_o     (rack_fifo_full),
++        .empty_o    (),
++        .usage_o    (),
++        .data_i     (r_idx),
++        .push_i     (slv_resp_o.r_valid && slv_req_i.r_ready && slv_resp_o.r.last),
++        .data_o     (rack_idx),
++        .pop_i      (slv_req_i.rack)
++    );
++
++    always_comb begin
++      mst_wacks = '0;
++      mst_racks = '0;
++
++      if (slv_req_i.rack)
++        mst_racks[rack_idx] = 1'b1;
++
++      if (slv_req_i.wack)
++        mst_wacks[wack_idx] = 1'b1;
++    end
++
+ // Validate parameters.
+ // pragma translate_off
+ `ifndef VERILATOR
+diff --git a/axi_mux.sv b/axi_mux.sv
+index da17e2b8..a6964131 100644
+--- a/axi_mux.sv
++++ b/axi_mux.sv
+@@ -25,7 +25,7 @@
+ `include "common_cells/assertions.svh"
+ `include "common_cells/registers.svh"
+ 
+-module axi_mux #(
++module ace_mux #(
+   // AXI parameter and channel types
+   parameter int unsigned SlvAxiIDWidth = 32'd0, // AXI ID width, slave ports
+   parameter type         slv_aw_chan_t = logic, // AW Channel Type, slave ports
+@@ -44,6 +44,10 @@ module axi_mux #(
+   parameter int unsigned NoSlvPorts    = 32'd0, // Number of slave ports
+   // Maximum number of outstanding transactions per write
+   parameter int unsigned MaxWTrans     = 32'd8,
++  // Maximum number of outstanding transactions per B channel (ACE)
++  parameter int unsigned MaxBTrans     = 32'd8,
++  // Maximum number of outstanding transactions per R channel (ACE)
++  parameter int unsigned MaxRTrans     = 32'd8,
+   // If enabled, this multiplexer is purely combinatorial
+   parameter bit          FallThrough   = 1'b0,
+   // add spill register on write master ports, adds a cycle latency on write channels
+@@ -52,7 +56,9 @@ module axi_mux #(
+   parameter bit          SpillB        = 1'b0,
+   // add spill register on read master ports, adds a cycle latency on read channels
+   parameter bit          SpillAr       = 1'b1,
+-  parameter bit          SpillR        = 1'b0
++  parameter bit          SpillR        = 1'b0,
++  // add registers on xACK ports, add a cycle latency on acknowledgment signals (ACE)
++  parameter bit          RegAck        = 1'b0
+ ) (
+   input  logic                       clk_i,    // Clock
+   input  logic                       rst_ni,   // Asynchronous reset active low
+@@ -135,6 +141,20 @@ module axi_mux #(
+       .ready_i ( slv_reqs_i[0].r_ready  ),
+       .data_o  ( slv_resps_o[0].r       )
+     );
++    if (RegAck) begin : gen_xack_regs
++      always_ff @(posedge clk_i or negedge rst_ni) begin
++        if (!rst_ni) begin
++          mst_req_o.rack <= 1'b0;
++          mst_req_o.wack <= 1'b0;
++        end else begin
++          mst_req_o.rack <= slv_reqs_i[0].rack;
++          mst_req_o.wack <= slv_reqs_i[0].wack;
++        end
++      end
++    end else begin : gen_no_xack_reg
++      assign mst_req_o.rack = slv_reqs_i[0].rack;
++      assign mst_req_o.wack = slv_reqs_i[0].wack;
++    end
+ // Validate parameters.
+ // pragma translate_off
+     `ASSERT_INIT(CorrectIdWidthSlvAw, $bits(slv_reqs_i[0].aw.id) == SlvAxiIDWidth)
+@@ -192,7 +212,7 @@ module axi_mux #(
+ 
+     // B channel spill reg
+     mst_b_chan_t    mst_b_chan;
+-    logic           mst_b_valid;
++    logic           mst_b_valid,  mst_b_ready;
+ 
+     // AR channel for when spill is enabled
+     mst_ar_chan_t   mst_ar_chan;
+@@ -203,7 +223,10 @@ module axi_mux #(
+ 
+     // R channel spill reg
+     mst_r_chan_t    mst_r_chan;
+-    logic           mst_r_valid;
++    logic           mst_r_valid,  mst_r_ready;
++
++    // xACK FIFOs
++    logic           rack_fifo_full, wack_fifo_full;
+ 
+     //--------------------------------------
+     // ID prepend for all slave ports
+@@ -387,7 +410,8 @@ module axi_mux #(
+     assign slv_b_chans  = {NoSlvPorts{mst_b_chan}};
+     // control B channel handshake
+     assign switch_b_id  = mst_b_chan.id[SlvAxiIDWidth+:MstIdxBits];
+-    assign slv_b_valids = (mst_b_valid) ? (1 << switch_b_id) : '0;
++    assign slv_b_valids = (mst_b_valid && !wack_fifo_full) ? (1 << switch_b_id) : '0;
++    assign mst_b_ready  = slv_b_readies[switch_b_id] && !wack_fifo_full;
+ 
+     spill_register #(
+       .T       ( mst_b_chan_t ),
+@@ -399,7 +423,7 @@ module axi_mux #(
+       .ready_o ( mst_req_o.b_ready          ),
+       .data_i  ( mst_resp_i.b               ),
+       .valid_o ( mst_b_valid                ),
+-      .ready_i ( slv_b_readies[switch_b_id] ),
++      .ready_i ( mst_b_ready                ),
+       .data_o  ( mst_b_chan                 )
+     );
+ 
+@@ -446,7 +470,8 @@ module axi_mux #(
+     assign slv_r_chans  = {NoSlvPorts{mst_r_chan}};
+     // R channel handshake control
+     assign switch_r_id  = mst_r_chan.id[SlvAxiIDWidth+:MstIdxBits];
+-    assign slv_r_valids = (mst_r_valid) ? (1 << switch_r_id) : '0;
++    assign slv_r_valids = (mst_r_valid && !rack_fifo_full) ? (1 << switch_r_id) : '0;
++    assign mst_r_ready  = slv_r_readies[switch_r_id] && !rack_fifo_full;
+ 
+     spill_register #(
+       .T       ( mst_r_chan_t ),
+@@ -458,9 +483,66 @@ module axi_mux #(
+       .ready_o ( mst_req_o.r_ready          ),
+       .data_i  ( mst_resp_i.r               ),
+       .valid_o ( mst_r_valid                ),
+-      .ready_i ( slv_r_readies[switch_r_id] ),
++      .ready_i ( mst_r_ready                ),
+       .data_o  ( mst_r_chan                 )
+     );
++
++    //--------------------------------------
++    // xACKs signals (ACE)
++    //--------------------------------------
++
++    switch_id_t switch_wack_id, switch_rack_id;
++
++    fifo_v3 #(
++      .FALL_THROUGH (1'b0),
++      .DEPTH        (MaxBTrans),
++      .dtype        (switch_id_t)
++    ) i_switch_b_fifo (
++      .clk_i,
++      .rst_ni,
++      .flush_i    (1'b0),
++      .testmode_i (1'b0),
++      .full_o     (wack_fifo_full),
++      .empty_o    (),
++      .usage_o    (),
++      .data_i     (switch_b_id),
++      .push_i     (mst_resp_i.b_valid && mst_req_o.b_ready),
++      .data_o     (switch_wack_id),
++      .pop_i      (mst_req_o.wack)
++    );
++
++    fifo_v3 #(
++      .FALL_THROUGH (1'b0),
++      .DEPTH        (MaxRTrans),
++      .dtype        (switch_id_t)
++    ) i_switch_r_fifo (
++      .clk_i,
++      .rst_ni,
++      .flush_i    (1'b0),
++      .testmode_i (1'b0),
++      .full_o     (rack_fifo_full),
++      .empty_o    (),
++      .usage_o    (),
++      .data_i     (switch_r_id),
++      .push_i     (mst_resp_i.r_valid && mst_req_o.r_ready && mst_resp_i.r.last),
++      .data_o     (switch_rack_id),
++      .pop_i      (mst_req_o.rack)
++    );
++
++    if (RegAck) begin : gen_xack_regs
++      always_ff @(posedge clk_i or negedge rst_ni) begin
++        if (!rst_ni) begin
++          mst_req_o.rack <= 1'b0;
++          mst_req_o.wack <= 1'b0;
++        end else begin
++          mst_req_o.rack <= slv_reqs_i[switch_wack_id].wack;
++          mst_req_o.wack <= slv_reqs_i[switch_rack_id].rack;
++        end
++      end
++    end else begin : gen_no_xack_reg
++      assign mst_req_o.wack = slv_reqs_i[switch_wack_id].wack;
++      assign mst_req_o.rack = slv_reqs_i[switch_rack_id].rack;
++    end
+   end
+ 
+ // pragma translate_off
+@@ -495,9 +577,9 @@ module axi_mux #(
+ endmodule
+ 
+ // interface wrap
+-`include "axi/assign.svh"
+-`include "axi/typedef.svh"
+-module axi_mux_intf #(
++`include "ace/assign.svh"
++`include "ace/typedef.svh"
++module ace_mux_intf #(
+   parameter int unsigned SLV_AXI_ID_WIDTH = 32'd0, // Synopsys DC requires default value for params
+   parameter int unsigned MST_AXI_ID_WIDTH = 32'd0,
+   parameter int unsigned AXI_ADDR_WIDTH   = 32'd0,
+@@ -506,6 +588,10 @@ module axi_mux_intf #(
+   parameter int unsigned NO_SLV_PORTS     = 32'd0, // Number of slave ports
+   // Maximum number of outstanding transactions per write
+   parameter int unsigned MAX_W_TRANS      = 32'd8,
++  // Maximum number of outstanding transactions per B channel (ACE)
++  parameter int unsigned MAX_B_TRANS      = 32'd8,
++  // Maximum number of outstanding transactions per R channel (ACE)
++  parameter int unsigned MAX_R_TRANS      = 32'd8,
+   // if enabled, this multiplexer is purely combinatorial
+   parameter bit          FALL_THROUGH     = 1'b0,
+   // add spill register on write master ports, adds a cycle latency on write channels
+@@ -514,13 +600,15 @@ module axi_mux_intf #(
+   parameter bit          SPILL_B          = 1'b0,
+   // add spill register on read master ports, adds a cycle latency on read channels
+   parameter bit          SPILL_AR         = 1'b1,
+-  parameter bit          SPILL_R          = 1'b0
++  parameter bit          SPILL_R          = 1'b0,
++  // add registers on xACK ports, add a cycle latency on acknowledgment signals (ACE)
++  parameter bit          REG_ACK          = 1'b0
+ ) (
+   input  logic   clk_i,                  // Clock
+   input  logic   rst_ni,                 // Asynchronous reset active low
+   input  logic   test_i,                 // Testmode enable
+-  AXI_BUS.Slave  slv [NO_SLV_PORTS-1:0], // slave ports
+-  AXI_BUS.Master mst                     // master port
++  ACE_BUS.Slave  slv [NO_SLV_PORTS-1:0], // slave ports
++  ACE_BUS.Master mst                     // master port
+ );
+ 
+   typedef logic [SLV_AXI_ID_WIDTH-1:0] slv_id_t;
+@@ -530,25 +618,25 @@ module axi_mux_intf #(
+   typedef logic [AXI_DATA_WIDTH/8-1:0] strb_t;
+   typedef logic [AXI_USER_WIDTH-1:0]   user_t;
+   // channels typedef
+-  `AXI_TYPEDEF_AW_CHAN_T(slv_aw_chan_t, addr_t, slv_id_t, user_t)
+-  `AXI_TYPEDEF_AW_CHAN_T(mst_aw_chan_t, addr_t, mst_id_t, user_t)
++  `ACE_TYPEDEF_AW_CHAN_T(slv_aw_chan_t, addr_t, slv_id_t, user_t)
++  `ACE_TYPEDEF_AW_CHAN_T(mst_aw_chan_t, addr_t, mst_id_t, user_t)
+ 
+   `AXI_TYPEDEF_W_CHAN_T(w_chan_t, data_t, strb_t, user_t)
+ 
+   `AXI_TYPEDEF_B_CHAN_T(slv_b_chan_t, slv_id_t, user_t)
+   `AXI_TYPEDEF_B_CHAN_T(mst_b_chan_t, mst_id_t, user_t)
+ 
+-  `AXI_TYPEDEF_AR_CHAN_T(slv_ar_chan_t, addr_t, slv_id_t, user_t)
+-  `AXI_TYPEDEF_AR_CHAN_T(mst_ar_chan_t, addr_t, mst_id_t, user_t)
++  `ACE_TYPEDEF_AR_CHAN_T(slv_ar_chan_t, addr_t, slv_id_t, user_t)
++  `ACE_TYPEDEF_AR_CHAN_T(mst_ar_chan_t, addr_t, mst_id_t, user_t)
+ 
+-  `AXI_TYPEDEF_R_CHAN_T(slv_r_chan_t, data_t, slv_id_t, user_t)
+-  `AXI_TYPEDEF_R_CHAN_T(mst_r_chan_t, data_t, mst_id_t, user_t)
++  `ACE_TYPEDEF_R_CHAN_T(slv_r_chan_t, data_t, slv_id_t, user_t)
++  `ACE_TYPEDEF_R_CHAN_T(mst_r_chan_t, data_t, mst_id_t, user_t)
+ 
+-  `AXI_TYPEDEF_REQ_T(slv_req_t, slv_aw_chan_t, w_chan_t, slv_ar_chan_t)
+-  `AXI_TYPEDEF_RESP_T(slv_resp_t, slv_b_chan_t, slv_r_chan_t)
++  `ACE_TYPEDEF_REQ_T(slv_req_t, slv_aw_chan_t, w_chan_t, slv_ar_chan_t)
++  `ACE_TYPEDEF_RESP_T(slv_resp_t, slv_b_chan_t, slv_r_chan_t)
+ 
+-  `AXI_TYPEDEF_REQ_T(mst_req_t, mst_aw_chan_t, w_chan_t, mst_ar_chan_t)
+-  `AXI_TYPEDEF_RESP_T(mst_resp_t, mst_b_chan_t, mst_r_chan_t)
++  `ACE_TYPEDEF_REQ_T(mst_req_t, mst_aw_chan_t, w_chan_t, mst_ar_chan_t)
++  `ACE_TYPEDEF_RESP_T(mst_resp_t, mst_b_chan_t, mst_r_chan_t)
+ 
+   slv_req_t  [NO_SLV_PORTS-1:0] slv_reqs;
+   slv_resp_t [NO_SLV_PORTS-1:0] slv_resps;
+@@ -556,14 +644,14 @@ module axi_mux_intf #(
+   mst_resp_t                    mst_resp;
+ 
+   for (genvar i = 0; i < NO_SLV_PORTS; i++) begin : gen_assign_slv_ports
+-    `AXI_ASSIGN_TO_REQ(slv_reqs[i], slv[i])
+-    `AXI_ASSIGN_FROM_RESP(slv[i], slv_resps[i])
++    `ACE_ASSIGN_TO_REQ(slv_reqs[i], slv[i])
++    `ACE_ASSIGN_FROM_RESP(slv[i], slv_resps[i])
+   end
+ 
+-  `AXI_ASSIGN_FROM_REQ(mst, mst_req)
+-  `AXI_ASSIGN_TO_RESP(mst_resp, mst)
++  `ACE_ASSIGN_FROM_REQ(mst, mst_req)
++  `ACE_ASSIGN_TO_RESP(mst_resp, mst)
+ 
+-  axi_mux #(
++  ace_mux #(
+     .SlvAxiIDWidth ( SLV_AXI_ID_WIDTH ),
+     .slv_aw_chan_t ( slv_aw_chan_t    ), // AW Channel Type, slave ports
+     .mst_aw_chan_t ( mst_aw_chan_t    ), // AW Channel Type, master port
+@@ -580,13 +668,16 @@ module axi_mux_intf #(
+     .mst_resp_t    ( mst_resp_t       ),
+     .NoSlvPorts    ( NO_SLV_PORTS     ), // Number of slave ports
+     .MaxWTrans     ( MAX_W_TRANS      ),
++    .MaxBTrans     ( MAX_B_TRANS      ),
++    .MaxRTrans     ( MAX_R_TRANS      ),
+     .FallThrough   ( FALL_THROUGH     ),
+     .SpillAw       ( SPILL_AW         ),
+     .SpillW        ( SPILL_W          ),
+     .SpillB        ( SPILL_B          ),
+     .SpillAr       ( SPILL_AR         ),
+-    .SpillR        ( SPILL_R          )
+-  ) i_axi_mux (
++    .SpillR        ( SPILL_R          ),
++    .RegAck        ( REG_ACK          )
++  ) i_ace_mux (
+     .clk_i       ( clk_i     ), // Clock
+     .rst_ni      ( rst_ni    ), // Asynchronous reset active low
+     .test_i      ( test_i    ), // Test Mode enable
+-- 
+2.39.3
+

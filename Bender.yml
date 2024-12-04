@@ -19,12 +19,12 @@ sources:
   # Level 0
   - src/ace_pkg.sv
   - src/ccu/ccu_pkg.sv
-  - src/ace_rw_split.sv
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
   - src/ace_aw_transaction_decoder.sv
   - src/ace_ar_transaction_decoder.sv
+  - src/ace_demux_simple.sv
   - src/ace_demux.sv
   - src/ace_mux.sv
   # Level 2
@@ -77,3 +77,15 @@ sources:
       - test/vip/cache_test_pkg.sv
       # Level 2
       - test/tb_ace_ccu_top.sv
+
+vendor_package:
+  - name: axi
+    target_dir: ips/axi
+    upstream: { git: "https://github.com/pulp-platform/axi.git", rev: 853ede23b2a9837951b74dbdc6d18c3eef5bac7d }
+    patch_dir: patches/axi
+    include_from_upstream:
+      - "src/axi_mux.sv"
+      - "src/axi_demux.sv"
+      - "src/axi_demux_simple.sv"
+    mapping:
+      - {from: 'src', to: '', patch_dir: ''}
