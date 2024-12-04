@@ -60,6 +60,18 @@
 `define AXI_TO_ACE_ASSIGN_R_STRUCT(dst, src) \
     `__AXI_TO_ACE_R(assign, dst, ., src, .)
 
+`define ACE_TO_AXI_SET_R_STRUCT(dst, src) \
+    `__ACE_TO_AXI_R(, dst, ., src, .)
+
+`define AXI_TO_ACE_SET_AW_STRUCT(dst, src) \
+    `__AXI_TO_ACE_AW(, dst, ., src, .)
+
+`define AXI_TO_ACE_SET_AR_STRUCT(dst, src) \
+    `__AXI_TO_ACE_AR(, dst, ., src, .)
+
+`define AXI_TO_ACE_SET_R_STRUCT(dst, src) \
+    `__AXI_TO_ACE_R(, dst, ., src, .)
+
 
 `define ACE_TO_AXI_ASSIGN_REQ(dst, src)   \
     `AXI_ASSIGN_AW_STRUCT(dst.aw, src.aw) \

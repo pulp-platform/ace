@@ -1,4 +1,5 @@
 `include "axi/assign.svh"
+`include "ace/convert.svh"
 import ace_pkg::*;
 
 // FSM to control write snoop transactions
@@ -71,7 +72,6 @@ logic r_last_d, r_last_q;
 logic recv_r, finish;
 logic ac_handshake, cd_handshake, w_slv_handshake, r_slv_handshake;
 logic r_last;
-acsnoop_t snoop_trs_holder_d, snoop_trs_holder_q;
 logic w_last_d, w_last_q;
 logic ignore_cd_d, ignore_cd_q;
 slv_req_s slv_req, slv_req_holder;
@@ -144,6 +144,7 @@ always_comb begin
         mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
         mst_req_o.aw.len   = AXLEN;
         mst_req_o.aw.size  = AXSIZE;
+        mst_req_o.aw.atop  = '0;
         mst_req_o.w.data   = snoop_resp_i.cd.data;
         mst_req_o.w.strb   = '1;
         mst_req_o.w.last   = snoop_resp_i.cd.last;
@@ -157,6 +158,8 @@ always_comb begin
     w_last_d             = w_last_q;
     cd_last_d            = cd_last_q;
     ignore_cd_d          = ignore_cd_q;
+    b_done_d             = b_done_q;
+    r_last_d             = r_last_q;
     pop_slv_req_fifo     = 1'b0;
     write_back_source    = 1'b0;
     snoop_req_o.cr_ready = 1'b0;
@@ -232,7 +235,7 @@ always_comb begin
             if (recv_r) begin
                 mst_req_o.r_ready  = slv_req_i.r_ready;
                 slv_resp_o.r_valid = mst_resp_i.r_valid;
-                `AXI_SET_R_STRUCT(slv_resp_o.r, mst_resp_i.r)
+                `AXI_TO_ACE_SET_R_STRUCT(slv_resp_o.r, mst_resp_i.r)
             end
             if (mst_resp_i.aw_ready) begin
                 aw_valid_d = 1'b0;
