@@ -301,23 +301,25 @@ module tb_ace_ccu_top #(
         $readmemh(init_main_mem, axi_mem.i_sim_mem.mem);
     end
 
+    localparam ccu_pkg::ccu_cfg_t CcuCfg = '{
+        DcacheLineWidth:  CachelineBits,
+        AxiAddrWidth   :  AxiAddrWidth,
+        AxiDataWidth   :  AxiDataWidth,
+        AxiUserWidth   :  AxiUserWidth,
+        AxiSlvIdWidth  :  AxiIdWidthMasters,
+        NoSlvPorts     :  TbNumMst,
+        NoSlvPerGroup  :  MstPerGroup,
+        AmoHotfix      :  1
+    };
+
     ace_ccu_top_intf #(
-        .AXI_ADDR_WIDTH       (AxiAddrWidth),
-        .AXI_DATA_WIDTH       (AxiDataWidth),
-        .AXI_USER_WIDTH       (AxiUserWidth),
-        .AXI_SLV_ID_WIDTH     (AxiIdWidthMasters),
-        .NO_SLV_PORTS         (TbNumMst),
-        .NO_SLV_PER_GROUPS    (MstPerGroup),
-        .DCACHE_LINE_WIDTH    (CachelineBits),
-        .domain_mask_t        (domain_mask_t),
-        .domain_set_t         (domain_set_t)
-        //.LEGACY(1)
+        .CCU_CFG      (CcuCfg)
     ) ccu (
-        .clk_i                (clk),
-        .rst_ni               (rst_n),
-        .domain_set_i         (domain_set),
-        .slv_ports            (ace_intf),
-        .snoop_ports          (snoop_intf),
-        .mst_port             (axi_intf)
+        .clk_i        (clk),
+        .rst_ni       (rst_n),
+        .domain_set_i (domain_set),
+        .slv_ports    (ace_intf),
+        .snoop_ports  (snoop_intf),
+        .mst_port     (axi_intf)
     );
 endmodule
