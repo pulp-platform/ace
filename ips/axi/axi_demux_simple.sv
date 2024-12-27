@@ -13,6 +13,7 @@
 // - Michael Rogenmoser <michaero@iis.ee.ethz.ch>
 // - Thomas Benz <tbenz@iis.ee.ethz.ch>
 // - Andreas Kurth <akurth@iis.ee.ethz.ch>
+// - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
 `include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
