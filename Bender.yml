@@ -27,6 +27,7 @@ sources:
   - src/ace_demux_simple.sv
   - src/ace_demux.sv
   - src/ace_mux.sv
+  - src/ace_cut.sv
   # Level 2
   - src/ccu/lookup_fifo.sv
   - src/ccu/ace_ccu_lock_reg.sv
