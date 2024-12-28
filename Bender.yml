@@ -87,5 +87,6 @@ vendor_package:
       - "src/axi_mux.sv"
       - "src/axi_demux.sv"
       - "src/axi_demux_simple.sv"
+      - "src/axi_cut.sv"
     mapping:
       - {from: 'src', to: '', patch_dir: ''}
