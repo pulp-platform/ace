@@ -210,7 +210,7 @@ always_comb begin
             cd_last_d            = 1'b0;
             arlen_counter_clear  = 1'b1;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
-            if (snoop_resp_i.cr_valid) begin
+            if (snoop_resp_i.cr_valid && slv_req_fifo_valid) begin
                 rresp_d[2] = resp_dirty;
                 rresp_d[3] = resp_shared;
                 if (snoop_resp_i.cr_resp.DataTransfer) begin

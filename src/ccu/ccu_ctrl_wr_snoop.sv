@@ -186,7 +186,7 @@ always_comb begin
             cd_last_d            = 1'b0;
             ignore_cd_d          = 1'b0;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
-            if (snoop_resp_i.cr_valid) begin
+            if (snoop_resp_i.cr_valid && slv_req_fifo_valid) begin
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
                     // If received data is erronous or clean,
                     // we receive CD but do not write it
