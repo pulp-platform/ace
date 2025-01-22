@@ -76,7 +76,7 @@ logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
-logic [4:0] arlen_counter;
+logic [4:0] arlen_counter_q;
 logic arlen_counter_en, arlen_counter_clear;
 logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
@@ -97,7 +97,7 @@ assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
 assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
 assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
-assign r_last             = (arlen_counter == slv_req_holder.ar.len);
+assign r_last             = (arlen_counter_q == slv_req_holder.ar.len);
 assign cd_last            = cd_handshake && snoop_resp_i.cd.last;
 assign mst_req_o.ar_valid = ar_valid_q;
 `AXI_ASSIGN_AR_STRUCT(mst_req_o.ar, slv_req_holder.ar)
@@ -105,11 +105,11 @@ assign mst_req_o.ar_valid = ar_valid_q;
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
-        arlen_counter <= '0;
+        arlen_counter_q <= '0;
     end else if (arlen_counter_clear) begin
-        arlen_counter <= '0;
+        arlen_counter_q <= '0;
     end else if (arlen_counter_en) begin
-        arlen_counter <= arlen_counter + 1'b1;
+        arlen_counter_q <= arlen_counter_q + 1'b1;
     end
 end
 
