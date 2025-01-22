@@ -27,6 +27,10 @@ module ccu_ctrl_r_snoop #(
     parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
     parameter int unsigned AXSIZE     = 0,
+    ///
+    parameter int unsigned BLOCK_OFFSET = 0,
+    /// Fixed value to align CD writeback addresses,
+    parameter int unsigned ALIGN_SIZE = 0,
     /// Depth of FIFO that stores AR requests
     parameter int unsigned FIFO_DEPTH = 2
 ) (
@@ -150,7 +154,7 @@ end
 always_comb begin
     mst_req_o.aw_valid    = aw_valid_q;
     mst_req_o.aw.id       = slv_req_holder.ar.id;
-    mst_req_o.aw.addr     = slv_req_holder.ar.addr;
+    mst_req_o.aw.addr     = axi_pkg::aligned_addr(slv_req_holder.ar.addr, ALIGN_SIZE);
     mst_req_o.aw.len      = AXLEN;
     mst_req_o.aw.size     = AXSIZE;
     mst_req_o.aw.burst    = axi_pkg::BURST_WRAP;
