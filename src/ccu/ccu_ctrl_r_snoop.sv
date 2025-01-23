@@ -78,6 +78,7 @@ logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
 logic [4:0] arlen_counter_q;
 logic arlen_counter_en, arlen_counter_clear;
+logic [$clog2(AXLEN):0] rdrop_counter_q, rdrop_counter_d;
 logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
@@ -122,6 +123,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         ar_valid_q   <= '0;
         cd_last_q    <= '0;
         r_last_q     <= '0;
+        rdrop_counter_q <= '0;
     end else begin
         fsm_state_q  <= fsm_state_d;
         rresp_q[3:2] <= rresp_d[3:2];
@@ -130,6 +132,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         ar_valid_q   <= ar_valid_d;
         cd_last_q    <= cd_last_d;
         r_last_q     <= r_last_d;
+        rdrop_counter_q <= rdrop_counter_d;
     end
 end
 
@@ -188,6 +191,7 @@ always_comb begin
     fsm_state_d          = fsm_state_q;
     cd_mask_d            = cd_mask_q;
     rresp_d[3:2]         = rresp_q[3:2];
+    rdrop_counter_d      = rdrop_counter_q;
     arlen_counter_clear  = 1'b0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.r_ready    = 1'b0;
@@ -219,6 +223,7 @@ always_comb begin
                         cd_mask_d[MST_R_IDX] = 1'b1;
                         cd_mask_d[MEM_W_IDX] = write_back;
                         aw_valid_d           = write_back;
+                        rdrop_counter_d      = slv_req_holder.ar.addr[BLOCK_OFFSET:AXLEN+2];
                     end else begin
                         cd_mask_d   = '1;
                         fsm_state_d = IGNORE_CD;
@@ -247,11 +252,17 @@ always_comb begin
             slv_resp_o.r.data  = snoop_resp_i.cd.data;
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
             slv_resp_o.r.last  = r_last;
-            slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q;
+            slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q && (rdrop_counter_q == '0);
             arlen_counter_en   = r_handshake;
 
+            if (rdrop_counter_q != '0) begin
+                if (cd_handshake) begin
+                    rdrop_counter_d = rdrop_counter_q - 1;
+                end
+            end
+
             cd_fork_ready[MEM_W_IDX] = mst_resp_i.w_ready && !aw_valid_q;
-            cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready  && !r_last_q;
+            cd_fork_ready[MST_R_IDX] = (rdrop_counter_q != '0) || (slv_req_i.r_ready  && !r_last_q) || r_last_q;
 
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = cd_ready;
