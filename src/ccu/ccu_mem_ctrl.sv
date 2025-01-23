@@ -48,18 +48,24 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
 end
 
 // AW Channel
-stream_arbiter #(
-    .DATA_T(aw_chan_t),
-    .N_INP (2)
-) i_stream_arbiter_aw (
+rr_arb_tree #(
+    .NumIn      (2),
+    .DataType   (aw_chan_t),
+    .ExtPrio    (1'b0),
+    .AxiVldRdy  (1'b1),
+    .LockIn     (1'b1)
+) i_arbiter (
     .clk_i,
     .rst_ni,
-    .inp_data_i ({r_mst_req_i.aw, wr_mst_req_i.aw}),
-    .inp_valid_i({r_mst_req_i.aw_valid, wr_mst_req_i.aw_valid}),
-    .inp_ready_o({r_mst_resp_o.aw_ready, wr_mst_resp_o.aw_ready}),
-    .oup_data_o (mst_req.aw),
-    .oup_valid_o(mst_req.aw_valid),
-    .oup_ready_i(mst_resp_i.aw_ready)
+    .flush_i ('0),
+    .rr_i    ('0),
+    .req_i   ({r_mst_req_i.aw_valid, wr_mst_req_i.aw_valid}),
+    .gnt_o   ({r_mst_resp_o.aw_ready, wr_mst_resp_o.aw_ready}),
+    .data_i  ({r_mst_req_i.aw, wr_mst_req_i.aw}),
+    .req_o   (mst_req.aw_valid),
+    .gnt_i   (mst_resp_i.aw_ready),
+    .data_o  (mst_req.aw),
+    .idx_o   (w_select)
 );
 
 // AR Channel (W-FSM cannot generate AR requests)
@@ -122,7 +128,6 @@ fifo_v3 #(
     .pop_i      (w_fifo_pop)
 );
 
-assign w_select    = r_mst_req_i.aw_valid && r_mst_resp_o.aw_ready;
 assign w_fifo_push = ~aw_lock_q && mst_req_o.aw_valid;
 assign w_fifo_pop  = mst_req_o.w_valid && mst_resp_i.w_ready && mst_req_o.w.last;
 assign aw_lock_d   = ~mst_resp_i.aw_ready && (mst_req_o.aw_valid || aw_lock_q);
