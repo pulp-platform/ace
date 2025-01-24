@@ -12,6 +12,7 @@
 // Authors:
 // - Wolfgang Roenninger <wroennin@iis.ee.ethz.ch>
 // - Andreas Kurth <akurth@iis.ee.ethz.ch>
+// - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
 // AXI Multiplexer: This module multiplexes the AXI4 slave ports down to one master port.
 // The AXI IDs from the slave ports get extended with the respective slave port index.

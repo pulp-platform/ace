@@ -2,38 +2,38 @@
 `include "ace/typedef.svh"
 `include "ace/domain.svh"
 
-module ace_ccu_top import ace_pkg::*;
+module ace_ccu_top import ace_pkg::*; import ccu_pkg::*;
 #(
-  parameter bit          LEGACY          = 0,
-  parameter int unsigned AxiAddrWidth    = 0,
-  parameter int unsigned AxiDataWidth    = 0,
-  parameter int unsigned AxiUserWidth    = 0,
-  parameter int unsigned AxiSlvIdWidth   = 0,
-  parameter int unsigned NoSlvPorts      = 0,
-  parameter int unsigned NoSlvPerGroup   = 0,
-  parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned CmAddrBase      = $clog2(DcacheLineWidth >> 3),
-  parameter int unsigned CmAddrWidth     = 8,
-  parameter type slv_ar_chan_t           = logic,
-  parameter type slv_aw_chan_t           = logic,
-  parameter type slv_b_chan_t            = logic,
-  parameter type w_chan_t                = logic,
-  parameter type slv_r_chan_t            = logic,
-  parameter type mst_ar_chan_t           = logic,
-  parameter type mst_aw_chan_t           = logic,
-  parameter type mst_b_chan_t            = logic,
-  parameter type mst_r_chan_t            = logic,
-  parameter type slv_req_t               = logic,
-  parameter type slv_resp_t              = logic,
-  parameter type mst_req_t               = logic,
-  parameter type mst_resp_t              = logic,
-  parameter type snoop_ac_t              = logic,
-  parameter type snoop_cr_t              = logic,
-  parameter type snoop_cd_t              = logic,
-  parameter type snoop_req_t             = logic,
-  parameter type snoop_resp_t            = logic,
-  parameter type domain_mask_t           = `DOMAIN_MASK_T(NoSlvPorts),
-  parameter type domain_set_t            = `DOMAIN_SET_T
+  parameter ccu_cfg_t CcuCfg              = '{default: '0},
+  parameter type slv_ar_chan_t            = logic,
+  parameter type slv_aw_chan_t            = logic,
+  parameter type slv_b_chan_t             = logic,
+  parameter type w_chan_t                 = logic,
+  parameter type slv_r_chan_t             = logic,
+  parameter type mst_ar_chan_t            = logic,
+  parameter type mst_aw_chan_t            = logic,
+  parameter type mst_b_chan_t             = logic,
+  parameter type mst_r_chan_t             = logic,
+  parameter type slv_req_t                = logic,
+  parameter type slv_resp_t               = logic,
+  parameter type mst_req_t                = logic,
+  parameter type mst_resp_t               = logic,
+  parameter type snoop_ac_t               = logic,
+  parameter type snoop_cr_t               = logic,
+  parameter type snoop_cd_t               = logic,
+  parameter type snoop_req_t              = logic,
+  parameter type snoop_resp_t             = logic,
+  // Unpack config struct
+  localparam bit          LEGACY          = CcuCfg.AmoHotfix,
+  localparam int unsigned AxiAddrWidth    = CcuCfg.AxiAddrWidth,
+  localparam int unsigned AxiDataWidth    = CcuCfg.AxiDataWidth,
+  localparam int unsigned AxiUserWidth    = CcuCfg.AxiUserWidth,
+  localparam int unsigned AxiSlvIdWidth   = CcuCfg.AxiSlvIdWidth,
+  localparam int unsigned NoSlvPorts      = CcuCfg.NoSlvPorts,
+  localparam int unsigned NoSlvPerGroup   = CcuCfg.NoSlvPerGroup,
+  localparam int unsigned DcacheLineWidth = CcuCfg.DcacheLineWidth,
+  localparam type         domain_mask_t   = `DOMAIN_MASK_T(NoSlvPorts),
+  localparam type         domain_set_t    = `DOMAIN_SET_T
 ) (
   input  logic                         clk_i,
   input  logic                         rst_ni,
@@ -46,16 +46,15 @@ module ace_ccu_top import ace_pkg::*;
   input  mst_resp_t                    mst_resp_i
 );
 
+  // Local parameters and typedefs
+  localparam int unsigned NoGroups             = NoSlvPorts / NoSlvPerGroup;
+  localparam int unsigned NoSnoopPortsPerGroup = 2;
+  localparam int unsigned NoSnoopPorts         = NoSnoopPortsPerGroup * NoGroups;
+
+  localparam int unsigned CmAddrBase  = $clog2(DcacheLineWidth >> 3);
+  localparam int unsigned CmAddrWidth = 8;
+
   typedef logic [CmAddrWidth-1:0] cm_idx_t;
-
-  // Parameters to be used for testing/debugging
-  // Otherwise assume they are hardcoded
-  localparam ConfCheck = 1;
-
-  // Local parameters
-  localparam NoGroups             = NoSlvPorts / NoSlvPerGroup;
-  localparam NoSnoopPortsPerGroup = 2;
-  localparam NoSnoopPorts         = NoSnoopPortsPerGroup * NoGroups;
 
   // To snoop interconnect
   domain_mask_t [NoSnoopPorts-1:0] snoop_sel;
@@ -163,17 +162,19 @@ module ace_ccu_top import ace_pkg::*;
 
 endmodule
 
-module ace_ccu_top_intf #(
-  parameter bit          LEGACY            = 0,
-  parameter int unsigned AXI_ADDR_WIDTH    = 0,
-  parameter int unsigned AXI_DATA_WIDTH    = 0,
-  parameter int unsigned AXI_USER_WIDTH    = 0,
-  parameter int unsigned AXI_SLV_ID_WIDTH  = 0,
-  parameter int unsigned NO_SLV_PORTS      = 0,
-  parameter int unsigned NO_SLV_PER_GROUPS = 0,
-  parameter int unsigned DCACHE_LINE_WIDTH = 0,
-  parameter type         domain_mask_t     = `DOMAIN_MASK_T(NO_SLV_PORTS),
-  parameter type         domain_set_t      = `DOMAIN_SET_T
+module ace_ccu_top_intf import ccu_pkg::*; #(
+  parameter ccu_cfg_t     CCU_CFG           = '{default: '0},
+  // Unpack config structure
+  localparam int unsigned AXI_ADDR_WIDTH    = CCU_CFG.AxiAddrWidth,
+  localparam int unsigned AXI_DATA_WIDTH    = CCU_CFG.AxiDataWidth,
+  localparam int unsigned AXI_USER_WIDTH    = CCU_CFG.AxiUserWidth,
+  localparam int unsigned AXI_SLV_ID_WIDTH  = CCU_CFG.AxiSlvIdWidth,
+  localparam int unsigned NO_SLV_PORTS      = CCU_CFG.NoSlvPorts,
+  localparam int unsigned NO_SLV_PER_GROUP  = CCU_CFG.NoSlvPerGroup,
+  localparam int unsigned DCACHE_LINE_WIDTH = CCU_CFG.DcacheLineWidth,
+  localparam int unsigned AXI_ID_MST_WIDTH  = CcuAxiMstIdWidth(CCU_CFG),
+  localparam type         domain_mask_t     = `DOMAIN_MASK_T(NO_SLV_PORTS),
+  localparam type         domain_set_t      = `DOMAIN_SET_T
 ) (
   input logic                           clk_i,
   input logic                           rst_ni,
@@ -182,11 +183,6 @@ module ace_ccu_top_intf #(
   SNOOP_BUS.Slave                       snoop_ports [NO_SLV_PORTS-1:0],
   AXI_BUS.Master                        mst_port
 );
-
-  localparam NO_GROUPS = NO_SLV_PORTS/NO_SLV_PER_GROUPS;
-  localparam AXI_ID_MST_WIDTH = AXI_SLV_ID_WIDTH          + // Initial ID width
-                                $clog2(NO_SLV_PER_GROUPS) + // Internal MUX additional bits
-                                $clog2(3*NO_GROUPS) + 1;    // Final MUX additional bits
 
   typedef logic [AXI_SLV_ID_WIDTH-1:0] id_slv_t;
   typedef logic [AXI_ID_MST_WIDTH-1:0] id_mst_t;
@@ -237,34 +233,25 @@ module ace_ccu_top_intf #(
   `AXI_ASSIGN_TO_RESP(mst_resp, mst_port)
 
   ace_ccu_top #(
-    .LEGACY          (LEGACY           ),
-    .AxiAddrWidth    (AXI_ADDR_WIDTH   ),
-    .AxiDataWidth    (AXI_DATA_WIDTH   ),
-    .AxiUserWidth    (AXI_USER_WIDTH   ),
-    .AxiSlvIdWidth   (AXI_SLV_ID_WIDTH ),
-    .NoSlvPorts      (NO_SLV_PORTS     ),
-    .NoSlvPerGroup   (NO_SLV_PER_GROUPS),
-    .DcacheLineWidth (DCACHE_LINE_WIDTH),
-    .slv_ar_chan_t   (slv_ar_chan_t    ),
-    .slv_aw_chan_t   (slv_aw_chan_t    ),
-    .slv_b_chan_t    (slv_b_chan_t     ),
-    .w_chan_t        (w_chan_t         ),
-    .slv_r_chan_t    (slv_r_chan_t     ),
-    .mst_ar_chan_t   (mst_ar_chan_t    ),
-    .mst_aw_chan_t   (mst_aw_chan_t    ),
-    .mst_b_chan_t    (mst_b_chan_t     ),
-    .mst_r_chan_t    (mst_r_chan_t     ),
-    .slv_req_t       (slv_req_t        ),
-    .slv_resp_t      (slv_resp_t       ),
-    .mst_req_t       (mst_req_t        ),
-    .mst_resp_t      (mst_resp_t       ),
-    .snoop_ac_t      (snoop_ac_t       ),
-    .snoop_cr_t      (snoop_cr_t       ),
-    .snoop_cd_t      (snoop_cd_t       ),
-    .snoop_req_t     (snoop_req_t      ),
-    .snoop_resp_t    (snoop_resp_t     ),
-    .domain_mask_t   (domain_mask_t    ),
-    .domain_set_t    (domain_set_t     )
+    .CcuCfg          (CCU_CFG      ),
+    .slv_ar_chan_t   (slv_ar_chan_t),
+    .slv_aw_chan_t   (slv_aw_chan_t),
+    .slv_b_chan_t    (slv_b_chan_t ),
+    .w_chan_t        (w_chan_t     ),
+    .slv_r_chan_t    (slv_r_chan_t ),
+    .mst_ar_chan_t   (mst_ar_chan_t),
+    .mst_aw_chan_t   (mst_aw_chan_t),
+    .mst_b_chan_t    (mst_b_chan_t ),
+    .mst_r_chan_t    (mst_r_chan_t ),
+    .slv_req_t       (slv_req_t    ),
+    .slv_resp_t      (slv_resp_t   ),
+    .mst_req_t       (mst_req_t    ),
+    .mst_resp_t      (mst_resp_t   ),
+    .snoop_ac_t      (snoop_ac_t   ),
+    .snoop_cr_t      (snoop_cr_t   ),
+    .snoop_cd_t      (snoop_cd_t   ),
+    .snoop_req_t     (snoop_req_t  ),
+    .snoop_resp_t    (snoop_resp_t )
   ) i_ace_ccu_top (
     .clk_i,
     .rst_ni,

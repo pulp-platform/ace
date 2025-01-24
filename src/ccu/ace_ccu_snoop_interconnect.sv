@@ -72,29 +72,16 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
     cd_chan_t cd_chan;
     ctrl_t    cd_ctrl;
 
+    localparam AcFifoEntryBits = $bits(ac_chan_t) + $bits(oup_sel_t);
+
     for (genvar i = 0; i < NumInp; i++) begin : gen_unpack_inp
         if (BufferInpReq) begin : gen_buffer_req
-            typedef struct packed {
-                ac_chan_t ac;
-                oup_sel_t sel;
-            } ac_fifo_entry_t;
-
             // Data type needed to avoid errors with Design Compiler
-            typedef logic [$bits(ac_fifo_entry_t)-1:0] ac_fifo_entry_vec_t;
-
-            ac_fifo_entry_vec_t ac_fifo_out_vec;
-            ac_fifo_entry_t     ac_fifo_in, ac_fifo_out;
-
-            assign ac_fifo_in.ac  = inp_req_i[i].ac;
-            assign ac_fifo_in.sel = inp_sel_i[i];
-
-            assign ac_fifo_out     = ac_fifo_entry_t'(ac_fifo_out_vec);
-            assign inp_ac_chans[i] = ac_fifo_out.ac;
-            assign inp_sel[i]      = ac_fifo_out.sel;
+            typedef logic [AcFifoEntryBits-1:0] ac_fifo_entry_t;
 
             stream_fifo_optimal_wrap #(
                 .Depth  (2),
-                .type_t (ac_fifo_entry_vec_t)
+                .type_t (ac_fifo_entry_t)
             ) i_ac_fifo (
                 .clk_i,
                 .rst_ni,
@@ -103,10 +90,10 @@ module ace_ccu_snoop_interconnect import ace_pkg::*; #(
                 .usage_o    (),
                 .valid_i    (inp_req_i [i].ac_valid),
                 .ready_o    (inp_resp_o[i].ac_ready),
-                .data_i     (ac_fifo_entry_vec_t'(ac_fifo_in)),
+                .data_i     ({inp_req_i[i].ac, inp_sel_i[i]}),
                 .valid_o    (inp_ac_valids [i]),
                 .ready_i    (inp_ac_readies[i]),
-                .data_o     (ac_fifo_out_vec)
+                .data_o     ({inp_ac_chans[i], inp_sel[i]})
             );
         end else begin : gen_no_buffer_req
             assign inp_ac_valids[i]       = inp_req_i[i].ac_valid;

@@ -63,6 +63,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
 
     localparam WB_AXLEN  = DcacheLineWidth/AxiDataWidth-1;
     localparam WB_AXSIZE = $clog2(AxiDataWidth/8);
+    localparam WB_OFFSET = $clog2(DcacheLineWidth/8);
+    localparam WB_ALIGN  = WB_OFFSET > WB_AXSIZE ? WB_OFFSET : WB_AXSIZE;
 
     ///////////
     // SPLIT //
@@ -140,6 +142,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .domain_mask_t       (domain_mask_t),
         .AXLEN               (WB_AXLEN),
         .AXSIZE              (WB_AXSIZE),
+        .ALIGN_SIZE          (WB_ALIGN),
         .FIFO_DEPTH          (2)
     ) i_ccu_ctrl_wr_snoop (
         .clk_i         (clk_i),
@@ -189,6 +192,8 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .domain_mask_t       (domain_mask_t),
         .AXLEN               (WB_AXLEN),
         .AXSIZE              (WB_AXSIZE),
+        .BLOCK_OFFSET        (WB_OFFSET),
+        .ALIGN_SIZE          (WB_ALIGN),
         .FIFO_DEPTH          (2)
     ) i_ccu_ctrl_r_snoop (
         .clk_i         (clk_i),

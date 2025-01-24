@@ -28,6 +28,8 @@ module ccu_ctrl_wr_snoop #(
     parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
     parameter int unsigned AXSIZE     = 0,
+    /// Fixed value to align CD writeback addresses,
+    parameter int unsigned ALIGN_SIZE = 0,
     /// Depth of FIFO that stores AW requests
     parameter int unsigned FIFO_DEPTH = 2
 ) (
@@ -141,6 +143,7 @@ always_comb begin
         mst_req_o.w.last = slv_req_i.w.last;
         mst_req_o.w.user = slv_req_i.w.user;
     end else begin
+        mst_req_o.aw.addr  = axi_pkg::aligned_addr(slv_req_holder.aw.addr, ALIGN_SIZE);
         mst_req_o.aw.burst = axi_pkg::BURST_WRAP;
         mst_req_o.aw.len   = AXLEN;
         mst_req_o.aw.size  = AXSIZE;
@@ -183,7 +186,7 @@ always_comb begin
             cd_last_d            = 1'b0;
             ignore_cd_d          = 1'b0;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
-            if (snoop_resp_i.cr_valid) begin
+            if (snoop_resp_i.cr_valid && slv_req_fifo_valid) begin
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
                     // If received data is erronous or clean,
                     // we receive CD but do not write it

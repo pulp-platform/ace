@@ -1,0 +1,143 @@
+From e586d12bf130519e486dc35db0779aeac828f803 Mon Sep 17 00:00:00 2001
+From: Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
+Date: Sat, 28 Dec 2024 17:59:24 +0100
+Subject: [PATCH] Introduce `ace_cut`
+
+---
+ axi_cut.sv | 62 +++++++++++++++++++++++++++++++++---------------------
+ 1 file changed, 38 insertions(+), 24 deletions(-)
+
+diff --git a/axi_cut.sv b/axi_cut.sv
+index 34278ca6..883c7c0f 100644
+--- a/axi_cut.sv
++++ b/axi_cut.sv
+@@ -13,20 +13,21 @@
+ // - Wolfgang Roenninger <wroennin@iis.ee.ethz.ch>
+ // - Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
+ // - Andreas Kurth <akurth@iis.ee.ethz.ch>
++// - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
+ 
+-/// An AXI4 cut.
++/// An ACE4 cut.
+ ///
+ /// Breaks all combinatorial paths between its input and output.
+-module axi_cut #(
++module ace_cut #(
+   // bypass enable
+   parameter bit  Bypass     = 1'b0,
+-  // AXI channel structs
++  // ACE channel structs
+   parameter type  aw_chan_t = logic,
+   parameter type   w_chan_t = logic,
+   parameter type   b_chan_t = logic,
+   parameter type  ar_chan_t = logic,
+   parameter type   r_chan_t = logic,
+-  // AXI request & response structs
++  // ACE request & response structs
+   parameter type  axi_req_t = logic,
+   parameter type axi_resp_t = logic
+ ) (
+@@ -110,13 +111,23 @@ module axi_cut #(
+     .ready_i ( slv_req_i.r_ready  ),
+     .data_o  ( slv_resp_o.r       )
+   );
++
++  always_ff @(posedge clk_i or negedge rst_ni) begin
++    if (!rst_ni) begin
++      mst_req_o.wack <= 1'b0;
++      mst_req_o.rack <= 1'b0;
++    end else begin
++      mst_req_o.wack <= slv_req_i.wack;
++      mst_req_o.rack <= slv_req_i.rack;
++    end
++  end
+ endmodule
+ 
+-`include "axi/assign.svh"
+-`include "axi/typedef.svh"
++`include "ace/assign.svh"
++`include "ace/typedef.svh"
+ 
+ // interface wrapper
+-module axi_cut_intf #(
++module ace_cut_intf #(
+   // Bypass eneable
+   parameter bit          BYPASS     = 1'b0,
+   // The address width.
+@@ -130,8 +141,8 @@ module axi_cut_intf #(
+ ) (
+   input logic     clk_i  ,
+   input logic     rst_ni ,
+-  AXI_BUS.Slave   in     ,
+-  AXI_BUS.Master  out
++  ACE_BUS.Slave   in     ,
++  ACE_BUS.Master  out
+ );
+ 
+   typedef logic [ID_WIDTH-1:0]     id_t;
+@@ -140,33 +151,33 @@ module axi_cut_intf #(
+   typedef logic [DATA_WIDTH/8-1:0] strb_t;
+   typedef logic [USER_WIDTH-1:0]   user_t;
+ 
+-  `AXI_TYPEDEF_AW_CHAN_T(aw_chan_t, addr_t, id_t, user_t)
++  `ACE_TYPEDEF_AW_CHAN_T(aw_chan_t, addr_t, id_t, user_t)
+   `AXI_TYPEDEF_W_CHAN_T(w_chan_t, data_t, strb_t, user_t)
+   `AXI_TYPEDEF_B_CHAN_T(b_chan_t, id_t, user_t)
+-  `AXI_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)
+-  `AXI_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)
+-  `AXI_TYPEDEF_REQ_T(axi_req_t, aw_chan_t, w_chan_t, ar_chan_t)
+-  `AXI_TYPEDEF_RESP_T(axi_resp_t, b_chan_t, r_chan_t)
++  `ACE_TYPEDEF_AR_CHAN_T(ar_chan_t, addr_t, id_t, user_t)
++  `ACE_TYPEDEF_R_CHAN_T(r_chan_t, data_t, id_t, user_t)
++  `ACE_TYPEDEF_REQ_T(ace_req_t, aw_chan_t, w_chan_t, ar_chan_t)
++  `ACE_TYPEDEF_RESP_T(ace_resp_t, b_chan_t, r_chan_t)
+ 
+-  axi_req_t  slv_req,  mst_req;
+-  axi_resp_t slv_resp, mst_resp;
++  ace_req_t  slv_req,  mst_req;
++  ace_resp_t slv_resp, mst_resp;
+ 
+-  `AXI_ASSIGN_TO_REQ(slv_req, in)
+-  `AXI_ASSIGN_FROM_RESP(in, slv_resp)
++  `ACE_ASSIGN_TO_REQ(slv_req, in)
++  `ACE_ASSIGN_FROM_RESP(in, slv_resp)
+ 
+-  `AXI_ASSIGN_FROM_REQ(out, mst_req)
+-  `AXI_ASSIGN_TO_RESP(mst_resp, out)
++  `ACE_ASSIGN_FROM_REQ(out, mst_req)
++  `ACE_ASSIGN_TO_RESP(mst_resp, out)
+ 
+-  axi_cut #(
++  ace_cut #(
+     .Bypass     (     BYPASS ),
+     .aw_chan_t  (  aw_chan_t ),
+     .w_chan_t   (   w_chan_t ),
+     .b_chan_t   (   b_chan_t ),
+     .ar_chan_t  (  ar_chan_t ),
+     .r_chan_t   (   r_chan_t ),
+-    .axi_req_t  (  axi_req_t ),
+-    .axi_resp_t ( axi_resp_t )
+-  ) i_axi_cut (
++    .axi_req_t  (  ace_req_t ),
++    .axi_resp_t ( ace_resp_t )
++  ) i_ace_cut (
+     .clk_i,
+     .rst_ni,
+     .slv_req_i  ( slv_req  ),
+@@ -196,6 +207,8 @@ module axi_cut_intf #(
+   // pragma translate_on
+ endmodule
+ 
++/* NOT YET SUPPORTED */
++/*
+ module axi_lite_cut_intf #(
+   // bypass enable
+   parameter bit          BYPASS     = 1'b0,
+@@ -263,3 +276,4 @@ module axi_lite_cut_intf #(
+   `endif
+   // pragma translate_on
+ endmodule
++*/
+-- 
+2.39.3
+

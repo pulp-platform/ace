@@ -1,0 +1,1 @@
+../ips/axi/axi_cut.sv

@@ -27,6 +27,10 @@ module ccu_ctrl_r_snoop #(
     parameter int unsigned AXLEN      = 0,
     /// Fixed value for AXSIZE for write back
     parameter int unsigned AXSIZE     = 0,
+    ///
+    parameter int unsigned BLOCK_OFFSET = 0,
+    /// Fixed value to align CD writeback addresses,
+    parameter int unsigned ALIGN_SIZE = 0,
     /// Depth of FIFO that stores AR requests
     parameter int unsigned FIFO_DEPTH = 2
 ) (
@@ -72,8 +76,9 @@ logic cd_last_d, cd_last_q;
 logic aw_valid_d, aw_valid_q, ar_valid_d, ar_valid_q;
 logic ac_handshake, cd_handshake, b_handshake, r_handshake;
 rresp_t rresp_d, rresp_q;
-logic [4:0] arlen_counter;
+logic [4:0] arlen_counter_q;
 logic arlen_counter_en, arlen_counter_clear;
+logic [$clog2(AXLEN):0] rdrop_counter_q, rdrop_counter_d;
 logic cd_ready, cd_last;
 logic [1:0] cd_mask_d, cd_mask_q;
 logic [1:0] cd_fork_valid, cd_fork_ready;
@@ -93,7 +98,7 @@ assign ac_handshake       = snoop_req_o.ac_valid  && snoop_resp_i.ac_ready;
 assign r_handshake        = slv_resp_o.r_valid && slv_req_i.r_ready;
 assign cd_handshake       = snoop_req_o.cd_ready && snoop_resp_i.cd_valid;
 assign b_handshake        = mst_req_o.b_ready && mst_resp_i.b_valid;
-assign r_last             = (arlen_counter == slv_req_holder.ar.len);
+assign r_last             = (arlen_counter_q == slv_req_holder.ar.len);
 assign cd_last            = cd_handshake && snoop_resp_i.cd.last;
 assign mst_req_o.ar_valid = ar_valid_q;
 `AXI_ASSIGN_AR_STRUCT(mst_req_o.ar, slv_req_holder.ar)
@@ -101,11 +106,11 @@ assign mst_req_o.ar_valid = ar_valid_q;
 
 always_ff @(posedge clk_i, negedge rst_ni) begin
     if (!rst_ni) begin
-        arlen_counter <= '0;
+        arlen_counter_q <= '0;
     end else if (arlen_counter_clear) begin
-        arlen_counter <= '0;
+        arlen_counter_q <= '0;
     end else if (arlen_counter_en) begin
-        arlen_counter <= arlen_counter + 1'b1;
+        arlen_counter_q <= arlen_counter_q + 1'b1;
     end
 end
 
@@ -118,6 +123,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         ar_valid_q   <= '0;
         cd_last_q    <= '0;
         r_last_q     <= '0;
+        rdrop_counter_q <= '0;
     end else begin
         fsm_state_q  <= fsm_state_d;
         rresp_q[3:2] <= rresp_d[3:2];
@@ -126,6 +132,7 @@ always_ff @(posedge clk_i, negedge rst_ni) begin
         ar_valid_q   <= ar_valid_d;
         cd_last_q    <= cd_last_d;
         r_last_q     <= r_last_d;
+        rdrop_counter_q <= rdrop_counter_d;
     end
 end
 
@@ -150,7 +157,7 @@ end
 always_comb begin
     mst_req_o.aw_valid    = aw_valid_q;
     mst_req_o.aw.id       = slv_req_holder.ar.id;
-    mst_req_o.aw.addr     = slv_req_holder.ar.addr;
+    mst_req_o.aw.addr     = axi_pkg::aligned_addr(slv_req_holder.ar.addr, ALIGN_SIZE);
     mst_req_o.aw.len      = AXLEN;
     mst_req_o.aw.size     = AXSIZE;
     mst_req_o.aw.burst    = axi_pkg::BURST_WRAP;
@@ -184,6 +191,7 @@ always_comb begin
     fsm_state_d          = fsm_state_q;
     cd_mask_d            = cd_mask_q;
     rresp_d[3:2]         = rresp_q[3:2];
+    rdrop_counter_d      = rdrop_counter_q;
     arlen_counter_clear  = 1'b0;
     mst_req_o.w_valid    = 1'b0;
     mst_req_o.r_ready    = 1'b0;
@@ -206,7 +214,7 @@ always_comb begin
             cd_last_d            = 1'b0;
             arlen_counter_clear  = 1'b1;
             snoop_req_o.cr_ready = slv_req_fifo_valid;
-            if (snoop_resp_i.cr_valid) begin
+            if (snoop_resp_i.cr_valid && slv_req_fifo_valid) begin
                 rresp_d[2] = resp_dirty;
                 rresp_d[3] = resp_shared;
                 if (snoop_resp_i.cr_resp.DataTransfer) begin
@@ -215,6 +223,7 @@ always_comb begin
                         cd_mask_d[MST_R_IDX] = 1'b1;
                         cd_mask_d[MEM_W_IDX] = write_back;
                         aw_valid_d           = write_back;
+                        rdrop_counter_d      = slv_req_holder.ar.addr[BLOCK_OFFSET:AXLEN+2];
                     end else begin
                         cd_mask_d   = '1;
                         fsm_state_d = IGNORE_CD;
@@ -243,11 +252,17 @@ always_comb begin
             slv_resp_o.r.data  = snoop_resp_i.cd.data;
             slv_resp_o.r.resp  = {rresp_q[3:2], 2'b0}; // something has to happen to 2 lsb when atomic
             slv_resp_o.r.last  = r_last;
-            slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q;
+            slv_resp_o.r_valid = cd_fork_valid[MST_R_IDX] && !r_last_q && (rdrop_counter_q == '0);
             arlen_counter_en   = r_handshake;
 
+            if (rdrop_counter_q != '0) begin
+                if (cd_handshake) begin
+                    rdrop_counter_d = rdrop_counter_q - 1;
+                end
+            end
+
             cd_fork_ready[MEM_W_IDX] = mst_resp_i.w_ready && !aw_valid_q;
-            cd_fork_ready[MST_R_IDX] = slv_req_i.r_ready  && !r_last_q;
+            cd_fork_ready[MST_R_IDX] = (rdrop_counter_q != '0) || (slv_req_i.r_ready  && !r_last_q) || r_last_q;
 
             mst_req_o.b_ready    = cd_last_q;
             snoop_req_o.cd_ready = cd_ready;
