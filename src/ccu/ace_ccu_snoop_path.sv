@@ -184,6 +184,7 @@ module ace_ccu_snoop_path import ace_pkg::*; import ccu_pkg::*; #(
         .slv_req_t           (ace_req_t),
         .slv_resp_t          (ace_resp_t),
         .slv_ar_chan_t       (ace_ar_chan_t),
+        .slv_r_chan_t        (ace_r_chan_t),
         .mst_req_t           (int_axi_req_t),
         .mst_resp_t          (int_axi_resp_t),
         .mst_snoop_req_t     (snoop_req_t),
