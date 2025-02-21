@@ -97,12 +97,13 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
     logic cd_sel_valid, cd_sel_ready;
     logic [1:0] cd_sel;
 
-    logic                   rdrop_cnt_en, rdrop_cnt_ld;
-    logic [$clog2(AXLEN):0] rdrop_cnt_q, rdrop_cnt_ld_val;
+    logic                   rdrop_cnt_en, rdrop_cnt_clr;
+    logic [$clog2(AXLEN):0] rdrop_cnt_q;
     logic                   rdrop;
-    logic                   arlen_cnt_en, arlen_cnt_ld, arlen_cnt_of;
-    logic [4:0]             arlen_cnt_q, arlen_cnt_ld_val;
+    logic                   arlen_cnt_en, arlen_cnt_clr;
+    logic [4:0]             arlen_cnt_q;
     logic                   rlast;
+    logic                   rdone_q, rdone_d;
 
     logic mst_aw_valid, mst_aw_ready;
     logic mst_w_valid, mst_w_ready;
@@ -213,14 +214,12 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
         cd_sel_valid          = 1'b0;
         wb_trs_fifo_ready_out = 1'b0;
 
-        arlen_cnt_ld = 1'b0;
-        rdrop_cnt_ld = 1'b0;
+        arlen_cnt_clr = 1'b0;
+        rdrop_cnt_clr = 1'b0;
 
         if (!wb_lock_q) begin
             if (wb_trs_fifo_valid_out) begin
                 wb_lock_d    = 1'b1;
-                arlen_cnt_ld = 1'b1;
-                rdrop_cnt_ld = 1'b1;
                 // TODO: one cycle of latency can be removed here!
                 // cd_sel_valid = 1'b1;
                 // if (cd_sel_ready && cd_last) begin
@@ -234,6 +233,8 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
             if (cd_sel_ready && cd_last) begin
                 wb_trs_fifo_ready_out = 1'b1;
                 wb_lock_d = 1'b0;
+                arlen_cnt_clr = 1'b1;
+                rdrop_cnt_clr = 1'b1;
             end
         end
     end
@@ -245,45 +246,52 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
             wb_lock_q <= wb_lock_d;
     end
 
-    assign rdrop            = rdrop_cnt_q != '0;
-    assign rdrop_cnt_ld_val = wb_trs_fifo_out.rdrop;
-    assign rdrop_cnt_en     = rdrop && cd_handshake;
+    assign rdrop        = rdrop_cnt_q != wb_trs_fifo_out.rdrop;
+    assign rdrop_cnt_en = rdrop && cd_handshake;
 
     counter #(
         .WIDTH (RDROP_CNT_WIDTH)
     ) i_rdrop_cnt (
         .clk_i,
         .rst_ni,
-        .clear_i    ('0),
+        .clear_i    (rdrop_cnt_clr),
         .en_i       (rdrop_cnt_en),
-        .load_i     (rdrop_cnt_ld),
-        .down_i     ('1),
-        .d_i        (rdrop_cnt_ld_val),
+        .load_i     ('0),
+        .down_i     ('0),
+        .d_i        ('0),
         .q_o        (rdrop_cnt_q),
         .overflow_o ()
     );
 
-    assign wb_r_handshake   = wb_r_valid && wb_r_ready;
-    assign rlast            = arlen_cnt_q == '0;
-    assign arlen_cnt_ld_val = wb_trs_fifo_out.arlen;
-    assign arlen_cnt_en     = wb_r_handshake;
+    assign wb_r_handshake = wb_r_valid && wb_r_ready;
+    assign rlast          = arlen_cnt_q == wb_trs_fifo_out.arlen;
+    assign arlen_cnt_en   = wb_r_handshake;
 
     counter #(
-        .WIDTH           (ARLEN_CNT_WIDTH),
-        .STICKY_OVERFLOW (1'b1)
+        .WIDTH (ARLEN_CNT_WIDTH)
     ) i_arlen_cnt (
         .clk_i,
         .rst_ni,
-        .clear_i    ('0),
+        .clear_i    (arlen_cnt_clr),
         .en_i       (arlen_cnt_en),
-        .load_i     (arlen_cnt_ld),
-        .down_i     ('1),
-        .d_i        (arlen_cnt_ld_val),
+        .load_i     ('0),
+        .down_i     ('0),
+        .d_i        ('0),
         .q_o        (arlen_cnt_q),
-        .overflow_o (arlen_cnt_of)
+        .overflow_o ()
     );
 
-    assign cd_sel = {wb_trs_fifo_out.write_back, !rdrop && !arlen_cnt_of};
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni)
+            rdone_q <= 1'b0;
+        else
+            rdone_q <= rdone_d;
+    end
+
+    assign rdone_d = !arlen_cnt_clr &&
+                     ((rlast && wb_r_handshake) || rdone_q);
+
+    assign cd_sel = {wb_trs_fifo_out.write_back, !rdrop && !rdone_q};
 
     stream_fork_dynamic #(
         .N_OUP (2)
@@ -323,9 +331,10 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
     //     .oup_ready_i (slv_r_ready)
     // );
 
-    stream_fifo_optimal_wrap #(
-        .Depth  (FIFO_DEPTH),
-        .type_t (logic)
+    stream_fifo #(
+        .FALL_THROUGH (1'b1),
+        .DEPTH        (FIFO_DEPTH),
+        .T            (logic)
     ) i_r_sel_fifo (
         .clk_i,
         .rst_ni,
