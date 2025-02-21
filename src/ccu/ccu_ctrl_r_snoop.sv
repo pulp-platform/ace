@@ -219,14 +219,14 @@ module ccu_ctrl_r_snoop import ace_pkg::*; #(
 
         if (!wb_lock_q) begin
             if (wb_trs_fifo_valid_out) begin
-                wb_lock_d    = 1'b1;
-                // TODO: one cycle of latency can be removed here!
-                // cd_sel_valid = 1'b1;
-                // if (cd_sel_ready && cd_last) begin
-                //     wb_trs_fifo_ready_out = 1'b1;
-                // end else begin
-                //     wb_lock_d = 1'b1;
-                // end
+                cd_sel_valid = 1'b1;
+                if (cd_sel_ready && cd_last) begin
+                    wb_trs_fifo_ready_out = 1'b1;
+                    arlen_cnt_clr = 1'b1;
+                    rdrop_cnt_clr = 1'b1;
+                end else begin
+                    wb_lock_d = 1'b1;
+                end
             end
         end else begin
             cd_sel_valid = 1'b1;
