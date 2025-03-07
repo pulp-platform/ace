@@ -223,7 +223,7 @@ always_comb begin
                         cd_mask_d[MST_R_IDX] = 1'b1;
                         cd_mask_d[MEM_W_IDX] = write_back;
                         aw_valid_d           = write_back;
-                        rdrop_counter_d      = slv_req_holder.ar.addr[BLOCK_OFFSET:AXLEN+2];
+                        rdrop_counter_d      = slv_req_holder.ar.addr[BLOCK_OFFSET-1:AXSIZE];
                     end else begin
                         cd_mask_d   = '1;
                         fsm_state_d = IGNORE_CD;
