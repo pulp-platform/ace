@@ -21,6 +21,7 @@
 module ace_cut #(
   // bypass enable
   parameter bit  Bypass     = 1'b0,
+  parameter bit  AckBypass  = 1'b0,
   // ACE channel structs
   parameter type  aw_chan_t = logic,
   parameter type   w_chan_t = logic,
@@ -112,13 +113,18 @@ module ace_cut #(
     .data_o  ( slv_resp_o.r       )
   );
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      mst_req_o.wack <= 1'b0;
-      mst_req_o.rack <= 1'b0;
-    end else begin
-      mst_req_o.wack <= slv_req_i.wack;
-      mst_req_o.rack <= slv_req_i.rack;
+  if (AckBypass) begin
+    assign mst_req_o.wack = slv_req_i.wack;
+    assign mst_req_o.rack = slv_req_i.rack;
+  end else begin
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        mst_req_o.wack <= 1'b0;
+        mst_req_o.rack <= 1'b0;
+      end else begin
+        mst_req_o.wack <= slv_req_i.wack;
+        mst_req_o.rack <= slv_req_i.rack;
+      end
     end
   end
 endmodule
@@ -130,6 +136,7 @@ endmodule
 module ace_cut_intf #(
   // Bypass eneable
   parameter bit          BYPASS     = 1'b0,
+  parameter bit          ACK_BYPASS = 1'b0,
   // The address width.
   parameter int unsigned ADDR_WIDTH = 0,
   // The data width.
@@ -170,6 +177,7 @@ module ace_cut_intf #(
 
   ace_cut #(
     .Bypass     (     BYPASS ),
+    .AckBypass  ( ACK_BYPASS ),
     .aw_chan_t  (  aw_chan_t ),
     .w_chan_t   (   w_chan_t ),
     .b_chan_t   (   b_chan_t ),
