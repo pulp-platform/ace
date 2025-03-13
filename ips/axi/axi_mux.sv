@@ -228,6 +228,7 @@ module ace_mux #(
 
     // xACK FIFOs
     logic           rack_fifo_full, wack_fifo_full;
+    logic           rack_fifo_empty, wack_fifo_empty;
 
     //--------------------------------------
     // ID prepend for all slave ports
@@ -504,7 +505,7 @@ module ace_mux #(
       .flush_i    (1'b0),
       .testmode_i (1'b0),
       .full_o     (wack_fifo_full),
-      .empty_o    (),
+      .empty_o    (wack_fifo_empty),
       .usage_o    (),
       .data_i     (switch_b_id),
       .push_i     (mst_resp_i.b_valid && mst_req_o.b_ready),
@@ -522,7 +523,7 @@ module ace_mux #(
       .flush_i    (1'b0),
       .testmode_i (1'b0),
       .full_o     (rack_fifo_full),
-      .empty_o    (),
+      .empty_o    (rack_fifo_empty),
       .usage_o    (),
       .data_i     (switch_r_id),
       .push_i     (mst_resp_i.r_valid && mst_req_o.r_ready && mst_resp_i.r.last),
@@ -530,20 +531,69 @@ module ace_mux #(
       .pop_i      (mst_req_o.rack)
     );
 
-    if (RegAck) begin : gen_xack_regs
-      always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
-          mst_req_o.rack <= 1'b0;
-          mst_req_o.wack <= 1'b0;
-        end else begin
-          mst_req_o.rack <= slv_reqs_i[switch_wack_id].wack;
-          mst_req_o.wack <= slv_reqs_i[switch_rack_id].rack;
-        end
-      end
-    end else begin : gen_no_xack_reg
-      assign mst_req_o.wack = slv_reqs_i[switch_wack_id].wack;
-      assign mst_req_o.rack = slv_reqs_i[switch_rack_id].rack;
+
+    logic [NoSlvPorts-1:0] wacks;
+    logic [NoSlvPorts-1:0] racks;
+
+    for (genvar i = 0; i < NoSlvPorts; i++) begin
+
+      logic [$clog2(MaxWTrans)-1:0] wack_cnt_q;
+      logic wack_cnt_en, wack_cnt_decr;
+      logic wack_sel;
+      logic wack_cnt_zero;
+
+      assign wack_sel = switch_wack_id == i;
+      assign wack_cnt_zero = wack_cnt_q == '0;
+
+      counter #(
+        .WIDTH ($clog2(MaxWTrans))
+      ) i_wack_cnt (
+        .clk_i,
+        .rst_ni,
+        .clear_i    ('0),
+        .en_i       (wack_cnt_en),
+        .load_i     ('0),
+        .down_i     (wack_cnt_decr),
+        .d_i        ('0),
+        .q_o        (wack_cnt_q),
+        .overflow_o ()
+      );
+
+      assign wack_cnt_en   = slv_reqs_i[i].wack ?
+                            (RegAck && wack_cnt_zero) || !wack_sel : !wack_cnt_zero && wack_sel;
+      assign wack_cnt_decr = !slv_reqs_i[i].wack;
+      assign wacks[i]      = !wack_cnt_zero || (!RegAck && slv_reqs_i[i].wack);
+
+      logic [$clog2(MaxRTrans)-1:0] rack_cnt_q;
+      logic rack_cnt_en, rack_cnt_decr;
+      logic rack_sel;
+      logic rack_cnt_zero;
+
+      assign rack_sel = switch_rack_id == i;
+      assign rack_cnt_zero = rack_cnt_q == '0;
+
+      counter #(
+        .WIDTH ($clog2(MaxRTrans))
+      ) i_rack_cnt (
+        .clk_i,
+        .rst_ni,
+        .clear_i    ('0),
+        .en_i       (rack_cnt_en),
+        .load_i     ('0),
+        .down_i     (rack_cnt_decr),
+        .d_i        ('0),
+        .q_o        (rack_cnt_q),
+        .overflow_o ()
+      );
+
+      assign rack_cnt_en   = slv_reqs_i[i].rack ?
+                            (RegAck && rack_cnt_zero) || !rack_sel : !rack_cnt_zero && rack_sel;
+      assign rack_cnt_decr = !slv_reqs_i[i].rack;
+      assign racks[i]      = !rack_cnt_zero || (!RegAck && slv_reqs_i[i].rack);
     end
+
+    assign mst_req_o.wack = !wack_fifo_empty && wacks[switch_wack_id];
+    assign mst_req_o.rack = !rack_fifo_empty && racks[switch_rack_id];
   end
 
 // pragma translate_off
