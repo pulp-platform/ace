@@ -13,74 +13,65 @@
 `include "ace/assign.svh"
 `include "ace/convert.svh"
 
-module ace_ccu_master_path import ace_pkg::*;
+module ace_ccu_master_path import ace_pkg::*; import ccu_pkg::*;
 #(
-  parameter bit          LEGACY          = 0,
-  parameter int unsigned AxiAddrWidth    = 0,
-  parameter int unsigned AxiDataWidth    = 0,
-  parameter int unsigned AxiUserWidth    = 0,
-  parameter int unsigned AxiSlvIdWidth   = 0,
-  parameter int unsigned NoSlvPorts      = 0,
-  parameter int unsigned NoSlvPerGroup   = 0,
-  parameter int unsigned DcacheLineWidth = 0,
-  parameter int unsigned CmAddrBase      = 0,
-  parameter int unsigned CmAddrWidth     = 0,
-  parameter bit          ConfCheck       = 0,
-  parameter type slv_ar_chan_t           = logic,
-  parameter type slv_aw_chan_t           = logic,
-  parameter type slv_b_chan_t            = logic,
-  parameter type w_chan_t                = logic,
-  parameter type slv_r_chan_t            = logic,
-  parameter type mst_ar_chan_t           = logic,
-  parameter type mst_aw_chan_t           = logic,
-  parameter type mst_b_chan_t            = logic,
-  parameter type mst_r_chan_t            = logic,
-  parameter type slv_req_t               = logic,
-  parameter type slv_resp_t              = logic,
-  parameter type mst_req_t               = logic,
-  parameter type mst_resp_t              = logic,
-  parameter type snoop_ac_t              = logic,
-  parameter type snoop_cr_t              = logic,
-  parameter type snoop_cd_t              = logic,
-  parameter type snoop_req_t             = logic,
-  parameter type snoop_resp_t            = logic,
-  parameter type domain_mask_t           = logic,
-  parameter type domain_set_t            = logic,
+  parameter ccu_cfg_t CcuCfg                   = '{default: '0},
+  parameter type slv_ar_chan_t                 = logic,
+  parameter type slv_aw_chan_t                 = logic,
+  parameter type slv_b_chan_t                  = logic,
+  parameter type w_chan_t                      = logic,
+  parameter type slv_r_chan_t                  = logic,
+  parameter type mst_ar_chan_t                 = logic,
+  parameter type mst_aw_chan_t                 = logic,
+  parameter type mst_b_chan_t                  = logic,
+  parameter type mst_r_chan_t                  = logic,
+  parameter type slv_req_t                     = logic,
+  parameter type slv_resp_t                    = logic,
+  parameter type mst_req_t                     = logic,
+  parameter type mst_resp_t                    = logic,
+  parameter type snoop_ac_t                    = logic,
+  parameter type snoop_cr_t                    = logic,
+  parameter type snoop_cd_t                    = logic,
+  parameter type snoop_req_t                   = logic,
+  parameter type snoop_resp_t                  = logic,
+  parameter type domain_mask_t                 = logic,
+  parameter type domain_set_t                  = logic,
   // Local parameters
-  localparam int unsigned NoGroups             = NoSlvPorts / NoSlvPerGroup,
-  localparam int unsigned NoSnoopPortsPerGroup = 2,
-  localparam int unsigned NoSnoopPorts         = NoSnoopPortsPerGroup * NoGroups,
-  localparam type cm_addr_t                    = logic [CmAddrWidth-1:0]
+  localparam type cm_addr_t                    = logic [CcuCfg.CmAddrWidth-1:0]
 ) (
-  input  logic                           clk_i,
-  input  logic                           rst_ni,
-  input  domain_set_t [NoSlvPorts-1:0]   domain_set_i,
-  input  slv_req_t    [NoSlvPorts-1:0]   slv_req_i,
-  output slv_resp_t   [NoSlvPorts-1:0]   slv_resp_o,
-  output snoop_req_t  [NoSnoopPorts-1:0] snoop_req_o,
-  output domain_mask_t[NoSnoopPorts-1:0] snoop_masks_o,
-  input  snoop_resp_t [NoSnoopPorts-1:0] snoop_resp_i,
-  output mst_req_t                       mst_req_o,
-  input  mst_resp_t                      mst_resp_i,
+  input  logic                                  clk_i,
+  input  logic                                  rst_ni,
+  input  domain_set_t [CcuCfg.NoSlvPorts-1:0]   domain_set_i,
+  input  slv_req_t    [CcuCfg.NoSlvPorts-1:0]   slv_req_i,
+  output slv_resp_t   [CcuCfg.NoSlvPorts-1:0]   slv_resp_o,
+  output snoop_req_t  [CcuCfg.NoSnoopPorts-1:0] snoop_req_o,
+  output domain_mask_t[CcuCfg.NoSnoopPorts-1:0] snoop_masks_o,
+  input  snoop_resp_t [CcuCfg.NoSnoopPorts-1:0] snoop_resp_i,
+  output mst_req_t                              mst_req_o,
+  input  mst_resp_t                             mst_resp_i,
 
-  output logic      [2*NoGroups-1:0]     cm_req_o,
-  output cm_addr_t  [2*NoGroups-1:0]     cm_addr_o
+  output logic      [2*CcuCfg.NoGroups-1:0]     cm_req_o,
+  output cm_addr_t  [2*CcuCfg.NoGroups-1:0]     cm_addr_o
 );
 
-  typedef logic [AxiAddrWidth -1:0]  addr_t;
-  typedef logic [AxiDataWidth-1:0]   data_t;
-  typedef logic [AxiUserWidth-1:0]   user_t;
-
-  slv_req_t  [NoSlvPorts-1:0] ace_snooping_req,  ace_nonsnooping_req;
-  slv_resp_t [NoSlvPorts-1:0] ace_snooping_resp, ace_nonsnooping_resp;
+  /////////////////
+  // Localparams //
+  /////////////////
 
   // ID width after ACE mux
-  localparam PostMuxIdWidth = AxiSlvIdWidth + $clog2(NoSlvPerGroup);
-  typedef logic [PostMuxIdWidth-1:0] pm_id_t;
-
+  localparam PostMuxIdWidth = CcuCfg.AxiSlvIdWidth + $clog2(CcuCfg.NoSlvPerGroup);
   // ID width after snoop_path (adds 2 bits)
   localparam PostSnpIdWidth = PostMuxIdWidth + 2;
-  typedef logic [PostSnpIdWidth-1:0] ps_id_t;
+
+  //////////////
+  // Typedefs //
+  //////////////
+
+  typedef logic [CcuCfg.AxiAddrWidth -1:0]  addr_t;
+  typedef logic [CcuCfg.AxiDataWidth-1:0]   data_t;
+  typedef logic [CcuCfg.AxiUserWidth-1:0]   user_t;
+  typedef logic [PostMuxIdWidth-1:0]        pm_id_t;
+  typedef logic [PostSnpIdWidth-1:0]        ps_id_t;
 
   `ACE_TYPEDEF_AW_CHAN_T(int_ace_aw_chan_t, addr_t, pm_id_t, user_t)
   `AXI_TYPEDEF_B_CHAN_T (int_ace_b_chan_t, pm_id_t, user_t)
@@ -96,17 +87,17 @@ module ace_ccu_master_path import ace_pkg::*;
   `AXI_TYPEDEF_REQ_T    (int_axi_req_t, int_axi_aw_chan_t, w_chan_t, int_axi_ar_chan_t)
   `AXI_TYPEDEF_RESP_T   (int_axi_resp_t, int_axi_b_chan_t, int_axi_r_chan_t)
 
-  // Two ports per group: non snooping, snooping
-  localparam NoMemPortsPerGroup = 2;
-  localparam NoMemPorts         = NoMemPortsPerGroup*NoGroups;
-  int_axi_req_t  [NoMemPorts-1:0] axi_memory_reqs;
-  int_axi_resp_t [NoMemPorts-1:0] axi_memory_resps;
+  slv_req_t  [CcuCfg.NoSlvPorts-1:0] ace_snooping_req,  ace_nonsnooping_req;
+  slv_resp_t [CcuCfg.NoSlvPorts-1:0] ace_snooping_resp, ace_nonsnooping_resp;
+
+  int_axi_req_t  [CcuCfg.NoMemPorts-1:0] axi_memory_reqs;
+  int_axi_resp_t [CcuCfg.NoMemPorts-1:0] axi_memory_resps;
 
   ///////////
   // DEMUX //
   ///////////
 
-  for (genvar i = 0; i < NoSlvPorts; i++) begin : gen_demux
+  for (genvar i = 0; i < CcuCfg.NoSlvPorts; i++) begin : gen_demux
 
     logic slv_aw_snooping, slv_ar_snooping;
 
@@ -120,7 +111,7 @@ module ace_ccu_master_path import ace_pkg::*;
     );
 
     ace_ar_transaction_decoder #(
-        .LEGACY    (LEGACY),
+        .LEGACY    (CcuCfg.AmoHotfix),
         .ar_chan_t (slv_ar_chan_t)
     ) i_read_decoder (
         .ar_i          (slv_req_i[i].ar),
@@ -130,7 +121,7 @@ module ace_ccu_master_path import ace_pkg::*;
     );
 
     ace_demux #(
-      .AxiIdWidth  (AxiSlvIdWidth),
+      .AxiIdWidth  (CcuCfg.AxiSlvIdWidth),
       .AtopSupport (1'b1),
       .aw_chan_t   (slv_aw_chan_t),
       .w_chan_t    (w_chan_t),
@@ -143,11 +134,11 @@ module ace_ccu_master_path import ace_pkg::*;
       .MaxTrans    (32'd8),
       .AxiLookBits (32'd3),
       .UniqueIds   (1'b0),
-      .SpillAw     (1'b1),
-      .SpillW      (1'b0),
-      .SpillB      (1'b0),
-      .SpillAr     (1'b1),
-      .SpillR      (1'b0)
+      .SpillAw     (CcuCfg.CutSlvReq || CcuCfg.CutSlvAx),
+      .SpillW      (CcuCfg.CutSlvReq),
+      .SpillB      (CcuCfg.CutSlvResp),
+      .SpillAr     (CcuCfg.CutSlvReq || CcuCfg.CutSlvAx),
+      .SpillR      (CcuCfg.CutSlvResp)
     ) i_slv_demux (
       .clk_i           (clk_i),
       .rst_ni          (rst_ni),
@@ -162,7 +153,10 @@ module ace_ccu_master_path import ace_pkg::*;
 
   end
 
-  for (genvar i = 0; i < NoGroups; i++) begin : gen_snoop
+  for (genvar i = 0; i < CcuCfg.NoGroups; i++) begin : gen_snoop
+
+    slv_req_t  [CcuCfg.NoSlvPerGroup-1:0] ace_snooping_group_req;
+    slv_resp_t [CcuCfg.NoSlvPerGroup-1:0] ace_snooping_group_resp;
 
     int_ace_req_t  ace_snooping_muxed_req;
     int_ace_resp_t ace_snooping_muxed_resp;
@@ -173,12 +167,17 @@ module ace_ccu_master_path import ace_pkg::*;
     int_ace_req_t  [1:0] ace_memory_reqs;
     int_ace_resp_t [1:0] ace_memory_resps;
 
+    for (genvar j = 0; j < CcuCfg.NoSlvPerGroup; j++) begin
+    `ACE_ASSIGN_REQ_STRUCT(ace_snooping_group_req[j], ace_snooping_req [CcuCfg.NoSlvPerGroup * i + j])
+    `ACE_ASSIGN_RESP_STRUCT(ace_snooping_resp[CcuCfg.NoSlvPerGroup * i + j], ace_snooping_group_resp[j])
+    end
+
     /////////
     // MUX //
     /////////
 
     ace_mux #(
-        .SlvAxiIDWidth (AxiSlvIdWidth),
+        .SlvAxiIDWidth (CcuCfg.AxiSlvIdWidth),
         .slv_aw_chan_t (slv_aw_chan_t),
         .mst_aw_chan_t (int_ace_aw_chan_t),
         .w_chan_t      (w_chan_t),
@@ -192,22 +191,22 @@ module ace_ccu_master_path import ace_pkg::*;
         .slv_resp_t    (slv_resp_t),
         .mst_req_t     (int_ace_req_t),
         .mst_resp_t    (int_ace_resp_t),
-        .NoSlvPorts    (NoSlvPerGroup),
+        .NoSlvPorts    (CcuCfg.NoSlvPerGroup),
         .MaxWTrans     (32'd8),
         .MaxRTrans     (32'd8),
         .MaxBTrans     (32'd8),
         .FallThrough   (1'b0),
-        .SpillAw       (1'b1),
+        .SpillAw       (1'b0),
         .SpillW        (1'b0),
         .SpillB        (1'b0),
-        .SpillAr       (1'b1),
+        .SpillAr       (1'b0),
         .SpillR        (1'b0)
     ) i_snoop_mux (
         .clk_i       (clk_i),
         .rst_ni      (rst_ni),
         .test_i      (1'b0),
-        .slv_reqs_i  (ace_snooping_req [(NoSlvPerGroup*i)+:NoSlvPerGroup]),
-        .slv_resps_o (ace_snooping_resp[(NoSlvPerGroup*i)+:NoSlvPerGroup]),
+        .slv_reqs_i  (ace_snooping_group_req),
+        .slv_resps_o (ace_snooping_group_resp),
         .mst_req_o   (ace_snooping_muxed_req),
         .mst_resp_i  (ace_snooping_muxed_resp)
     );
@@ -256,7 +255,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.aw.id),
-      .inp_data_i       (ace_snooping_muxed_req.aw.addr[CmAddrBase+:CmAddrWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.aw.addr[CcuCfg.CmAddrBase+:CcuCfg.CmAddrWidth]),
       .inp_req_i        (aw_queue_valid),
       .inp_gnt_o        (aw_queue_ready),
       .exists_data_i    ('0),
@@ -280,7 +279,7 @@ module ace_ccu_master_path import ace_pkg::*;
 
     fifo_v3 #(
         .FALL_THROUGH (1'b0),
-        .DEPTH        (2),
+        .DEPTH        (4),
         .DATA_WIDTH   (PostMuxIdWidth)
     ) i_w_addr_fifo (
         .clk_i,
@@ -311,7 +310,7 @@ module ace_ccu_master_path import ace_pkg::*;
       .clk_i,
       .rst_ni,
       .inp_id_i         (ace_snooping_muxed_req.ar.id),
-      .inp_data_i       (ace_snooping_muxed_req.ar.addr[CmAddrBase+:CmAddrWidth]),
+      .inp_data_i       (ace_snooping_muxed_req.ar.addr[CcuCfg.CmAddrBase+:CcuCfg.CmAddrWidth]),
       .inp_req_i        (ar_queue_valid),
       .inp_gnt_o        (ar_queue_ready),
       .exists_data_i    ('0),
@@ -336,7 +335,7 @@ module ace_ccu_master_path import ace_pkg::*;
 
     fifo_v3 #(
         .FALL_THROUGH (1'b0),
-        .DEPTH        (2),
+        .DEPTH        (4),
         .DATA_WIDTH   (PostMuxIdWidth)
     ) i_r_addr_fifo (
         .clk_i,
@@ -376,14 +375,17 @@ module ace_ccu_master_path import ace_pkg::*;
     // SNOOP PATH //
     ////////////////
 
+    int_axi_req_t  axi_memory_group_reqs;
+    int_axi_resp_t axi_memory_group_resps;
+
     ace_ccu_snoop_path #(
-      .LEGACY          (LEGACY),
-      .NoRules         (NoSlvPerGroup),
-      .DcacheLineWidth (DcacheLineWidth),
-      .AxiDataWidth    (AxiDataWidth),
-      .AxiSlvIdWidth   (AxiSlvIdWidth),
-      .AxiAddrWidth    (AxiAddrWidth),
-      .AxiUserWidth    (AxiUserWidth),
+      .LEGACY          (CcuCfg.AmoHotfix),
+      .NoRules         (CcuCfg.NoSlvPerGroup),
+      .DcacheLineWidth (CcuCfg.DcacheLineWidth),
+      .AxiDataWidth    (CcuCfg.AxiDataWidth),
+      .AxiSlvIdWidth   (CcuCfg.AxiSlvIdWidth),
+      .AxiAddrWidth    (CcuCfg.AxiAddrWidth),
+      .AxiUserWidth    (CcuCfg.AxiUserWidth),
       .ace_aw_chan_t   (int_ace_aw_chan_t),
       .ace_ar_chan_t   (int_ace_ar_chan_t),
       .ace_r_chan_t    (int_ace_r_chan_t),
@@ -404,31 +406,37 @@ module ace_ccu_master_path import ace_pkg::*;
       .rst_ni         (rst_ni),
       .slv_req_i      (ace_snooping_forked_req),
       .slv_resp_o     (ace_snooping_forked_resp),
-      .mst_req_o      (axi_memory_reqs [i*NoMemPortsPerGroup+1]),
-      .mst_resp_i     (axi_memory_resps[i*NoMemPortsPerGroup+1]),
-      .domain_set_i   (domain_set_i    [(NoSlvPerGroup*i)+:NoSlvPerGroup]),
+      .mst_req_o      (axi_memory_group_reqs),
+      .mst_resp_i     (axi_memory_group_resps),
+      .domain_set_i   (domain_set_i    [(CcuCfg.NoSlvPerGroup*i)+:CcuCfg.NoSlvPerGroup]),
       .snoop_reqs_o   (snoop_req_o     [(2*i)+:2]),
       .snoop_resps_i  (snoop_resp_i    [(2*i)+:2]),
       .snoop_masks_o  (snoop_masks_o   [(2*i)+:2])
     );
 
-    //for (genvar j = 1; j < NoMemPortsPerGroup; j++) begin : gen_ace_to_axi
-    //  `ACE_TO_AXI_ASSIGN_REQ(axi_memory_reqs[NoMemPortsPerGroup*i+j], ace_memory_reqs[j-1])
-    //  `AXI_TO_ACE_ASSIGN_RESP(ace_memory_resps[j-1], axi_memory_resps[NoMemPortsPerGroup*i+j])
-    //end
+    `AXI_ASSIGN_REQ_STRUCT(axi_memory_reqs [i * CcuCfg.NoMemPortsPerGroup + 1], axi_memory_group_reqs)
+    `AXI_ASSIGN_RESP_STRUCT(axi_memory_group_resps, axi_memory_resps[i * CcuCfg.NoMemPortsPerGroup + 1])
   end
 
   //////////////////
   // NOSNOOP PATH //
   //////////////////
 
-  for (genvar i = 0; i < NoGroups; i++) begin : gen_nosnoop
+  for (genvar i = 0; i < CcuCfg.NoGroups; i++) begin : gen_nosnoop
+
+    slv_req_t  [CcuCfg.NoSlvPerGroup-1:0] ace_nonsnooping_group_req;
+    slv_resp_t [CcuCfg.NoSlvPerGroup-1:0] ace_nonsnooping_group_resp;
 
     int_ace_req_t  ace_nonsnooping_muxed_req;
     int_ace_resp_t ace_nonsnooping_muxed_resp;
 
+    for (genvar j = 0; j < CcuCfg.NoSlvPerGroup; j++) begin
+    `ACE_ASSIGN_REQ_STRUCT(ace_nonsnooping_group_req[j], ace_nonsnooping_req [CcuCfg.NoSlvPerGroup * i + j])
+    `ACE_ASSIGN_RESP_STRUCT(ace_nonsnooping_resp[CcuCfg.NoSlvPerGroup * i + j], ace_nonsnooping_group_resp[j])
+    end
+
     ace_mux #(
-      .SlvAxiIDWidth (AxiSlvIdWidth),
+      .SlvAxiIDWidth (CcuCfg.AxiSlvIdWidth),
       .slv_aw_chan_t (slv_aw_chan_t),
       .mst_aw_chan_t (int_ace_aw_chan_t),
       .w_chan_t      (w_chan_t),
@@ -442,28 +450,28 @@ module ace_ccu_master_path import ace_pkg::*;
       .slv_resp_t    (slv_resp_t),
       .mst_req_t     (int_ace_req_t),
       .mst_resp_t    (int_ace_resp_t),
-      .NoSlvPorts    (NoSlvPerGroup),
+      .NoSlvPorts    (CcuCfg.NoSlvPerGroup),
       .MaxWTrans     (32'd8),
       .MaxRTrans     (32'd8),
       .MaxBTrans     (32'd8),
       .FallThrough   (1'b0),
-      .SpillAw       (1'b1),
+      .SpillAw       (1'b0),
       .SpillW        (1'b0),
       .SpillB        (1'b0),
-      .SpillAr       (1'b1),
+      .SpillAr       (1'b0),
       .SpillR        (1'b0)
     ) i_nosnoop_mux (
       .clk_i       (clk_i),
       .rst_ni      (rst_ni),
       .test_i      (1'b0),
-      .slv_reqs_i  (ace_nonsnooping_req [NoSlvPerGroup*i+:NoSlvPerGroup]),
-      .slv_resps_o (ace_nonsnooping_resp[NoSlvPerGroup*i+:NoSlvPerGroup]),
+      .slv_reqs_i  (ace_nonsnooping_group_req),
+      .slv_resps_o (ace_nonsnooping_group_resp),
       .mst_req_o   (ace_nonsnooping_muxed_req),
       .mst_resp_i  (ace_nonsnooping_muxed_resp)
     );
 
-    `ACE_TO_AXI_ASSIGN_REQ (axi_memory_reqs[NoMemPortsPerGroup*i], ace_nonsnooping_muxed_req)
-    `AXI_TO_ACE_ASSIGN_RESP(ace_nonsnooping_muxed_resp, axi_memory_resps[NoMemPortsPerGroup*i])
+    `ACE_TO_AXI_ASSIGN_REQ (axi_memory_reqs[CcuCfg.NoMemPortsPerGroup*i], ace_nonsnooping_muxed_req)
+    `AXI_TO_ACE_ASSIGN_RESP(ace_nonsnooping_muxed_resp, axi_memory_resps[CcuCfg.NoMemPortsPerGroup*i])
   end
 
   ///////////////
@@ -485,14 +493,14 @@ module ace_ccu_master_path import ace_pkg::*;
     .mst_r_chan_t  (mst_r_chan_t),
     .mst_req_t     (mst_req_t),
     .mst_resp_t    (mst_resp_t),
-    .NoSlvPorts    (NoMemPorts),
+    .NoSlvPorts    (CcuCfg.NoMemPorts),
     .MaxWTrans     (32'd8),
     .FallThrough   (1'b0),
-    .SpillAw       (1'b1),
-    .SpillW        (1'b0),
-    .SpillB        (1'b0),
-    .SpillAr       (1'b1),
-    .SpillR        (1'b0)
+    .SpillAw       (CcuCfg.CutMstReq || CcuCfg.CutMstAx),
+    .SpillW        (CcuCfg.CutMstReq),
+    .SpillB        (CcuCfg.CutMstResp),
+    .SpillAr       (CcuCfg.CutMstReq || CcuCfg.CutMstAx),
+    .SpillR        (CcuCfg.CutMstResp)
   ) i_mux (
     .clk_i       (clk_i),
     .rst_ni      (rst_ni),

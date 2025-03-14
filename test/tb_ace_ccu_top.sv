@@ -312,16 +312,28 @@ module tb_ace_ccu_top #(
         $readmemh(init_main_mem, axi_mem.i_sim_mem.mem);
     end
 
-    localparam ccu_pkg::ccu_cfg_t CcuCfg = '{
-        DcacheLineWidth:  CachelineBits,
-        AxiAddrWidth   :  AxiAddrWidth,
-        AxiDataWidth   :  AxiDataWidth,
-        AxiUserWidth   :  AxiUserWidth,
-        AxiSlvIdWidth  :  AxiIdWidthMasters,
-        NoSlvPorts     :  TbNumMst,
-        NoSlvPerGroup  :  MstPerGroup,
-        AmoHotfix      :  1
+    localparam ccu_pkg::ccu_user_cfg_t CcuUserCfg = '{
+        DcacheLineWidth: CachelineBits,
+        AxiAddrWidth   : AxiAddrWidth,
+        AxiDataWidth   : AxiDataWidth,
+        AxiUserWidth   : AxiUserWidth,
+        AxiSlvIdWidth  : AxiIdWidthMasters,
+        NoSlvPorts     : TbNumMst,
+        NoSlvPerGroup  : MstPerGroup,
+        AmoHotfix      : 1,
+        CmAddrBase     : $clog2(CachelineBits >> 3),
+        CmAddrWidth    : 12,
+        CutSnoopReq    : 1,
+        CutSnoopResp   : 1,
+        CutSlvAx       : 1,
+        CutSlvReq      : 0,
+        CutSlvResp     : 0,
+        CutMstAx       : 1,
+        CutMstReq      : 0,
+        CutMstResp     : 0
     };
+
+    localparam ccu_pkg::ccu_cfg_t CcuCfg = ccu_pkg::ccu_build_cfg(CcuUserCfg);
 
     ace_ccu_top_intf #(
         .CCU_CFG      (CcuCfg)
