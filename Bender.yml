@@ -16,6 +16,7 @@ sources:
   # Level 0
   - src/ace_pkg.sv
   - src/snoop_pkg.sv
+  - src/ace_dummy_handler.sv
   # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
