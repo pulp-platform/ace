@@ -22,9 +22,6 @@ module ace_dummy_handler #(
   // slave port
   input  axi_req_t  axi_slv_req_i,
   output axi_resp_t axi_slv_rsp_o
-  // // master port
-  // output axi_req_t  axi_mst_req_o,
-  // input  axi_resp_t axi_mst_rsp_i
 );
 
   localparam EVICT_OFFEST = 18'h0;
@@ -161,19 +158,7 @@ module ace_dummy_handler #(
     ar_addr_hit [0] = (axi_slv_req_i.ar.addr[17:0] == EVICT_OFFEST);
   end
 
-  `ifndef SYNTHESIS
-  always_comb begin
-    unique case (1'b1)
-      aw_addr_hit[0]: begin
-      end
-      default: begin
-        if(axi_slv_req_i.aw_valid) $fatal("unmapped ace handler address");
-      end
-    endcase
-    if(axi_slv_req_i.ar_valid) $fatal("unmapped ace handler channel: ar");
-    // if(axi_slv_req_i.w_valid) $fatal("unmapped ace handler channel: w");
-  end
-  `endif
+  `ASSERT(aw_mapped, axi_slv_req_i.aw_valid |-> aw_addr_hit[0], clk_i, rst_ni, "Unmapped ace handler address")
 
   always_comb begin
     axi_slv_req = '0;
