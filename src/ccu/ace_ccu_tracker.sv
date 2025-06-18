@@ -85,8 +85,8 @@ module ace_ccu_tracker
 
     tid_t                                 rack_queue_wdata;
     tid_t                                 wack_queue_wdata;
-    tid_t  [           CcuCfg.u.SlvPorts] rack_queue_rdata;
-    tid_t  [           CcuCfg.u.SlvPorts] wack_queue_rdata;
+    tid_t  [       CcuCfg.u.SlvPorts-1:0] rack_queue_rdata;
+    tid_t  [       CcuCfg.u.SlvPorts-1:0] wack_queue_rdata;
     //  }}}
 
     //  Alloc logic
