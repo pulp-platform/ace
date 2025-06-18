@@ -163,11 +163,11 @@ module ace_ccu_snoop_pipe
     //  Stage 0
     //  {{{
     always_comb begin : hazard_comb
-        st0_hazard = 1'b1;
-        st0_replay = 1'b0;
+        st0_hazard          = 1'b1;
+        st0_replay          = 1'b0;
 
         st0_tracker_check_o = 1'b0;
-        st0_replay_check_o = 1'b0;
+        st0_replay_check_o  = 1'b0;
 
         if (!st0_tracker_full_i && st0_pipe_ready) begin
             // Check if there is any conflict on nline or ID (tracker)
