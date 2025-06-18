@@ -107,7 +107,7 @@ module ace_ccu_snoop_pipe
     logic      st0_ar_accepts_shared;
     logic      st0_pipe_valid;
     logic      st0_pipe_ready;
-    logic      st0_stall;
+    logic      st0_hazard;
     logic      st0_replay;
     slv_idx_t  st0_slv_idx;
     st1_t      st0_pipe;
@@ -159,9 +159,12 @@ module ace_ccu_snoop_pipe
 
     //  Stage 0
     //  {{{
-    always_comb begin : stall_comb
-        st0_stall  = 1'b1;
+    always_comb begin : hazard_comb
+        st0_hazard = 1'b1;
         st0_replay = 1'b0;
+
+        st0_tracker_check_o = 1'b0;
+        st0_replay_check_o = 1'b0;
 
         if (!st0_tracker_full_i && st0_pipe_ready) begin
             // Check if there is any conflict on nline or ID (tracker)
@@ -175,7 +178,7 @@ module ace_ccu_snoop_pipe
                     // the downstream buffers
                 end else begin
                     // The write is clear to go
-                    st0_stall = 1'b0;
+                    st0_hazard = 1'b0;
                 end
             end else begin
                 // The AX originates from AR
@@ -183,7 +186,7 @@ module ace_ccu_snoop_pipe
                 st0_replay_check_o = !st0_ax_is_replay;
                 if (!st0_tracker_check_hit_i && !st0_replay_hit_i) begin
                     // No conflict is detected
-                    st0_stall = 1'b0;
+                    st0_hazard = 1'b0;
                 end else if (CcuCfg.u.ReplayEn) begin
                     // Reads are replayable
                     // ID or nline conflict is avoided by putting the request on hold
@@ -194,8 +197,8 @@ module ace_ccu_snoop_pipe
     end
 
     // Handshaking logic
-    assign st0_ac_valid_o = st0_stall ? 1'b0 : st0_ax_valid;
-    assign st0_ax_ready = st0_stall ? st0_replay : st0_ac_ready_i;
+    assign st0_ac_valid_o = st0_hazard ? 1'b0 : st0_ax_valid;
+    assign st0_ax_ready = st0_hazard ? st0_replay : st0_ac_ready_i;
     // Allocations
     assign st0_tracker_alloc_o = st0_ax_valid && st0_ax_ready && !st0_replay;
     assign st0_tracker_alloc_b_o = st0_ax_is_write || st0_ax.atop[axi_pkg::ATOP_R_RESP];
