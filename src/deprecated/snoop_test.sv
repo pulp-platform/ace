@@ -18,6 +18,19 @@ package snoop_test;
   import axi_pkg::*;
   import ace_pkg::*;
 
+  typedef enum logic [3:0] {
+    AC_READ_ONCE             = 0,
+    AC_READ_SHARED           = 1,
+    AC_READ_CLEAN            = 2,
+    AC_READ_NOT_SHARED_DIRTY = 3,
+    AC_READ_UNIQUE           = 4,
+    AC_CLEAN_SHARED          = 5,
+    AC_CLEAN_INVALID         = 6,
+    AC_MAKE_INVALID          = 7,
+    AC_DVM_COMPLETE          = 8,
+    AC_DVM_MESSAGE           = 9
+  } ac_snoop_e;
+
   /// The data transferred on a beat on the AC channel.
   class ace_ac_beat #(
     parameter AW = 32
@@ -29,7 +42,7 @@ package snoop_test;
 
   /// The data transferred on a beat on the CR channel.
   class ace_cr_beat;
-    snoop_pkg::crresp_t cr_resp    = '0;
+    ace_pkg::crresp_t cr_resp    = '0;
   endclass
 
   /// The data transferred on a beat on the CD channel.
@@ -238,9 +251,9 @@ package snoop_test;
     ) snoop_driver_t;
     typedef logic [AW-1:0]      addr_t;
     typedef logic [DW-1:0]      data_t;
-    typedef snoop_pkg::acsnoop_t  acsnoop_t;
-    typedef snoop_pkg::acprot_t   acprot_t;
-    typedef snoop_pkg::crresp_t   crresp_t;
+    typedef ace_pkg::acsnoop_t  acsnoop_t;
+    typedef ace_pkg::acprot_t   acprot_t;
+    typedef ace_pkg::crresp_t   crresp_t;
 
     typedef snoop_driver_t::ace_ac_beat_t ace_ac_beat_t;
     typedef snoop_driver_t::ace_cr_beat_t ace_cr_beat_t;
@@ -277,10 +290,11 @@ package snoop_test;
       automatic logic rand_success;
       automatic ace_ac_beat_t ace_ac_beat = new;
       automatic addr_t addr;
-      automatic snoop_pkg::acsnoop_t snoop;
-      automatic snoop_pkg::acprot_t prot;
+      automatic ace_pkg::acsnoop_t snoop;
+      automatic ace_pkg::acprot_t prot;
       automatic int unsigned mem_region_idx;
       automatic mem_region_t mem_region;
+      automatic ac_snoop_e trs;
 
       // No memory regions defined
       if (mem_map.size() == 0) begin
@@ -303,7 +317,23 @@ package snoop_test;
       addr  = mem_region.addr_begin + $urandom_range(mem_region.addr_end-mem_region.addr_begin+1);
 
       ace_ac_beat.ac_addr = addr;
-      snoop      = $urandom();
+
+      std::randomize(trs) with
+      {!(trs inside {AC_DVM_MESSAGE, AC_DVM_COMPLETE});}; // DVM not supported for the moment
+
+      case (trs)
+        AC_READ_ONCE            : snoop = ace_pkg::ReadOnce;
+        AC_READ_SHARED          : snoop = ace_pkg::ReadShared;
+        AC_READ_CLEAN           : snoop = ace_pkg::ReadClean;
+        AC_READ_NOT_SHARED_DIRTY: snoop = ace_pkg::ReadNotSharedDirty;
+        AC_READ_UNIQUE          : snoop = ace_pkg::ReadUnique;
+        AC_CLEAN_SHARED         : snoop = ace_pkg::CleanShared;
+        AC_CLEAN_INVALID        : snoop = ace_pkg::CleanInvalid;
+        AC_MAKE_INVALID         : snoop = ace_pkg::MakeInvalid;
+        AC_DVM_COMPLETE         : snoop = ace_pkg::DVMComplete;
+        AC_DVM_MESSAGE          : snoop = ace_pkg::DVMMessage;
+      endcase
+
       prot     = $urandom();
 
       // rand_success = std::randomize(id); assert(rand_success);
@@ -345,7 +375,7 @@ package snoop_test;
         automatic ace_cd_beat_t ace_cd_beat;
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
         drv.recv_cr(ace_cr_beat);
-        if (!ace_cr_beat.cr_resp.error & ace_cr_beat.cr_resp.dataTransfer)
+        if (!ace_cr_beat.cr_resp.Error & ace_cr_beat.cr_resp.DataTransfer)
           drv.recv_cd(ace_cd_beat);
       end
     endtask
@@ -445,18 +475,18 @@ package snoop_test;
         automatic ace_cr_beat_t  ace_cr_beat = new;
         wait (ace_ac_queue.size() > 0);
         ace_ac_beat         = ace_ac_queue.pop_front();
-        if(ace_ac_beat.ac_snoop == snoop_pkg::CLEAN_INVALID) begin
+        if(ace_ac_beat.ac_snoop == ace_pkg::CleanInvalid) begin
           ace_cr_beat.cr_resp = 0;
         end else begin
           ace_cr_beat.cr_resp[4:2] = $urandom_range(0,3'b111);//$urandom_range(0,5'b11111);
-          ace_cr_beat.cr_resp[1]   = 'b0;
+          ace_cr_beat.cr_resp[1]   = 1'b0;
           ace_cr_beat.cr_resp[0]   = $urandom_range(0,1);
         end
         rand_wait(CR_MIN_WAIT_CYCLES, CR_MAX_WAIT_CYCLES);
-        drv.send_cr(ace_cr_beat);
-        if (ace_cr_beat.cr_resp.dataTransfer && !ace_cr_beat.cr_resp.error) begin
+        if (ace_cr_beat.cr_resp.DataTransfer) begin
           cd_wait_cnt++;
         end
+        drv.send_cr(ace_cr_beat);
       end
     endtask
 
@@ -657,7 +687,7 @@ module snoop_chan_logger #(
           log_string = $sformatf("%0t ns> CR %d RESP: %b, ",
                           $time, no_r_beat, cr_beat);
           $fdisplay(fd, log_string);
-          if (cr_beat.dataTransfer && !cr_beat.error) begin
+          if (cr_beat.DataTransfer && !cr_beat.Error) begin
             while(cd_queues.size() != 0) begin
               cd_beat = cd_queues.pop_front();
               log_string = $sformatf("%0t ns> CD %d DATA: %h, ",
