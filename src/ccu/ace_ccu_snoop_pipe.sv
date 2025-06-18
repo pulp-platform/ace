@@ -103,6 +103,7 @@ module ace_ccu_snoop_pipe
     ccu_ax_t   st0_ax;
     logic      st0_ax_valid;
     logic      st0_ax_ready;
+    logic      st0_ax_is_write;
     acsnoop_t  st0_ax_acsnoop;
     axdomain_t st0_ax_domain;
     logic      st0_ar_accepts_dirty;
