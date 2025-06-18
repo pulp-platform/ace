@@ -238,12 +238,6 @@ module ace_ccu_snoop_pipe
             tid: st0_tracker_alloc_tid_i,
             ax: st0_ax
         };
-
-    // Replay allocation fields
-    assign replay_alloc_acsnoop_o = st0_ax_acsnoop;
-    assign replay_alloc_accepts_dirty_o = st0_ar_accepts_dirty;
-    assign replay_alloc_accepts_dirty_shared_o = st0_ar_accepts_dirty_shared;
-    assign replay_alloc_accepts_shared_o = st0_ar_accepts_shared;
     // }}}
 
     //  Stage 1
