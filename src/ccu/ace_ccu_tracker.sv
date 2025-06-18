@@ -110,6 +110,10 @@ module ace_ccu_tracker
 
     //  Dealloc logic
     //  {{{
+
+    // Deallocation logic has some complexity due to the need of handling the rack and wack signals
+    // from all master, which cannot be stalled and can arrive in parallel in the same cycle
+    // TODO: can this be simplified?
     for (genvar i = 0; i < CcuCfg.u.MaxTransactions; i++) begin : gen_dealloc
         slv_idx_t dealloc_slv_id;
         assign dealloc_slv_id = data_q[i].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
@@ -135,6 +139,8 @@ module ace_ccu_tracker
         logic wack_queue_push;
         logic rack_queue_push;
 
+        // Push an entry ID to the wack/rack queues if the dealloc response matches the ID of the transaction
+        // that is being deallocated
         assign wack_queue_push = dealloc_b_resp_i && data_q[wack_queue_wdata].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
         assign rack_queue_push = dealloc_r_resp_i && data_q[rack_queue_wdata].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
 
