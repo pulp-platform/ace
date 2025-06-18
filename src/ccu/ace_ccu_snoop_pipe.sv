@@ -80,7 +80,10 @@ module ace_ccu_snoop_pipe
     output logic    st1_read_valid_o,
     input  logic    st1_read_ready_i,
     output logic    st1_cd_ctrl_valid_o,
-    input  logic    st1_cd_ctrl_ready_i
+    input  logic    st1_cd_ctrl_ready_i,
+
+    output logic evt_st0_stall_o,
+    output logic evt_st1_stall_o
 );
     //  Typedefs
     //  {{{
@@ -333,6 +336,12 @@ module ace_ccu_snoop_pipe
     assign st1_cd_ctrl_write_o = st1_cd_write;
     assign st1_cd_ctrl_read_o  = st1_cd_read;
     assign st1_ax_tid_o        = st1.tid;
+    //  }}}
+
+    //  Performance events
+    //  {{{
+    assign evt_st0_stall_o     = st0_ax_valid && !st0_ax_ready;
+    assign evt_st1_stall_o     = st1_valid && !st1_ready;
     //  }}}
 
 endmodule

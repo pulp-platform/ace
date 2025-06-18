@@ -290,7 +290,9 @@ module ace_ccu_top
         .st1_read_valid_o         (read_valid),
         .st1_read_ready_i         (read_ready),
         .st1_cd_ctrl_valid_o      (cd_ctrl_valid),
-        .st1_cd_ctrl_ready_i      (cd_ctrl_ready)
+        .st1_cd_ctrl_ready_i      (cd_ctrl_ready),
+        .evt_st0_stall_o          (),
+        .evt_st1_stall_o          ()
     );
 
     stream_fork_dynamic #(
