@@ -176,7 +176,7 @@ package ace_pkg;
     endfunction
 
     function automatic logic is_read_once(logic arbar0, axdomain_t ardomain, arsnoop_t arsnoop);
-        return (arbar0 == 1'b0 && ardomain inside {NonShareable} && arsnoop == ReadOnce);
+        return (arbar0 == 1'b0 && ardomain inside {InnerShareable, OuterShareable} && arsnoop == ReadOnce);
     endfunction
 
     function automatic logic is_read_shared(logic arbar0, axdomain_t ardomain, arsnoop_t arsnoop);
