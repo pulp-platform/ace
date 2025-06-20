@@ -97,11 +97,11 @@ module ace_ccu_frontend
         );
 
         // Separate in each port blocking and non-blocking traffic
-        assign aw_is_nonblocking = aw_is_non_blocking(
+        assign aw_is_nonblocking = ace_aw_is_non_blocking(
             slv_req_cut[i].aw.bar[0], slv_req_cut[i].aw.domain, slv_req_cut[i].aw.snoop
         );
 
-        assign ar_is_read_no_snoop = is_read_no_snoop(
+        assign ar_is_read_no_snoop = ace_is_read_no_snoop(
             slv_req_cut[i].ar.bar[0], slv_req_cut[i].ar.domain, slv_req_cut[i].ar.snoop
         );
 

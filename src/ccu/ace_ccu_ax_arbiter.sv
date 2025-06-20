@@ -70,21 +70,21 @@ module ace_ccu_ax_arbiter
     //  {{{
     assign ar_muxed = ax_is_replay_o ? replay_ar_i : ar_i;
     // ACSNOOP computed from AWSNOOP
-    assign aw_acsnoop = aw_acsnoop_map(aw_i.bar[0], aw_i.domain, aw_i.snoop);
+    assign aw_acsnoop = ace_aw_acsnoop_map(aw_i.bar[0], aw_i.domain, aw_i.snoop);
     // ACSNOOP computed from ARSNOOP
-    assign ar_acsnoop = ar_acsnoop_map(
+    assign ar_acsnoop = ace_ar_acsnoop_map(
         ar_muxed.bar[0], ar_muxed.domain, ar_muxed.snoop, ar_muxed.lock
     );
     // Read transaction can accept a cacheline in Dirty state
-    assign ar_accepts_dirty = ar_resp_accepts_dirty(
+    assign ar_accepts_dirty = ace_ar_accepts_dirty(
         ar_muxed.bar[0], ar_muxed.domain, ar_muxed.snoop
     );
     // Read transaction can accept a cacheline in Dirty and Shared state
-    assign ar_accepts_dirty_shared = ar_resp_accepts_dirty_shared(
+    assign ar_accepts_dirty_shared = ace_ar_accepts_dirty_shared(
         ar_muxed.bar[0], ar_muxed.domain, ar_muxed.snoop
     );
     // Read transaction can accept a cacheline in Shared state
-    assign ar_accepts_shared = ar_resp_accepts_shared(
+    assign ar_accepts_shared = ace_ar_accepts_shared(
         ar_muxed.bar[0], ar_muxed.domain, ar_muxed.snoop
     );
     // Mux output signals
