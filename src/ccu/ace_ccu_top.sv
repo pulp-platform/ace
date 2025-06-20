@@ -291,8 +291,8 @@ module ace_ccu_top
         .st1_read_ready_i         (read_ready),
         .st1_cd_ctrl_valid_o      (cd_ctrl_valid),
         .st1_cd_ctrl_ready_i      (cd_ctrl_ready),
-        .evt_st0_stall_o          (),
-        .evt_st1_stall_o          ()
+        .evt_st0_stall_o          (  /*unused*/),
+        .evt_st1_stall_o          (  /*unused*/)
     );
 
     stream_fork_dynamic #(
@@ -373,6 +373,7 @@ module ace_ccu_top
         .clk_i,
         .rst_ni,
         .full_o                (tracker_full),
+        .empty_o               (  /*unused*/),
         .check_i               (tracker_check),
         .check_hit_o           (tracker_check_hit),
         .alloc_i               (tracker_alloc),
@@ -390,7 +391,9 @@ module ace_ccu_top
         .dealloc_b_resp_id_i   (tracker_dealloc_b_resp_id),
         .dealloc_b_resp_wb_o   (tracker_dealloc_b_resp_wb),
         .updt_wb_i             (tracker_updt_wb),
-        .updt_wb_tid_i         (tracker_updt_wb_tid)
+        .updt_wb_tid_i         (tracker_updt_wb_tid),
+        .evt_hit_id_o          (  /*unused*/),
+        .evt_hit_nline_o       (  /*unused*/)
     );
     //  }}}
 
