@@ -116,6 +116,8 @@ module ace_ccu_snoop_pipe
     slv_idx_t  st0_slv_idx;
     st1_t      st0_pipe;
 
+    logic      st1_pipe_valid;
+    logic      st1_pipe_ready;
     st1_t      st1;
     logic      st1_valid;
     logic      st1_ready;
