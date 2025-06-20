@@ -205,8 +205,8 @@ module ace_ccu_snoop_pipe
     assign st0_ax_ready = st0_hazard ? st0_replay : st0_ac_ready_i;
     // Allocations
     assign st0_tracker_alloc_o = st0_ax_valid && st0_ax_ready && !st0_replay;
-    assign st0_tracker_alloc_b_o = st0_ax_is_write || st0_ax.atop[axi_pkg::ATOP_R_RESP];
-    assign st0_tracker_alloc_r_o = !st0_ax_is_write;
+    assign st0_tracker_alloc_b_o = st0_ax_is_write;
+    assign st0_tracker_alloc_r_o = !st0_ax_is_write || st0_ax.atop[axi_pkg::ATOP_R_RESP];
     assign st0_tracker_alloc_nline_o = st0_ax.addr[CcuCfg.CachelineBytesIdxWidth+:CcuCfg.u.NLineWidth];
     assign st0_tracker_alloc_id_o = st0_ax.id;
     assign st0_replay_alloc_o = st0_ax_valid && st0_ax_ready && st0_replay;
