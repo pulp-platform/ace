@@ -24,6 +24,7 @@ module ace_ccu_tracker
     input logic rst_ni,
 
     output logic full_o,
+    output logic empty_o,
 
     //  Check/alloc interface
     //  {{{
@@ -49,8 +50,17 @@ module ace_ccu_tracker
     output logic    dealloc_b_resp_wb_o,
     //  }}}
 
+    //  Writeback update interface
+    //  {{{
     input logic updt_wb_i,
-    input tid_t updt_wb_tid_i
+    input tid_t updt_wb_tid_i,
+    //  }}}
+
+    //  Performance events
+    //  {{{
+    output logic evt_hit_id_o,
+    output logic evt_hit_nline_o
+    //  }}}
 );
 
     //  Typedefs
@@ -82,6 +92,8 @@ module ace_ccu_tracker
 
     logic  [CcuCfg.u.MaxTransactions-1:0] hit_id_bv;
     logic  [CcuCfg.u.MaxTransactions-1:0] hit_nline_bv;
+    logic                                 hit_id;
+    logic                                 hit_nline;
 
     tid_t                                 rack_queue_wdata;
     tid_t                                 wack_queue_wdata;
@@ -215,7 +227,9 @@ module ace_ccu_tracker
         assign hit_nline_bv[i] = valid_q[i] && (data_q[i].nline == alloc_nline_i);
     end
 
-    assign check_hit_o = check_i && |{hit_id_bv, hit_nline_bv};
+    assign hit_id      = |hit_id_bv;
+    assign hit_nline   = |hit_nline_bv;
+    assign check_hit_o = check_i && (hit_id || hit_nline);
     //  }}}
 
     //  Writeback logic
@@ -231,6 +245,13 @@ module ace_ccu_tracker
     //  Global control
     //  {{{
     assign full_o              = (valid_q == '1);
+    assign empty_o             = (valid_q == '0);
+    //  }}}
+
+    //  Performance events
+    //  {{{
+    assign evt_hit_id_o        = check_i && hit_id;
+    assign evt_hit_nline_o     = check_i && hit_nline;
     //  }}}
 
 endmodule
