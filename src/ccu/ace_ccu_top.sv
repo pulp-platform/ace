@@ -421,7 +421,7 @@ module ace_ccu_top
         .ccu_aw_t(ccu_axi_aw_t),
         .w_t     (w_t),
         .ccu_b_t (ccu_axi_b_t)
-    ) u_ace_ccu_write (
+    ) u_ace_ccu_write_unit (
         .clk_i,
         .rst_ni,
         .valid_i              (write_valid),
