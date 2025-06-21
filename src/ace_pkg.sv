@@ -340,7 +340,8 @@ package ace_pkg;
             default:                                        acsnoop = acsnoop_t'(arsnoop);
         endcase
         // Hacky way to support AMOs in Culsans with the legacy WB cache
-        if (arlock && ace_is_read_once(arbar0, ardomain, arsnoop)) acsnoop = acsnoop_t'(CleanInvalid);
+        if (arlock && ace_is_read_once(arbar0, ardomain, arsnoop))
+            acsnoop = acsnoop_t'(CleanInvalid);
         return acsnoop;
     endfunction
 
