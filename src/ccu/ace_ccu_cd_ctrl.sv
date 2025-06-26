@@ -222,7 +222,7 @@ module ace_ccu_cd_ctrl
             id: cd_ctrl_sync_rdata.id,
             data: cd.data,
             resp: {cd_ctrl_sync_rdata.r_resp_shared, cd_ctrl_sync_rdata.r_resp_dirty, 2'b0},
-            last: cd.last,
+            last: r_last,
             user: cd_ctrl_sync_rdata.r_user
         };
     //  }}}
