@@ -84,13 +84,4 @@ package ace_ccu_pkg;
         return p;
     endfunction
 
-    // Typedefs
-
-    // CD ctrl structure
-    typedef struct packed {
-        logic read;
-        logic write;
-        logic drop;
-    } cd_sel_t;
-
 endpackage
