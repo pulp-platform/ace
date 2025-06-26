@@ -338,7 +338,7 @@ module ace_ccu_snoop_pipe
     //  Performance events
     //  {{{
     assign evt_st0_stall_o     = st0_ax_valid && !st0_ax_ready;
-    assign evt_st1_stall_o     = st1_valid && !st1_ready;
+    assign evt_st1_stall_o     = st1_pipe_valid && !st1_pipe_ready;
     //  }}}
 
 endmodule
