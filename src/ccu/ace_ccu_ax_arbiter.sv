@@ -15,55 +15,55 @@ module ace_ccu_ax_arbiter
     import ace_pkg::*;
     import ace_ccu_pkg::*;
 #(
-    parameter ace_ccu_cfg_t CcuCfg   = '{default: '0},
-    parameter type          ccu_aw_t = logic,
-    parameter type          ccu_ar_t = logic,
-    parameter type          ccu_ax_t = logic
+    parameter ace_ccu_cfg_t CcuCfg      = '{default: '0},
+    parameter type          midend_aw_t = logic,
+    parameter type          midend_ar_t = logic,
+    parameter type          midend_ax_t = logic
 ) (
     input logic clk_i,
     input logic rst_ni,
 
     input logic replay_full_i,
 
-    input  ccu_aw_t aw_i,
-    input  logic    aw_valid_i,
-    output logic    aw_ready_o,
-    input  ccu_ar_t ar_i,
-    input  logic    ar_valid_i,
-    output logic    ar_ready_o,
-    input  ccu_ar_t replay_ar_i,
-    input  logic    replay_ar_valid_i,
-    output logic    replay_ar_ready_o,
+    input  midend_aw_t aw_i,
+    input  logic       aw_valid_i,
+    output logic       aw_ready_o,
+    input  midend_ar_t ar_i,
+    input  logic       ar_valid_i,
+    output logic       ar_ready_o,
+    input  midend_ar_t replay_ar_i,
+    input  logic       replay_ar_valid_i,
+    output logic       replay_ar_ready_o,
 
-    output ccu_ax_t   ax_o,
-    output logic      ax_valid_o,
-    input  logic      ax_ready_i,
-    output logic      ax_is_write_o,
-    output logic      ax_is_replay_o,
-    output acsnoop_t  ax_acsnoop_o,
-    output logic      ar_accepts_dirty_o,
-    output logic      ar_accepts_dirty_shared_o,
-    output logic      ar_accepts_shared_o,
-    output axdomain_t ax_domain_o
+    output midend_ax_t ax_o,
+    output logic       ax_valid_o,
+    input  logic       ax_ready_i,
+    output logic       ax_is_write_o,
+    output logic       ax_is_replay_o,
+    output acsnoop_t   ax_acsnoop_o,
+    output logic       ar_accepts_dirty_o,
+    output logic       ar_accepts_dirty_shared_o,
+    output logic       ar_accepts_shared_o,
+    output axdomain_t  ax_domain_o
 );
 
     //  Internal signals
     //  {{{
-    ccu_ar_t  ar_muxed;
-    ccu_ax_t  aw_in;
-    ccu_ax_t  ar_in;
-    ccu_ax_t  ax;
-    ccu_ax_t  replay_ar;
-    logic     ax_valid;
-    logic     ax_ready;
-    logic     ax_arb_valid;
-    logic     ax_arb_ready;
-    logic     ax_is_write;
-    acsnoop_t aw_acsnoop;
-    acsnoop_t ar_acsnoop;
-    logic     ar_accepts_dirty;
-    logic     ar_accepts_dirty_shared;
-    logic     ar_accepts_shared;
+    midend_ar_t ar_muxed;
+    midend_ax_t aw_in;
+    midend_ax_t ar_in;
+    midend_ax_t ax;
+    midend_ax_t replay_ar;
+    logic       ax_valid;
+    logic       ax_ready;
+    logic       ax_arb_valid;
+    logic       ax_arb_ready;
+    logic       ax_is_write;
+    acsnoop_t   aw_acsnoop;
+    acsnoop_t   ar_acsnoop;
+    logic       ar_accepts_dirty;
+    logic       ar_accepts_dirty_shared;
+    logic       ar_accepts_shared;
     //  }}}
 
     //  Coherence decoding
@@ -122,7 +122,7 @@ module ace_ccu_ax_arbiter
 
     rr_arb_tree #(
         .NumIn    (2),
-        .DataType (ccu_ax_t),
+        .DataType (midend_ax_t),
         .AxiVldRdy(1'b1),
         .LockIn   (1'b1)
     ) u_ax_arbiter (
@@ -153,7 +153,7 @@ module ace_ccu_ax_arbiter
 
     rr_arb_tree #(
         .NumIn    (2),
-        .DataType (ccu_ax_t),
+        .DataType (midend_ax_t),
         .AxiVldRdy(1'b1),
         .LockIn   (1'b0),
         .ExtPrio  (1'b1)

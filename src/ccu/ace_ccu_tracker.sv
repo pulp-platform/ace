@@ -13,12 +13,12 @@ module ace_ccu_tracker
     import ace_pkg::*;
     import ace_ccu_pkg::*;
 #(
-    parameter ace_ccu_cfg_t CcuCfg    = '{default: '0},
-    parameter type          slv_bv_t  = logic,
-    parameter type          slv_idx_t = logic,
-    parameter type          nline_t   = logic,
-    parameter type          ccu_id_t  = logic,
-    parameter type          tid_t     = logic
+    parameter ace_ccu_cfg_t CcuCfg      = '{default: '0},
+    parameter type          slv_bv_t    = logic,
+    parameter type          slv_idx_t   = logic,
+    parameter type          nline_t     = logic,
+    parameter type          midend_id_t = logic,
+    parameter type          tid_t       = logic
 ) (
     input logic clk_i,
     input logic rst_ni,
@@ -28,32 +28,25 @@ module ace_ccu_tracker
 
     //  Check/alloc interface
     //  {{{
-    input  logic    check_i,
-    output logic    check_hit_o,
-    input  logic    alloc_i,
-    input  logic    alloc_b_i,
-    input  logic    alloc_r_i,
-    input  nline_t  alloc_nline_i,
-    input  ccu_id_t alloc_id_i,
-    output tid_t    alloc_tid_o,
+    input  logic       check_i,
+    output logic       check_hit_o,
+    input  logic       alloc_i,
+    input  logic       alloc_b_i,
+    input  logic       alloc_r_i,
+    input  nline_t     alloc_nline_i,
+    input  midend_id_t alloc_id_i,
+    output tid_t       alloc_tid_o,
     //  }}}
 
     //  Lookup/dealloc interface
     //  {{{
-    input  slv_bv_t dealloc_rack_i,
-    input  slv_bv_t dealloc_wack_i,
-    input  logic    dealloc_r_resp_i,
-    input  ccu_id_t dealloc_r_resp_id_i,
-    input  logic    dealloc_b_resp_i,
-    input  logic    dealloc_check_b_resp_i,
-    input  ccu_id_t dealloc_b_resp_id_i,
-    output logic    dealloc_b_resp_wb_o,
-    //  }}}
-
-    //  Writeback update interface
-    //  {{{
-    input logic updt_wb_i,
-    input tid_t updt_wb_tid_i,
+    input slv_bv_t    dealloc_rack_i,
+    input slv_bv_t    dealloc_wack_i,
+    input logic       dealloc_r_resp_i,
+    input midend_id_t dealloc_r_resp_id_i,
+    input logic       dealloc_b_resp_i,
+    input logic       dealloc_check_b_resp_i,
+    input midend_id_t dealloc_b_resp_id_i,
     //  }}}
 
     //  Performance events
@@ -68,12 +61,11 @@ module ace_ccu_tracker
     typedef struct packed {
         logic r;
         logic b;
-        logic wb;
     } meta_t;
 
     typedef struct packed {
-        nline_t  nline;
-        ccu_id_t id;
+        nline_t     nline;
+        midend_id_t id;
     } data_t;
     //  }}}
 
@@ -128,7 +120,7 @@ module ace_ccu_tracker
     // TODO: can this be simplified?
     for (genvar i = 0; i < CcuCfg.u.MaxTransactions; i++) begin : gen_dealloc
         slv_idx_t dealloc_slv_id;
-        assign dealloc_slv_id = data_q[i].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
+        assign dealloc_slv_id = data_q[i].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
         assign meta_clr[i].r  = dealloc_rack_i[dealloc_slv_id] && (i == rack_queue_rdata[dealloc_slv_id]);
         assign meta_clr[i].b  = dealloc_wack_i[dealloc_slv_id] && (i == wack_queue_rdata[dealloc_slv_id]);
         assign valid_clr[i] = ~|meta_d[i];
@@ -153,8 +145,8 @@ module ace_ccu_tracker
 
         // Push an entry ID to the wack/rack queues if the dealloc response matches the ID of the transaction
         // that is being deallocated
-        assign wack_queue_push = dealloc_b_resp_i && data_q[wack_queue_wdata].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
-        assign rack_queue_push = dealloc_r_resp_i && data_q[rack_queue_wdata].id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
+        assign wack_queue_push = dealloc_b_resp_i && data_q[wack_queue_wdata].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
+        assign rack_queue_push = dealloc_r_resp_i && data_q[rack_queue_wdata].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
 
         fifo_v3 #(
             .FALL_THROUGH(1'b0),
@@ -227,31 +219,21 @@ module ace_ccu_tracker
         assign hit_nline_bv[i] = valid_q[i] && (data_q[i].nline == alloc_nline_i);
     end
 
-    assign hit_id      = |hit_id_bv;
-    assign hit_nline   = |hit_nline_bv;
-    assign check_hit_o = check_i && (hit_id || hit_nline);
-    //  }}}
-
-    //  Writeback logic
-    //  {{{
-    for (genvar i = 0; i < CcuCfg.u.MaxTransactions; i++) begin : gen_writeback
-        assign meta_set[i].wb = updt_wb_i && updt_wb_tid_i == CcuCfg.TransactionIdxWidth'(i);
-        assign meta_clr[i].wb = dealloc_check_b_resp_i && wack_queue_wdata == CcuCfg.TransactionIdxWidth'(i);
-    end
-
-    assign dealloc_b_resp_wb_o = dealloc_check_b_resp_i && meta_q[wack_queue_wdata].wb;
+    assign hit_id          = |hit_id_bv;
+    assign hit_nline       = |hit_nline_bv;
+    assign check_hit_o     = check_i && (hit_id || hit_nline);
     //  }}}
 
     //  Global control
     //  {{{
-    assign full_o              = (valid_q == '1);
-    assign empty_o             = (valid_q == '0);
+    assign full_o          = (valid_q == '1);
+    assign empty_o         = (valid_q == '0);
     //  }}}
 
     //  Performance events
     //  {{{
-    assign evt_hit_id_o        = check_i && hit_id;
-    assign evt_hit_nline_o     = check_i && hit_nline;
+    assign evt_hit_id_o    = check_i && hit_id;
+    assign evt_hit_nline_o = check_i && hit_nline;
     //  }}}
 
 endmodule
