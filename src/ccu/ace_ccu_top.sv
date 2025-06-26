@@ -61,7 +61,8 @@ module ace_ccu_top
 
     // AXI/ACE types
     typedef logic [CcuCfg.u.AxiSlvIdWidth-1:0] slv_id_t;
-    typedef logic [CcuCfg.AxiCcuIdWidth-1:0] ccu_id_t;
+    typedef logic [CcuCfg.AxiMidendIdWidth-1:0] midend_id_t;
+    typedef logic [CcuCfg.AxiBackendIdWidth-1:0] backend_id_t;
     typedef logic [CcuCfg.AxiMstIdWidth-1:0] mst_id_t;
     typedef logic [CcuCfg.u.AxiAddrWidth-1:0] addr_t;
     typedef logic [CcuCfg.u.AxiDataWidth-1:0] data_t;
@@ -69,19 +70,19 @@ module ace_ccu_top
     typedef logic [CcuCfg.u.AxiUserWidth-1:0] user_t;
 
     // Intermediate ACE and AXI channel types
-    `ACE_TYPEDEF_AW_CHAN_T(ccu_ace_aw_t, addr_t, ccu_id_t, user_t)
-    `AXI_TYPEDEF_B_CHAN_T(ccu_ace_b_t, ccu_id_t, user_t)
-    `ACE_TYPEDEF_AR_CHAN_T(ccu_ace_ar_t, addr_t, ccu_id_t, user_t)
-    `ACE_TYPEDEF_R_CHAN_T(ccu_ace_r_t, data_t, ccu_id_t, user_t)
-    `ACE_TYPEDEF_REQ_T(ccu_ace_req_t, ccu_ace_aw_t, w_t, ccu_ace_ar_t)
-    `ACE_TYPEDEF_RESP_T(ccu_ace_resp_t, ccu_ace_b_t, ccu_ace_r_t)
+    `ACE_TYPEDEF_AW_CHAN_T(midend_aw_t, addr_t, midend_id_t, user_t)
+    `AXI_TYPEDEF_B_CHAN_T(midend_b_t, midend_id_t, user_t)
+    `ACE_TYPEDEF_AR_CHAN_T(midend_ar_t, addr_t, midend_id_t, user_t)
+    `ACE_TYPEDEF_R_CHAN_T(midend_r_t, data_t, midend_id_t, user_t)
+    `ACE_TYPEDEF_REQ_T(midend_req_t, midend_aw_t, w_t, midend_ar_t)
+    `ACE_TYPEDEF_RESP_T(midend_resp_t, midend_b_t, midend_r_t)
 
-    `AXI_TYPEDEF_AW_CHAN_T(ccu_axi_aw_t, addr_t, ccu_id_t, user_t)
-    `AXI_TYPEDEF_B_CHAN_T(ccu_axi_b_t, ccu_id_t, user_t)
-    `AXI_TYPEDEF_AR_CHAN_T(ccu_axi_ar_t, addr_t, ccu_id_t, user_t)
-    `AXI_TYPEDEF_R_CHAN_T(ccu_axi_r_t, data_t, ccu_id_t, user_t)
-    `AXI_TYPEDEF_REQ_T(ccu_axi_req_t, ccu_axi_aw_t, w_t, ccu_axi_ar_t)
-    `AXI_TYPEDEF_RESP_T(ccu_axi_resp_t, ccu_axi_b_t, ccu_axi_r_t)
+    `AXI_TYPEDEF_AW_CHAN_T(backend_aw_t, addr_t, backend_id_t, user_t)
+    `AXI_TYPEDEF_B_CHAN_T(backend_b_t, backend_id_t, user_t)
+    `AXI_TYPEDEF_AR_CHAN_T(backend_ar_t, addr_t, backend_id_t, user_t)
+    `AXI_TYPEDEF_R_CHAN_T(backend_r_t, data_t, backend_id_t, user_t)
+    `AXI_TYPEDEF_REQ_T(backend_req_t, backend_aw_t, w_t, backend_ar_t)
+    `AXI_TYPEDEF_RESP_T(backend_resp_t, backend_b_t, backend_r_t)
 
     // Transaction ID type
     typedef logic [CcuCfg.TransactionIdxWidth-1:0] tid_t;
@@ -91,7 +92,7 @@ module ace_ccu_top
 
     // Internal AW/AR request unified representation
     typedef struct packed {
-        ccu_id_t          id;
+        midend_id_t       id;
         addr_t            addr;
         axi_pkg::len_t    len;
         axi_pkg::size_t   size;
@@ -103,19 +104,19 @@ module ace_ccu_top
         axi_pkg::region_t region;
         axi_pkg::atop_t   atop;
         user_t            user;
-    } ccu_ax_t;
+    } midend_ax_t;
     //  }}}
 
     //  Internal signals
     //  {{{
-    ccu_ace_req_t                          ccu_nonshareable_req;
-    ccu_ace_resp_t                         ccu_nonshareable_resp;
-    ccu_ace_req_t                          ccu_shareable_req;
-    ccu_ace_resp_t                         ccu_shareable_resp;
+    midend_req_t                           ccu_nonshareable_req;
+    midend_resp_t                          ccu_nonshareable_resp;
+    midend_req_t                           ccu_shareable_req;
+    midend_resp_t                          ccu_shareable_resp;
     slv_bv_t                               ccu_shareable_rack;
     slv_bv_t                               ccu_shareable_wack;
 
-    ccu_ace_ar_t                           replay_ar;
+    midend_ar_t                            replay_ar;
     logic                                  replay_ar_valid;
     logic                                  replay_ar_ready;
 
@@ -149,18 +150,15 @@ module ace_ccu_top
     logic                                  tracker_alloc_b;
     logic                                  tracker_alloc_r;
     nline_t                                tracker_alloc_nline;
-    ccu_id_t                               tracker_alloc_id;
+    midend_id_t                            tracker_alloc_id;
     tid_t                                  tracker_alloc_tid;
     logic                                  tracker_dealloc_r_resp;
     logic                                  tracker_dealloc_b_resp;
     logic                                  tracker_dealloc_check_b_resp;
-    ccu_id_t                               tracker_dealloc_r_resp_id;
-    ccu_id_t                               tracker_dealloc_b_resp_id;
-    logic                                  tracker_dealloc_b_resp_wb;
-    logic                                  tracker_updt_wb;
-    tid_t                                  tracker_updt_wb_tid;
+    midend_id_t                            tracker_dealloc_r_resp_id;
+    midend_id_t                            tracker_dealloc_b_resp_id;
 
-    ccu_ax_t                               pipe_ax;
+    midend_ax_t                            pipe_ax;
     logic                                  pipe_ax_is_write;
     logic                                  pipe_r_resp_shared;
     logic                                  pipe_r_resp_dirty;
@@ -182,14 +180,14 @@ module ace_ccu_top
     w_t                                    cd_w;
     logic                                  cd_w_valid;
     logic                                  cd_w_ready;
-    ccu_ace_r_t                            cd_r;
+    midend_r_t                             cd_r;
     logic                                  cd_r_valid;
     logic                                  cd_r_ready;
 
-    ccu_axi_req_t                          axi_shareable_req;
-    ccu_axi_resp_t                         axi_shareable_resp;
-    ccu_axi_req_t                          axi_nonshareable_req;
-    ccu_axi_resp_t                         axi_nonshareable_resp;
+    backend_req_t                          axi_shareable_req;
+    backend_resp_t                         axi_shareable_resp;
+    backend_req_t                          axi_nonshareable_req;
+    backend_resp_t                         axi_nonshareable_resp;
 
     mst_req_t                              mst_req;
     mst_resp_t                             mst_resp;
@@ -199,22 +197,22 @@ module ace_ccu_top
     //  Frontend
     //  {{{
     ace_ccu_frontend #(
-        .CcuCfg    (CcuCfg),
-        .slv_bv_t  (slv_bv_t),
-        .slv_idx_t (slv_idx_t),
-        .slv_aw_t  (slv_aw_t),
-        .w_t       (w_t),
-        .slv_b_t   (slv_b_t),
-        .slv_ar_t  (slv_ar_t),
-        .slv_r_t   (slv_r_t),
-        .slv_req_t (slv_req_t),
-        .slv_resp_t(slv_resp_t),
-        .ccu_aw_t  (ccu_ace_aw_t),
-        .ccu_b_t   (ccu_ace_b_t),
-        .ccu_ar_t  (ccu_ace_ar_t),
-        .ccu_r_t   (ccu_ace_r_t),
-        .ccu_req_t (ccu_ace_req_t),
-        .ccu_resp_t(ccu_ace_resp_t)
+        .CcuCfg       (CcuCfg),
+        .slv_bv_t     (slv_bv_t),
+        .slv_idx_t    (slv_idx_t),
+        .slv_aw_t     (slv_aw_t),
+        .w_t          (w_t),
+        .slv_b_t      (slv_b_t),
+        .slv_ar_t     (slv_ar_t),
+        .slv_r_t      (slv_r_t),
+        .slv_req_t    (slv_req_t),
+        .slv_resp_t   (slv_resp_t),
+        .midend_aw_t  (midend_aw_t),
+        .midend_b_t   (midend_b_t),
+        .midend_ar_t  (midend_ar_t),
+        .midend_r_t   (midend_r_t),
+        .midend_req_t (midend_req_t),
+        .midend_resp_t(midend_resp_t)
     ) u_ace_ccu_frontend (
         .clk_i,
         .rst_ni,
@@ -234,10 +232,10 @@ module ace_ccu_top
     ace_ccu_snoop_pipe #(
         .CcuCfg       (CcuCfg),
         .domain_rule_t(domain_rule_t),
-        .ccu_ax_t     (ccu_ax_t),
-        .ccu_aw_t     (ccu_ace_aw_t),
-        .ccu_ar_t     (ccu_ace_ar_t),
-        .ccu_id_t     (ccu_id_t),
+        .midend_ax_t  (midend_ax_t),
+        .midend_aw_t  (midend_aw_t),
+        .midend_ar_t  (midend_ar_t),
+        .midend_id_t  (midend_id_t),
         .ac_t         (snoop_ac_t),
         .cr_t         (snoop_cr_t),
         .slv_bv_t     (slv_bv_t),
@@ -363,12 +361,12 @@ module ace_ccu_top
     assign tracker_dealloc_b_resp_id = ccu_shareable_resp.b.id;
 
     ace_ccu_tracker #(
-        .CcuCfg   (CcuCfg),
-        .slv_bv_t (slv_bv_t),
-        .slv_idx_t(slv_idx_t),
-        .nline_t  (nline_t),
-        .ccu_id_t (ccu_id_t),
-        .tid_t    (tid_t)
+        .CcuCfg     (CcuCfg),
+        .slv_bv_t   (slv_bv_t),
+        .slv_idx_t  (slv_idx_t),
+        .nline_t    (nline_t),
+        .midend_id_t(midend_id_t),
+        .tid_t      (tid_t)
     ) u_ace_ccu_tracker (
         .clk_i,
         .rst_ni,
@@ -389,9 +387,6 @@ module ace_ccu_top
         .dealloc_b_resp_i      (tracker_dealloc_b_resp),
         .dealloc_check_b_resp_i(tracker_dealloc_check_b_resp),
         .dealloc_b_resp_id_i   (tracker_dealloc_b_resp_id),
-        .dealloc_b_resp_wb_o   (tracker_dealloc_b_resp_wb),
-        .updt_wb_i             (tracker_updt_wb),
-        .updt_wb_tid_i         (tracker_updt_wb_tid),
         .evt_hit_id_o          (  /*unused*/),
         .evt_hit_nline_o       (  /*unused*/)
     );
@@ -415,42 +410,40 @@ module ace_ccu_top
     //  Write Unit
     //  {{{
     ace_ccu_write #(
-        .CcuCfg  (CcuCfg),
-        .ccu_ax_t(ccu_ax_t),
-        .tid_t   (tid_t),
-        .ccu_aw_t(ccu_axi_aw_t),
-        .w_t     (w_t),
-        .ccu_b_t (ccu_axi_b_t)
+        .CcuCfg      (CcuCfg),
+        .midend_ax_t (midend_ax_t),
+        .tid_t       (tid_t),
+        .backend_aw_t(backend_aw_t),
+        .w_t         (w_t),
+        .midend_b_t  (midend_b_t),
+        .backend_b_t (backend_b_t)
     ) u_ace_ccu_write_unit (
         .clk_i,
         .rst_ni,
-        .valid_i              (write_valid),
-        .ready_o              (write_ready),
-        .ax_i                 (pipe_ax),
-        .ax_is_write_i        (pipe_ax_is_write),
-        .ax_is_writeback_i    (pipe_cd_ctrl_write),
-        .ax_tid_i             (pipe_ax_tid),
-        .tracker_updt_wb_o    (tracker_updt_wb),
-        .tracker_updt_wb_tid_o(tracker_updt_wb_tid),
-        .b_is_writeback_i     (tracker_dealloc_b_resp_wb),
-        .w_i                  (write_w),
-        .w_valid_i            (write_w_valid),
-        .w_ready_o            (write_w_ready),
-        .cd_w_i               (cd_w),
-        .cd_w_valid_i         (cd_w_valid),
-        .cd_w_ready_o         (cd_w_ready),
-        .b_o                  (ccu_shareable_resp.b),
-        .b_valid_o            (ccu_shareable_resp.b_valid),
-        .b_ready_i            (ccu_shareable_req.b_ready),
-        .aw_o                 (axi_shareable_req.aw),
-        .aw_valid_o           (axi_shareable_req.aw_valid),
-        .aw_ready_i           (axi_shareable_resp.aw_ready),
-        .w_o                  (axi_shareable_req.w),
-        .w_valid_o            (axi_shareable_req.w_valid),
-        .w_ready_i            (axi_shareable_resp.w_ready),
-        .b_i                  (axi_shareable_resp.b),
-        .b_valid_i            (axi_shareable_resp.b_valid),
-        .b_ready_o            (axi_shareable_req.b_ready)
+        .valid_i          (write_valid),
+        .ready_o          (write_ready),
+        .ax_i             (pipe_ax),
+        .ax_is_write_i    (pipe_ax_is_write),
+        .ax_is_writeback_i(pipe_cd_ctrl_write),
+        .ax_tid_i         (pipe_ax_tid),
+        .w_i              (write_w),
+        .w_valid_i        (write_w_valid),
+        .w_ready_o        (write_w_ready),
+        .cd_w_i           (cd_w),
+        .cd_w_valid_i     (cd_w_valid),
+        .cd_w_ready_o     (cd_w_ready),
+        .b_o              (ccu_shareable_resp.b),
+        .b_valid_o        (ccu_shareable_resp.b_valid),
+        .b_ready_i        (ccu_shareable_req.b_ready),
+        .aw_o             (axi_shareable_req.aw),
+        .aw_valid_o       (axi_shareable_req.aw_valid),
+        .aw_ready_i       (axi_shareable_resp.aw_ready),
+        .w_o              (axi_shareable_req.w),
+        .w_valid_o        (axi_shareable_req.w_valid),
+        .w_ready_i        (axi_shareable_resp.w_ready),
+        .b_i              (axi_shareable_resp.b),
+        .b_valid_i        (axi_shareable_resp.b_valid),
+        .b_ready_o        (axi_shareable_req.b_ready)
     );
     //  }}}
 
@@ -458,11 +451,11 @@ module ace_ccu_top
     //  {{{
     ace_ccu_read #(
         .CcuCfg      (CcuCfg),
-        .ccu_ax_t    (ccu_ax_t),
+        .midend_ax_t (midend_ax_t),
         .tid_t       (tid_t),
-        .ccu_axi_ar_t(ccu_axi_ar_t),
-        .ccu_axi_r_t (ccu_axi_r_t),
-        .ccu_ace_r_t (ccu_ace_r_t)
+        .backend_ar_t(backend_ar_t),
+        .backend_r_t (backend_r_t),
+        .midend_r_t  (midend_r_t)
     ) u_ace_ccu_read_unit (
         .clk_i,
         .rst_ni,
@@ -488,14 +481,14 @@ module ace_ccu_top
     //  CD Ctrl Unit
     //  {{{
     ace_ccu_cd_ctrl #(
-        .CcuCfg  (CcuCfg),
-        .ccu_ax_t(ccu_ax_t),
-        .ccu_id_t(ccu_id_t),
-        .user_t  (user_t),
-        .cd_t    (snoop_cd_t),
-        .slv_bv_t(slv_bv_t),
-        .w_t     (w_t),
-        .ccu_r_t (ccu_ace_r_t)
+        .CcuCfg     (CcuCfg),
+        .midend_ax_t(midend_ax_t),
+        .midend_id_t(midend_id_t),
+        .user_t     (user_t),
+        .cd_t       (snoop_cd_t),
+        .slv_bv_t   (slv_bv_t),
+        .w_t        (w_t),
+        .midend_r_t (midend_r_t)
     ) u_ace_ccu_cd_ctrl (
         .clk_i,
         .rst_ni,
@@ -525,18 +518,18 @@ module ace_ccu_top
     `AXI_TO_ACE_ASSIGN_RESP(ccu_nonshareable_resp, axi_nonshareable_resp)
 
     axi_mux #(
-        .SlvAxiIDWidth(CcuCfg.AxiCcuIdWidth),
-        .slv_aw_chan_t(ccu_axi_aw_t),
+        .SlvAxiIDWidth(CcuCfg.AxiBackendIdWidth),
+        .slv_aw_chan_t(backend_aw_t),
         .mst_aw_chan_t(mst_aw_t),
         .w_chan_t     (w_t),
-        .slv_b_chan_t (ccu_axi_b_t),
+        .slv_b_chan_t (backend_b_t),
         .mst_b_chan_t (mst_b_t),
-        .slv_ar_chan_t(ccu_axi_ar_t),
+        .slv_ar_chan_t(backend_ar_t),
         .mst_ar_chan_t(mst_ar_t),
-        .slv_r_chan_t (ccu_axi_r_t),
+        .slv_r_chan_t (backend_r_t),
         .mst_r_chan_t (mst_r_t),
-        .slv_req_t    (ccu_axi_req_t),
-        .slv_resp_t   (ccu_axi_resp_t),
+        .slv_req_t    (backend_req_t),
+        .slv_resp_t   (backend_resp_t),
         .mst_req_t    (mst_req_t),
         .mst_resp_t   (mst_resp_t),
         .NoSlvPorts   (2),

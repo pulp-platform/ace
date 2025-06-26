@@ -15,28 +15,28 @@ module ace_ccu_cd_ctrl
     import ace_pkg::*;
     import ace_ccu_pkg::*;
 #(
-    parameter ace_ccu_cfg_t CcuCfg   = '{default: '0},
-    parameter type          ccu_ax_t = logic,
-    parameter type          ccu_id_t = logic,
-    parameter type          user_t   = logic,
-    parameter type          cd_t     = logic,
-    parameter type          slv_bv_t = logic,
-    parameter type          w_t      = logic,
-    parameter type          ccu_r_t  = logic
+    parameter ace_ccu_cfg_t CcuCfg      = '{default: '0},
+    parameter type          midend_ax_t = logic,
+    parameter type          midend_id_t = logic,
+    parameter type          user_t      = logic,
+    parameter type          cd_t        = logic,
+    parameter type          slv_bv_t    = logic,
+    parameter type          w_t         = logic,
+    parameter type          midend_r_t  = logic
 ) (
 
     input logic clk_i,
     input logic rst_ni,
 
     // Ctrl
-    input  logic    valid_i,
-    output logic    ready_o,
-    input  ccu_ax_t ax_i,
-    input  logic    cd_ctrl_write_i,
-    input  logic    cd_ctrl_read_i,
-    input  slv_bv_t cd_bv_i,
-    input  logic    r_resp_shared_i,
-    input  logic    r_resp_dirty_i,
+    input  logic       valid_i,
+    output logic       ready_o,
+    input  midend_ax_t ax_i,
+    input  logic       cd_ctrl_write_i,
+    input  logic       cd_ctrl_read_i,
+    input  slv_bv_t    cd_bv_i,
+    input  logic       r_resp_shared_i,
+    input  logic       r_resp_dirty_i,
 
     // CD snoop channel
     input  cd_t  [CcuCfg.u.SlvPorts-1:0] cd_i,
@@ -49,16 +49,16 @@ module ace_ccu_cd_ctrl
     input  logic w_ready_i,
 
     // Slv interface
-    output ccu_r_t r_o,
-    output logic   r_valid_o,
-    input  logic   r_ready_i
+    output midend_r_t r_o,
+    output logic      r_valid_o,
+    input  logic      r_ready_i
 );
     //  Typedefs
     //  {{{
     typedef logic [CcuCfg.CachelineAxiTransfersIdxWidth-1:0] cl_axi_trans_idx_t;
 
     typedef struct packed {
-        ccu_id_t           id;
+        midend_id_t        id;
         logic              cd_ctrl_write;
         logic              cd_ctrl_read;
         cl_axi_trans_idx_t r_cd_start_trans;

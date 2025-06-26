@@ -53,7 +53,8 @@ package ace_ccu_pkg;
         int unsigned       CachelineAddrWidth;
         int unsigned       CachelineAxiTransfers;
         int unsigned       CachelineAxiTransfersIdxWidth;
-        int unsigned       AxiCcuIdWidth;
+        int unsigned       AxiMidendIdWidth;
+        int unsigned       AxiBackendIdWidth;
         int unsigned       AxiDataBytes;
         int unsigned       AxiDataBytesIdxWidth;
         int unsigned       AxiStrbWidth;
@@ -76,8 +77,9 @@ package ace_ccu_pkg;
         p.AxiDataBytes                  = u.AxiDataWidth / 8;
         p.AxiDataBytesIdxWidth          = $clog2(p.AxiDataBytes);
         p.AxiStrbWidth                  = u.AxiDataWidth / 8;
-        p.AxiCcuIdWidth                 = u.AxiSlvIdWidth + p.SlvPortIdxWidth;
-        p.AxiMstIdWidth                 = p.AxiCcuIdWidth + 1;
+        p.AxiMidendIdWidth              = u.AxiSlvIdWidth + p.SlvPortIdxWidth;
+        p.AxiBackendIdWidth             = p.AxiMidendIdWidth + 1;
+        p.AxiMstIdWidth                 = p.AxiBackendIdWidth + 1;
 
         return p;
     endfunction

@@ -15,10 +15,10 @@ module ace_ccu_snoop_pipe
 #(
     parameter ace_ccu_cfg_t CcuCfg        = '{default: '0},
     parameter type          domain_rule_t = logic,
-    parameter type          ccu_aw_t      = logic,
-    parameter type          ccu_ar_t      = logic,
-    parameter type          ccu_ax_t      = logic,
-    parameter type          ccu_id_t      = logic,
+    parameter type          midend_aw_t   = logic,
+    parameter type          midend_ar_t   = logic,
+    parameter type          midend_ax_t   = logic,
+    parameter type          midend_id_t   = logic,
     parameter type          ac_t          = logic,
     parameter type          cr_t          = logic,
     parameter type          slv_bv_t      = logic,
@@ -29,17 +29,17 @@ module ace_ccu_snoop_pipe
     input logic clk_i,
     input logic rst_ni,
 
-    input  ccu_aw_t st0_aw_i,
-    input  logic    st0_aw_valid_i,
-    output logic    st0_aw_ready_o,
+    input  midend_aw_t st0_aw_i,
+    input  logic       st0_aw_valid_i,
+    output logic       st0_aw_ready_o,
 
-    input  ccu_ar_t st0_ar_i,
-    input  logic    st0_ar_valid_i,
-    output logic    st0_ar_ready_o,
+    input  midend_ar_t st0_ar_i,
+    input  logic       st0_ar_valid_i,
+    output logic       st0_ar_ready_o,
 
-    input  ccu_ar_t st0_replay_ar_i,
-    input  logic    st0_replay_ar_valid_i,
-    output logic    st0_replay_ar_ready_o,
+    input  midend_ar_t st0_replay_ar_i,
+    input  logic       st0_replay_ar_valid_i,
+    output logic       st0_replay_ar_ready_o,
 
     output ac_t     st0_ac_o,
     output slv_bv_t st0_ac_bv_o,
@@ -56,31 +56,31 @@ module ace_ccu_snoop_pipe
     input  logic st0_replay_hit_i,
     output logic st0_replay_alloc_o,
 
-    input  logic    st0_tracker_full_i,
-    output logic    st0_tracker_check_o,
-    input  logic    st0_tracker_check_hit_i,
-    output logic    st0_tracker_alloc_o,
-    output logic    st0_tracker_alloc_b_o,
-    output logic    st0_tracker_alloc_r_o,
-    output nline_t  st0_tracker_alloc_nline_o,
-    output ccu_id_t st0_tracker_alloc_id_o,
-    input  tid_t    st0_tracker_alloc_tid_i,
+    input  logic       st0_tracker_full_i,
+    output logic       st0_tracker_check_o,
+    input  logic       st0_tracker_check_hit_i,
+    output logic       st0_tracker_alloc_o,
+    output logic       st0_tracker_alloc_b_o,
+    output logic       st0_tracker_alloc_r_o,
+    output nline_t     st0_tracker_alloc_nline_o,
+    output midend_id_t st0_tracker_alloc_id_o,
+    input  tid_t       st0_tracker_alloc_tid_i,
 
     input domain_rule_t [CcuCfg.u.SlvPorts-1:0] st0_domain_rule_i,
 
-    output ccu_ax_t st1_ax_o,
-    output logic    st1_ax_is_write_o,
-    output logic    st1_r_resp_shared_o,
-    output logic    st1_r_resp_dirty_o,
-    output tid_t    st1_ax_tid_o,
-    output logic    st1_cd_ctrl_write_o,
-    output logic    st1_cd_ctrl_read_o,
-    output logic    st1_write_valid_o,
-    input  logic    st1_write_ready_i,
-    output logic    st1_read_valid_o,
-    input  logic    st1_read_ready_i,
-    output logic    st1_cd_ctrl_valid_o,
-    input  logic    st1_cd_ctrl_ready_i,
+    output midend_ax_t st1_ax_o,
+    output logic       st1_ax_is_write_o,
+    output logic       st1_r_resp_shared_o,
+    output logic       st1_r_resp_dirty_o,
+    output tid_t       st1_ax_tid_o,
+    output logic       st1_cd_ctrl_write_o,
+    output logic       st1_cd_ctrl_read_o,
+    output logic       st1_write_valid_o,
+    input  logic       st1_write_ready_i,
+    output logic       st1_read_valid_o,
+    input  logic       st1_read_ready_i,
+    output logic       st1_cd_ctrl_valid_o,
+    input  logic       st1_cd_ctrl_ready_i,
 
     output logic evt_st0_stall_o,
     output logic evt_st1_stall_o
@@ -88,55 +88,55 @@ module ace_ccu_snoop_pipe
     //  Typedefs
     //  {{{
     typedef struct packed {
-        logic    ax_is_write;
-        logic    ar_accepts_dirty;
-        logic    ar_accepts_dirty_shared;
-        logic    ar_accepts_shared;
-        slv_bv_t cr_bv;
-        tid_t    tid;
-        ccu_ax_t ax;
+        logic       ax_is_write;
+        logic       ar_accepts_dirty;
+        logic       ar_accepts_dirty_shared;
+        logic       ar_accepts_shared;
+        slv_bv_t    cr_bv;
+        tid_t       tid;
+        midend_ax_t ax;
     } st1_t;
     //  }}}
 
     //  Internal signals
     //  {{{
-    ccu_ax_t   st0_ax;
-    logic      st0_ax_valid;
-    logic      st0_ax_ready;
-    logic      st0_ax_is_write;
-    acsnoop_t  st0_ax_acsnoop;
-    axdomain_t st0_ax_domain;
-    logic      st0_ar_accepts_dirty;
-    logic      st0_ar_accepts_dirty_shared;
-    logic      st0_ar_accepts_shared;
-    logic      st0_pipe_valid;
-    logic      st0_pipe_ready;
-    logic      st0_hazard;
-    logic      st0_replay;
-    slv_idx_t  st0_slv_idx;
-    st1_t      st0_pipe;
+    midend_ax_t st0_ax;
+    logic       st0_ax_valid;
+    logic       st0_ax_ready;
+    logic       st0_ax_is_write;
+    acsnoop_t   st0_ax_acsnoop;
+    axdomain_t  st0_ax_domain;
+    logic       st0_ar_accepts_dirty;
+    logic       st0_ar_accepts_dirty_shared;
+    logic       st0_ar_accepts_shared;
+    logic       st0_pipe_valid;
+    logic       st0_pipe_ready;
+    logic       st0_hazard;
+    logic       st0_replay;
+    slv_idx_t   st0_slv_idx;
+    st1_t       st0_pipe;
 
-    logic      st1_pipe_valid;
-    logic      st1_pipe_ready;
-    st1_t      st1;
-    logic      st1_valid;
-    logic      st1_ready;
-    logic      st1_r_resp_shared;
-    logic      st1_r_resp_dirty;
-    logic      st1_aw_sel;
-    logic      st1_ar_sel;
-    logic      st1_cd_sel;
-    logic      st1_cd_write;
-    logic      st1_cd_read;
+    logic       st1_pipe_valid;
+    logic       st1_pipe_ready;
+    st1_t       st1;
+    logic       st1_valid;
+    logic       st1_ready;
+    logic       st1_r_resp_shared;
+    logic       st1_r_resp_dirty;
+    logic       st1_aw_sel;
+    logic       st1_ar_sel;
+    logic       st1_cd_sel;
+    logic       st1_cd_write;
+    logic       st1_cd_read;
     // }}}
 
     //  AX arbiter
     //  {{{
     ace_ccu_ax_arbiter #(
-        .CcuCfg  (CcuCfg),
-        .ccu_aw_t(ccu_aw_t),
-        .ccu_ar_t(ccu_ar_t),
-        .ccu_ax_t(ccu_ax_t)
+        .CcuCfg     (CcuCfg),
+        .midend_aw_t(midend_aw_t),
+        .midend_ar_t(midend_ar_t),
+        .midend_ax_t(midend_ax_t)
     ) u_st0_ax_arbiter (
         .clk_i,
         .rst_ni,
@@ -215,7 +215,7 @@ module ace_ccu_snoop_pipe
 
     assign st0_pipe_valid = st0_ac_valid_o && st0_ac_ready_i;
 
-    assign st0_slv_idx = st0_ax.id[CcuCfg.AxiCcuIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
+    assign st0_slv_idx = st0_ax.id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
 
     always_comb begin : ac_bv_comb
         unique case (st0_ax_domain)

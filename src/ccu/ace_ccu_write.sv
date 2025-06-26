@@ -15,57 +15,59 @@ module ace_ccu_write
     import ace_pkg::*;
     import ace_ccu_pkg::*;
 #(
-    parameter ace_ccu_cfg_t CcuCfg   = '{default: '0},
-    parameter type          ccu_ax_t = logic,
-    parameter type          tid_t    = logic,
-    parameter type          ccu_aw_t = logic,
-    parameter type          w_t      = logic,
-    parameter type          ccu_b_t  = logic
+    parameter ace_ccu_cfg_t CcuCfg       = '{default: '0},
+    parameter type          midend_ax_t  = logic,
+    parameter type          tid_t        = logic,
+    parameter type          backend_aw_t = logic,
+    parameter type          w_t          = logic,
+    parameter type          midend_b_t   = logic,
+    parameter type          backend_b_t  = logic
 ) (
     input logic clk_i,
     input logic rst_ni,
 
     // Ctrl
-    input  logic    valid_i,
-    output logic    ready_o,
-    input  ccu_ax_t ax_i,
-    input  logic    ax_is_write_i,
-    input  logic    ax_is_writeback_i,
-    input  tid_t    ax_tid_i,
-
-    output logic tracker_updt_wb_o,
-    output tid_t tracker_updt_wb_tid_o,
-    input  logic b_is_writeback_i,
-
+    input  logic        valid_i,
+    output logic        ready_o,
+    input  midend_ax_t  ax_i,
+    input  logic        ax_is_write_i,
+    input  logic        ax_is_writeback_i,
+    input  tid_t        ax_tid_i,
     // Slv interface
-    input  w_t      w_i,
-    input  logic    w_valid_i,
-    output logic    w_ready_o,
-    input  w_t      cd_w_i,
-    input  logic    cd_w_valid_i,
-    output logic    cd_w_ready_o,
-    output ccu_b_t  b_o,
-    output logic    b_valid_o,
-    input  logic    b_ready_i,
+    input  w_t          w_i,
+    input  logic        w_valid_i,
+    output logic        w_ready_o,
+    input  w_t          cd_w_i,
+    input  logic        cd_w_valid_i,
+    output logic        cd_w_ready_o,
+    output midend_b_t   b_o,
+    output logic        b_valid_o,
+    input  logic        b_ready_i,
     // Mst interface
-    output ccu_aw_t aw_o,
-    output logic    aw_valid_o,
-    input  logic    aw_ready_i,
-    output w_t      w_o,
-    output logic    w_valid_o,
-    input  logic    w_ready_i,
-    input  ccu_b_t  b_i,
-    input  logic    b_valid_i,
-    output logic    b_ready_o
+    output backend_aw_t aw_o,
+    output logic        aw_valid_o,
+    input  logic        aw_ready_i,
+    output w_t          w_o,
+    output logic        w_valid_o,
+    input  logic        w_ready_i,
+    input  backend_b_t  b_i,
+    input  logic        b_valid_i,
+    output logic        b_ready_o
 );
     //  Typedefs
     //  {{{
     typedef struct packed {
-        ccu_ax_t ax;
-        logic    ax_is_write;
-        logic    ax_is_writeback;
-        tid_t    ax_tid;
+        midend_ax_t ax;
+        logic       ax_is_write;
+        logic       ax_is_writeback;
+        tid_t       ax_tid;
     } aw_sync_reg_t;
+
+    typedef enum {
+        AW_FSM_IDLE,
+        AW_FSM_WAIT_B_RESP,
+        AW_FSM_PASSTHROUGH
+    } aw_fsm_e;
     //  }}}
 
     //  Internal signals
@@ -74,10 +76,11 @@ module ace_ccu_write
     aw_sync_reg_t aw_sync_rdata;
     logic         aw_sync_valid;
     logic         aw_sync_ready;
-    logic         aw_sync_gate;
+    logic         aw_fsm_valid;
+    logic         aw_fsm_ready;
     logic         aw_is_writeback;
-    logic         aw_writeback_done_d;
-    logic         aw_writeback_done_q;
+    aw_fsm_e      aw_fsm_d;
+    aw_fsm_e      aw_fsm_q;
 
     logic         w_ctrl_fifo_valid_in;
     logic         w_ctrl_fifo_ready_in;
@@ -86,6 +89,7 @@ module ace_ccu_write
     logic         w_mux_valid_out;
     logic         w_mux_ready_out;
     logic         w_is_write_back;
+    logic         b_is_write_back;
     //  }}}
 
     //  AW channel
@@ -110,46 +114,56 @@ module ace_ccu_write
         .ready_o   (ready_o),
         .data_i    (aw_sync_wdata),
         .valid_o   (aw_sync_valid),
-        .ready_i   (aw_sync_ready && !aw_sync_gate),
+        .ready_i   (aw_sync_ready),
         .data_o    (aw_sync_rdata)
     );
 
-    assign tracker_updt_wb_tid_o = aw_sync_rdata.ax_tid;
-
     always_comb begin : aw_writeback_fsm_comb
-        aw_writeback_done_d = aw_writeback_done_q;
-        aw_is_writeback     = 1'b0;
-        aw_sync_gate        = 1'b0;
+        aw_fsm_d        = aw_fsm_q;
 
-        tracker_updt_wb_o   = 1'b0;
+        aw_is_writeback = 1'b0;
+        aw_fsm_valid    = aw_sync_valid;
+        aw_sync_ready   = aw_fsm_ready;
 
-        if (!aw_writeback_done_q) begin
-            if (aw_sync_rdata.ax_is_writeback) begin
-                // A writeback is pending
-                aw_is_writeback = 1'b1;
-                if (aw_sync_valid && aw_sync_ready) begin
-                    // The writeback request is done
-                    tracker_updt_wb_o = 1'b1;
-                    if (aw_sync_rdata.ax_is_write) begin
-                        // A write is also pending
-                        aw_writeback_done_d = 1'b1;
-                        aw_sync_gate        = 1'b1;
+        case (aw_fsm_q)
+            AW_FSM_IDLE: begin
+                if (aw_sync_rdata.ax_is_writeback) begin
+                    // A writeback is pending
+                    aw_is_writeback = 1'b1;
+                    if (aw_fsm_valid && aw_fsm_ready) begin
+                        // The writeback request is done
+                        if (aw_sync_rdata.ax_is_write) begin
+                            // A write is also pending
+                            aw_fsm_d      = AW_FSM_WAIT_B_RESP;
+                            aw_sync_ready = 1'b0;
+                        end
                     end
                 end
             end
-        end else begin
-            // Send the pending write after the writeback
-            if (aw_sync_valid && aw_sync_ready) begin
-                aw_writeback_done_d = 1'b0;
+            AW_FSM_WAIT_B_RESP: begin
+                aw_fsm_valid  = 1'b0;
+                aw_sync_ready = 1'b0;
+
+                if (b_valid_i && b_ready_o && {1'b1, aw_sync_rdata.ax.id} == b_i.id) begin
+                    // The writeback response is received
+                    // The pending  write can be sent
+                    aw_fsm_d = AW_FSM_PASSTHROUGH;
+                end
             end
-        end
+            AW_FSM_PASSTHROUGH: begin
+                // Let the handshake complete
+                if (aw_fsm_valid && aw_fsm_ready) begin
+                    aw_fsm_d = AW_FSM_IDLE;
+                end
+            end
+        endcase
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            aw_writeback_done_q <= 1'b0;
+            aw_fsm_q <= AW_FSM_IDLE;
         end else begin
-            aw_writeback_done_q <= aw_writeback_done_d;
+            aw_fsm_q <= aw_fsm_d;
         end
     end
 
@@ -159,6 +173,8 @@ module ace_ccu_write
         `AXI_SET_AW_STRUCT(aw_o, aw_sync_rdata.ax)
 
         if (aw_is_writeback) begin
+            // Use the MSB ID bit to indicate a writeback
+            aw_o.id[CcuCfg.AxiBackendIdWidth-1] = 1'b1;
             // Pass a full cacheline
             aw_o.addr = axi_pkg::aligned_addr(aw_sync_rdata.ax.addr, CcuCfg.CachelineBytesIdxWidth);
             aw_o.len = CcuCfg.CachelineAxiTransfers - 1;
@@ -176,8 +192,8 @@ module ace_ccu_write
     ) u_aw_fork (
         .clk_i,
         .rst_ni,
-        .valid_i(aw_sync_valid),
-        .ready_o(aw_sync_ready),
+        .valid_i(aw_fsm_valid),
+        .ready_o(aw_fsm_ready),
         .valid_o({aw_valid_o, w_ctrl_fifo_valid_in}),
         .ready_i({aw_ready_i, w_ctrl_fifo_ready_in})
     );
@@ -232,10 +248,12 @@ module ace_ccu_write
     stream_filter u_b_filter (
         .valid_i(b_valid_i),
         .ready_o(b_ready_o),
-        .drop_i (b_is_writeback_i),
+        .drop_i (b_is_write_back),
         .valid_o(b_valid_o),
         .ready_i(b_ready_i)
     );
+
+    assign b_is_write_back = b_i.id[CcuCfg.AxiBackendIdWidth-1];
 
     `AXI_ASSIGN_B_STRUCT(b_o, b_i)
     //  }}}

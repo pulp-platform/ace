@@ -17,47 +17,47 @@ module ace_ccu_read
     import ace_ccu_pkg::*;
 #(
     parameter ace_ccu_cfg_t CcuCfg       = '{default: '0},
-    parameter type          ccu_ax_t     = logic,
+    parameter type          midend_ax_t  = logic,
     parameter type          tid_t        = logic,
-    parameter type          ccu_axi_ar_t = logic,
-    parameter type          ccu_axi_r_t  = logic,
-    parameter type          ccu_ace_r_t  = logic
+    parameter type          backend_ar_t = logic,
+    parameter type          backend_r_t  = logic,
+    parameter type          midend_r_t   = logic
 ) (
     input logic clk_i,
     input logic rst_ni,
 
     // Ctrl
-    input  logic    valid_i,
-    output logic    ready_o,
-    input  ccu_ax_t ax_i,
+    input  logic       valid_i,
+    output logic       ready_o,
+    input  midend_ax_t ax_i,
 
     // Snp interface
-    input  ccu_ace_r_t cd_r_i,
-    input  logic       cd_r_valid_i,
-    output logic       cd_r_ready_o,
+    input  midend_r_t cd_r_i,
+    input  logic      cd_r_valid_i,
+    output logic      cd_r_ready_o,
 
     // Slv interface
-    output ccu_ace_r_t  r_o,
+    output midend_r_t   r_o,
     output logic        r_valid_o,
     input  logic        r_ready_i,
     // Mst interface
-    output ccu_axi_ar_t ar_o,
+    output backend_ar_t ar_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
-    input  ccu_axi_r_t  r_i,
+    input  backend_r_t  r_i,
     input  logic        r_valid_i,
     output logic        r_ready_o
 );
 
-    ccu_axi_ar_t ar_sync_wdata;
-    ccu_ace_r_t  mem_r;
+    backend_ar_t ar_sync_wdata;
+    midend_r_t   mem_r;
 
     //  AR channel
     //  {{{
     `AXI_ASSIGN_AR_STRUCT(ar_sync_wdata, ax_i)
 
     fall_through_register #(
-        .T(ccu_axi_ar_t)
+        .T(backend_ar_t)
     ) u_ar_sync_reg (
         .clk_i,
         .rst_ni,
@@ -78,7 +78,7 @@ module ace_ccu_read
 
     rr_arb_tree #(
         .NumIn    (2),
-        .DataType (ccu_ace_r_t),
+        .DataType (midend_r_t),
         .AxiVldRdy(1'b1),
         .LockIn   (1'b1)
     ) u_r_arbiter (
