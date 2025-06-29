@@ -5,7 +5,7 @@ package:
     - "Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>"
 
 dependencies:
-  axi:               { git: "https://github.com/ricted98/axi.git", rev: 1fd96dec948da018e50a9d40bf78f59bb2f6cd19 }
+  axi:               { git: "https://github.com/pulp-platform/axi.git", version: 0.39.8 }
   common_cells:      { git: "https://github.com/pulp-platform/common_cells.git", version: 1.38.0 }
   axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", version: 0.8.2}
 
