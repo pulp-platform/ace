@@ -96,7 +96,7 @@ module ace_ccu_cd_ctrl
     //  {{{
     if (CcuCfg.CachelineAxiTransfers == 1) begin : gen_axi_start_trans_eqsize
         assign r_cd_start_trans = '0;
-    end else begin : gen_axi_start_trans_eqsize
+    end else begin : gen_axi_start_trans_diffsize
         assign r_cd_start_trans =
            ax_i.addr[CcuCfg.CachelineBytesIdxWidth-1:CcuCfg.AxiDataBytesIdxWidth];
     end
