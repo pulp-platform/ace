@@ -13,6 +13,7 @@
 
 //! ACE Package
 /// Contains all necessary type definitions, constants, and generally useful functions.
+/// Naming conventions are chosen to align with the ACE specification.
 package ace_pkg;
 
     //////////////
@@ -38,13 +39,6 @@ package ace_pkg;
         logic Error;
         logic DataTransfer;
     } crresp_t;
-
-    typedef struct packed {
-        acsnoop_t snoop_trs;
-        logic     accepts_dirty;
-        logic     accepts_dirty_shared;
-        logic     accepts_shared;
-    } snoop_info_t;
 
     ///////////////
     // Encodings //
@@ -106,6 +100,11 @@ package ace_pkg;
     //    - DVMComplete
     //    - DVMMessage
     //  Cast the parameters to acsnoop_t for consistency (but works anyway)
+
+    // RRESP
+    // Bit position for additional ACE-related fields
+    localparam int unsigned RESP_IS_DIRTY = 2;
+    localparam int unsigned RESP_IS_SHARED = 3;
 
     ///////////////
     // Functions //
