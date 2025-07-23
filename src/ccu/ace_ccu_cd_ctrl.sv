@@ -89,6 +89,7 @@ module ace_ccu_cd_ctrl
     logic              r_len_cnt_clr;
     logic              r_len_cnt_en;
     axi_pkg::len_t     r_len_cnt;
+    rresp_t            r_resp;
     //  }}}
 
     //  Input handshake decoupling
@@ -218,10 +219,16 @@ module ace_ccu_cd_ctrl
 
     assign r_done_d = !r_len_cnt_clr && ((r_last && r_len_cnt_en) || r_done_q);
 
+    always_comb begin : rresp_comb
+        r_resp                 = '0;
+        r_resp[RESP_IS_DIRTY]  = cd_ctrl_sync_rdata.r_resp_dirty;
+        r_resp[RESP_IS_SHARED] = cd_ctrl_sync_rdata.r_resp_shared;
+    end
+
     assign r_o = '{
             id: cd_ctrl_sync_rdata.id,
             data: cd.data,
-            resp: {cd_ctrl_sync_rdata.r_resp_shared, cd_ctrl_sync_rdata.r_resp_dirty, 2'b0},
+            resp: r_resp,
             last: r_last,
             user: cd_ctrl_sync_rdata.r_user
         };
