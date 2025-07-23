@@ -239,4 +239,24 @@ module ace_ccu_cd_ctrl
     assign w_o = '{data: cd.data, strb: '1, last: cd.last, user: '0};
     //  }}}
 
+    //  Assertions
+    //  {{{
+
+    // If r_done_q is high, r_valid_o should never be raised
+    assert property (@(posedge clk_i) disable iff (!rst_ni) r_done_q |-> !r_valid_o);
+    // If r_drop is true, r_valid_o should never be raised
+    assert property (@(posedge clk_i) disable iff (!rst_ni) r_drop |-> !r_valid_o);
+    // If r_last is true, r_o.last should be raised
+    assert property (@(posedge clk_i) disable iff (!rst_ni) r_last |-> r_o.last);
+    // r_o.last can only be high if r_last is high
+    assert property (@(posedge clk_i) disable iff (!rst_ni) r_valid_o && r_o.last |-> r_last);
+    // r_valid_o should not be raised if not in read mode
+    assert property (@(posedge clk_i) disable iff (!rst_ni) !cd_ctrl_sync_rdata.cd_ctrl_read |-> !r_valid_o);
+    // r_valid_o should not be raised if cd_sel_read is not asserted
+    assert property (@(posedge clk_i) disable iff (!rst_ni) !cd_sel_read |-> !r_valid_o);
+    // w_valid_o should not be raised if cd_sel_write is not asserted
+    assert property (@(posedge clk_i) disable iff (!rst_ni) !cd_sel_write |-> !w_valid_o);
+
+    //  }}}
+
 endmodule

@@ -341,4 +341,11 @@ module ace_ccu_snoop_pipe
     assign evt_st1_stall_o     = st1_pipe_valid && !st1_pipe_ready;
     //  }}}
 
+    //  Assertions
+    //  {{{
+
+    // initiator bit in st0_ac_bv_o should never be set to 1
+    assert property (@(posedge clk_i) disable iff (!rst_ni) st0_ac_bv_o[st0_slv_idx] == 1'b0);
+    //  }}}
+
 endmodule
