@@ -191,7 +191,7 @@ module ace_ccu_cd_ctrl
     );
 
     counter #(
-        .WIDTH($bits(axi_pkg::len_t))
+        .WIDTH(axi_pkg::LenWidth)
     ) u_r_len_counter (
         .clk_i,
         .rst_ni,
