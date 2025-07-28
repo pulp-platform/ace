@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2018 ETH Zurich, University of Bologna
+// Copyright (c) 2014-2025 ETH Zurich, University of Bologna
 //
 // Copyright and related rights are licensed under the Solderpad Hardware
 // License, Version 0.51 (the "License"); you may not use this file except in
@@ -13,7 +13,7 @@
 // - Wolfgang Roenninger <wroennin@iis.ee.ethz.ch>
 // - Fabian Schuiki <fschuiki@iis.ee.ethz.ch>
 // - Andreas Kurth <akurth@iis.ee.ethz.ch>
-// - Andrea Tedeschi <riccardo.tedeschi6@unibo.it>
+// - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
 /// An ACE4 cut.
 ///
