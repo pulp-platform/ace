@@ -113,8 +113,6 @@ module ace_ccu_top
     midend_resp_t                          ccu_nonshareable_resp;
     midend_req_t                           ccu_shareable_req;
     midend_resp_t                          ccu_shareable_resp;
-    slv_bv_t                               ccu_shareable_rack;
-    slv_bv_t                               ccu_shareable_wack;
 
     midend_ar_t                            replay_ar;
     logic                                  replay_ar_valid;
@@ -221,9 +219,7 @@ module ace_ccu_top
         .ccu_nonshareable_req_o (ccu_nonshareable_req),
         .ccu_nonshareable_resp_i(ccu_nonshareable_resp),
         .ccu_shareable_req_o    (ccu_shareable_req),
-        .ccu_shareable_resp_i   (ccu_shareable_resp),
-        .ccu_shareable_rack_o   (ccu_shareable_rack),
-        .ccu_shareable_wack_o   (ccu_shareable_wack)
+        .ccu_shareable_resp_i   (ccu_shareable_resp)
     );
     //  }}}
 
@@ -380,8 +376,8 @@ module ace_ccu_top
         .alloc_nline_i         (tracker_alloc_nline),
         .alloc_id_i            (tracker_alloc_id),
         .alloc_tid_o           (tracker_alloc_tid),
-        .dealloc_rack_i        (ccu_shareable_rack),
-        .dealloc_wack_i        (ccu_shareable_wack),
+        .dealloc_rack_i        (ccu_shareable_req.rack),
+        .dealloc_wack_i        (ccu_shareable_req.wack),
         .dealloc_r_resp_i      (tracker_dealloc_r_resp),
         .dealloc_r_resp_id_i   (tracker_dealloc_r_resp_id),
         .dealloc_b_resp_i      (tracker_dealloc_b_resp),
