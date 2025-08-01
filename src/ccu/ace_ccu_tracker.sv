@@ -40,8 +40,8 @@ module ace_ccu_tracker
 
     //  Lookup/dealloc interface
     //  {{{
-    input slv_bv_t    dealloc_rack_i,
-    input slv_bv_t    dealloc_wack_i,
+    input logic       dealloc_rack_i,
+    input logic       dealloc_wack_i,
     input logic       dealloc_r_resp_i,
     input midend_id_t dealloc_r_resp_id_i,
     input logic       dealloc_b_resp_i,
@@ -89,8 +89,8 @@ module ace_ccu_tracker
 
     tid_t                                 rack_queue_wdata;
     tid_t                                 wack_queue_wdata;
-    tid_t  [       CcuCfg.u.SlvPorts-1:0] rack_queue_rdata;
-    tid_t  [       CcuCfg.u.SlvPorts-1:0] wack_queue_rdata;
+    tid_t                                 rack_queue_rdata;
+    tid_t                                 wack_queue_rdata;
     //  }}}
 
     //  Alloc logic
@@ -114,18 +114,11 @@ module ace_ccu_tracker
 
     //  Dealloc logic
     //  {{{
-
-    // Deallocation logic has some complexity due to the need of handling the rack and wack signals
-    // from all master, which cannot be stalled and can arrive in parallel in the same cycle
-    // TODO: can this be simplified?
     for (genvar i = 0; i < CcuCfg.u.MaxTransactions; i++) begin : gen_dealloc
-        slv_idx_t dealloc_slv_id;
-        assign dealloc_slv_id = data_q[i].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth];
-        assign meta_clr[i].r  = dealloc_rack_i[dealloc_slv_id] && (i == rack_queue_rdata[dealloc_slv_id]);
-        assign meta_clr[i].b  = dealloc_wack_i[dealloc_slv_id] && (i == wack_queue_rdata[dealloc_slv_id]);
-        assign valid_clr[i] = ~|meta_d[i];
+        assign meta_clr[i].r = dealloc_rack_i && (i == rack_queue_rdata);
+        assign meta_clr[i].b = dealloc_wack_i && (i == wack_queue_rdata);
+        assign valid_clr[i]  = ~|meta_d[i];
     end
-
 
     always_comb begin : xack_queue_wdata_mux
         rack_queue_wdata = '0;
@@ -139,51 +132,42 @@ module ace_ccu_tracker
         end
     end
 
-    for (genvar i = 0; i < CcuCfg.u.SlvPorts; i++) begin : gen_xack_queues
-        logic wack_queue_push;
-        logic rack_queue_push;
+    // Push an entry ID to the wack/rack queues once a response handshake happens
+    fifo_v3 #(
+        .FALL_THROUGH(1'b0),
+        .DEPTH       (CcuCfg.u.MaxTransactions),
+        .dtype       (tid_t)
+    ) u_tracker_wack_queue (
+        .clk_i,
+        .rst_ni,
+        .flush_i   (1'b0),
+        .testmode_i(1'b0),
+        .full_o    (),
+        .empty_o   (),
+        .usage_o   (),
+        .data_i    (wack_queue_wdata),
+        .push_i    (dealloc_b_resp_i),
+        .data_o    (wack_queue_rdata),
+        .pop_i     (dealloc_wack_i)
+    );
 
-        // Push an entry ID to the wack/rack queues if the dealloc response matches the ID of the transaction
-        // that is being deallocated
-        assign wack_queue_push = dealloc_b_resp_i && data_q[wack_queue_wdata].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
-        assign rack_queue_push = dealloc_r_resp_i && data_q[rack_queue_wdata].id[CcuCfg.AxiMidendIdWidth-1 : CcuCfg.u.AxiSlvIdWidth] == CcuCfg.SlvPortIdxWidth'(i);
-
-        fifo_v3 #(
-            .FALL_THROUGH(1'b0),
-            .DEPTH       (CcuCfg.u.MaxTransactions),
-            .dtype       (tid_t)
-        ) u_tracker_wack_queue (
-            .clk_i,
-            .rst_ni,
-            .flush_i   (1'b0),
-            .testmode_i(1'b0),
-            .full_o    (),
-            .empty_o   (),
-            .usage_o   (),
-            .data_i    (wack_queue_wdata),
-            .push_i    (wack_queue_push),
-            .data_o    (wack_queue_rdata[i]),
-            .pop_i     (dealloc_wack_i[i])
-        );
-
-        fifo_v3 #(
-            .FALL_THROUGH(1'b0),
-            .DEPTH       (CcuCfg.u.MaxTransactions),
-            .dtype       (tid_t)
-        ) u_tracker_rack_queue (
-            .clk_i,
-            .rst_ni,
-            .flush_i   (1'b0),
-            .testmode_i(1'b0),
-            .full_o    (),
-            .empty_o   (),
-            .usage_o   (),
-            .data_i    (rack_queue_wdata),
-            .push_i    (rack_queue_push),
-            .data_o    (rack_queue_rdata[i]),
-            .pop_i     (dealloc_rack_i[i])
-        );
-    end
+    fifo_v3 #(
+        .FALL_THROUGH(1'b0),
+        .DEPTH       (CcuCfg.u.MaxTransactions),
+        .dtype       (tid_t)
+    ) u_tracker_rack_queue (
+        .clk_i,
+        .rst_ni,
+        .flush_i   (1'b0),
+        .testmode_i(1'b0),
+        .full_o    (),
+        .empty_o   (),
+        .usage_o   (),
+        .data_i    (rack_queue_wdata),
+        .push_i    (dealloc_r_resp_i),
+        .data_o    (rack_queue_rdata),
+        .pop_i     (dealloc_rack_i)
+    );
     //  }}}
 
     //  State holding elements
