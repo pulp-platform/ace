@@ -24,6 +24,8 @@ sources:
   # ACE ips
   - src/ace_cut.sv
   - src/ace_snoop_cut.sv
+  - src/ace_demux_simple.sv
+  - src/ace_mux.sv
   # CCU src files
   - src/ccu/ace_ccu_pkg.sv
   - src/ccu/ace_ccu_ax_arbiter.sv
