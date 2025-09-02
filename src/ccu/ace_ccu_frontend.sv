@@ -9,6 +9,9 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+`include "ace/typedef.svh"
+`include "ace/assign.svh"
+
 module ace_ccu_frontend
     import ace_pkg::*;
     import ace_ccu_pkg::*;
@@ -44,13 +47,16 @@ module ace_ccu_frontend
 
     //  Internal signals
     //  {{{
-    slv_req_t  [CcuCfg.u.SlvPorts-1:0] slv_req_cut;
-    slv_resp_t [CcuCfg.u.SlvPorts-1:0] slv_resp_cut;
+    slv_req_t     [CcuCfg.u.SlvPorts-1:0] slv_req_cut;
+    slv_resp_t    [CcuCfg.u.SlvPorts-1:0] slv_resp_cut;
 
-    slv_req_t  [CcuCfg.u.SlvPorts-1:0] slv_nonshareable_req;
-    slv_resp_t [CcuCfg.u.SlvPorts-1:0] slv_nonshareable_resp;
-    slv_req_t  [CcuCfg.u.SlvPorts-1:0] slv_shareable_req;
-    slv_resp_t [CcuCfg.u.SlvPorts-1:0] slv_shareable_resp;
+    slv_req_t     [CcuCfg.u.SlvPorts-1:0] slv_nonshareable_req;
+    slv_resp_t    [CcuCfg.u.SlvPorts-1:0] slv_nonshareable_resp;
+    slv_req_t     [CcuCfg.u.SlvPorts-1:0] slv_shareable_req;
+    slv_resp_t    [CcuCfg.u.SlvPorts-1:0] slv_shareable_resp;
+
+    midend_req_t                          mux_shareable_req;
+    midend_resp_t                         mux_shareable_resp;
     //  }}}
 
     //  Slv demuxes
@@ -194,8 +200,63 @@ module ace_ccu_frontend
         .test_i     (1'b0),
         .slv_reqs_i (slv_shareable_req),
         .slv_resps_o(slv_shareable_resp),
-        .mst_req_o  (ccu_shareable_req_o),
-        .mst_resp_i (ccu_shareable_resp_i)
+        .mst_req_o  (mux_shareable_req),
+        .mst_resp_i (mux_shareable_resp)
+    );
+    //  }}}
+
+    //  AMO LR/SC monitor
+    //  {{{
+
+    localparam longint unsigned ADDR_BEGIN = '0;
+    localparam longint unsigned ADDR_END = {CcuCfg.u.AxiAddrWidth{1'b1}};
+
+    // All subsequent ACE defines will not use RACK/WACKS
+    `define __ACE_NO_ACKS
+
+    // Internal request type without acks
+    `ACE_TYPEDEF_REQ_T(__midend_req_t, midend_aw_t, w_t, midend_ar_t)
+
+    __midend_req_t __mux_shareable_req;
+    __midend_req_t __ccu_shareable_req;
+
+    `ACE_ASSIGN_REQ_STRUCT(__mux_shareable_req, mux_shareable_req)
+    `ACE_ASSIGN_REQ_STRUCT(ccu_shareable_req_o, __ccu_shareable_req)
+
+    // xACK bypass
+    assign ccu_shareable_req_o.wack = mux_shareable_req.wack;
+    assign ccu_shareable_req_o.rack = mux_shareable_req.rack;
+
+    `undef __ACE_NO_ACKS
+
+    axi_riscv_lrsc_structs #(
+        .ADDR_BEGIN         (ADDR_BEGIN),
+        .ADDR_END           (ADDR_END),
+        .AXI_ADDR_WIDTH     (CcuCfg.u.AxiAddrWidth),
+        .AXI_DATA_WIDTH     (CcuCfg.u.AxiDataWidth),
+        .AXI_ID_WIDTH       (CcuCfg.AxiMidendIdWidth),
+        .AXI_USER_WIDTH     (CcuCfg.u.AxiUserWidth),
+        .AXI_MAX_READ_TXNS  (CcuCfg.u.MaxTransactions),
+        .AXI_MAX_WRITE_TXNS (CcuCfg.u.MaxTransactions),
+        .AXI_USER_AS_ID     (CcuCfg.u.AmoAxiUserAsId),
+        .AXI_USER_ID_MSB    (CcuCfg.u.AmoAxiUserIdMsb),
+        .AXI_USER_ID_LSB    (CcuCfg.u.AmoAxiUserIdLsb),
+        .AXI_ADDR_LSB       (CcuCfg.u.AmoAxiAddrLsb),
+        .FULL_BANDWIDTH     (1),
+        .CUT_OUP_POP_INP_GNT(0),
+        .NUM_RESERVATIONS   (CcuCfg.u.AmoNumReservations),
+        .aw_chan_t          (midend_aw_t),
+        .b_chan_t           (midend_b_t),
+        .r_chan_t           (midend_r_t),
+        .req_t              (__midend_req_t),
+        .resp_t             (midend_resp_t)
+    ) u_axi_riscv_lrsc (
+        .clk_i,
+        .rst_ni,
+        .slv_req_i (__mux_shareable_req),
+        .slv_resp_o(mux_shareable_resp),
+        .mst_req_o (__ccu_shareable_req),
+        .mst_resp_i(ccu_shareable_resp_i)
     );
     //  }}}
 

@@ -40,6 +40,17 @@ package ace_ccu_pkg;
         bit          CutMstResp;
         bit          CutSnoopReq;
         bit          CutSnoopResp;
+        // LR/SC reservation buffer
+        // Use the AXI User signal instead of the AXI ID to track reservations
+        bit          AmoAxiUserAsId;
+        // MSB of the ID in the user signal
+        int unsigned AmoAxiUserIdMsb;
+        // LSB of the ID in the user signal
+        int unsigned AmoAxiUserIdLsb;
+        // log2 of granularity for reservations (ignored LSBs)
+        int unsigned AmoAxiAddrLsb;
+        // Number of simultaineous reservations
+        int unsigned AmoNumReservations;
     } ace_ccu_user_cfg_t;
 
     typedef struct packed {
