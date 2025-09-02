@@ -451,7 +451,8 @@ module ace_ccu_top
         .tid_t       (tid_t),
         .backend_ar_t(backend_ar_t),
         .backend_r_t (backend_r_t),
-        .midend_r_t  (midend_r_t)
+        .midend_r_t  (midend_r_t),
+        .slv_idx_t   (slv_idx_t)
     ) u_ace_ccu_read_unit (
         .clk_i,
         .rst_ni,
