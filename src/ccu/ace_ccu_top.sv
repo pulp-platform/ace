@@ -394,7 +394,7 @@ module ace_ccu_top
     if (CcuCfg.u.ReplayEn) begin : gen_replay
         // TODO: implement replay table to put AR requests
         // with address conflicts on hold
-        $fatal(-1, "Replay table not yet implemented.");
+        $fatal(1, "Replay table not yet implemented.");
     end else begin : gen_no_replay
         assign replay_full     = 1'b0;
         assign replay_hit      = 1'b0;
