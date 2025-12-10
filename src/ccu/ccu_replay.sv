@@ -9,22 +9,25 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+module ccu_replay
+    import ace_pkg::*;
+    import ccu_pkg::*;
+#(
+    parameter ccu_config_t ccuCfg       = '{default: '0}
 
-`ifndef ACE_DOMAIN_SVH_
-`define ACE_DOMAIN_SVH_
+) (
+    input  logic clk_i,
+    input  logic rst_ni,
 
-  //////////////////
-  // Domain types //
-  //////////////////
+    input  logic replay_alloc_i,
+    output logic replay_full_o
+);
 
-`define ACE_DECLARE_DOMAIN_MAP_T(__num_subordinates) \
-    struct packed { \
-        logic [__num_subordinates-1:0] initiator; \
-        logic [__num_subordinates-1:0] inner;     \
-        logic [__num_subordinates-1:0] outer;     \
-    }
+/*
+Stub implementation of replay
+TODO: actual implementation
+*/
 
-`define ACE_TYPEDEF_DOMAIN_TYPEDEF_MAP_T(__num_subordinates, __map_t) \
-    typedef `ACE_DECLARE_DOMAIN_MAP_T(__num_subordinates) __map_t;
+assign replay_full_o = 1'b1;
 
-`endif // ACE_DOMAIN_SVH_
+endmodule

@@ -1,44 +1,34 @@
 package:
   name: ace
+  # Authors in alphabetical order (surname)
   authors:
     - "Aleksi Korsman <aleksi.korsman@aalto.fi>"
     - "Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>"
 
 dependencies:
-  axi:               { git: "https://github.com/pulp-platform/axi.git", rev: e4199992 } # branch: multicore/devel
-  common_cells:      { git: "https://github.com/pulp-platform/common_cells.git", version: 1.38.0 }
-  axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", rev: 7a7bf983} # branch: multicore/devel
+  axi:               { git: "https://github.com/pulp-platform/axi.git", version: 0.39.9 }
+  common_cells:      { git: "https://github.com/pulp-platform/common_cells.git", version: 1.39.0 }
+  axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", rev: 6d3c8b4} # branch: master
 
 export_include_dirs:
   - include
 
 sources:
-  # Source files grouped in levels. Files in level 0 have no dependencies on files in this
-  # package. Files in level 1 only depend on files in level 0, files in level 2 on files in
-  # levels 1 and 0, etc. Files within a level are ordered alphabetically.
-  # Level 0
+  # Generic ACE package and interfaces
   - src/ace_pkg.sv
-  # Level 1
   - src/ace_intf.sv
   - src/snoop_intf.sv
-  # ACE ips
-  - src/ace_cut.sv
-  - src/ace_snoop_cut.sv
-  - src/ace_demux_simple.sv
-  - src/ace_mux.sv
-  # CCU src files
-  - src/ccu/ace_ccu_pkg.sv
-  - src/ccu/ace_ccu_ax_arbiter.sv
-  - src/ccu/ace_ccu_cd_arbiter.sv
-  - src/ccu/ace_ccu_cd_ctrl.sv
-  - src/ccu/ace_ccu_frontend.sv
-  - src/ccu/ace_ccu_read.sv
-  - src/ccu/ace_ccu_snoop_pipe.sv
-  - src/ccu/ace_ccu_tracker.sv
-  - src/ccu/ace_ccu_write.sv
-  - src/ccu/ace_ccu_top.sv
-
-
+  # CCU package
+  - src/ccu/ccu_pkg.sv
+  # CCU source files
+  - src/ccu/ccu_exclusive_monitor.sv
+  - src/ccu/ccu_frontend.sv
+  - src/ccu/ccu_read_engine.sv
+  - src/ccu/ccu_replay.sv
+  - src/ccu/ccu_scoreboard.sv
+  - src/ccu/ccu_snoop_pipeline.sv
+  - src/ccu/ccu_top.sv
+  - src/ccu/ccu_write_engine.sv
 
   #- target: simulation
   #  files:
@@ -56,12 +46,12 @@ sources:
   #  files:
   #    - src/ccu/ccu_ctrl_wr_snoop.sv
 
-  - target: test
-    files:
-      # Level 0
-      - test/vip/ace_test_pkg.sv
-      - test/vip/snoop_test_pkg.sv
-      # Level 1
-      - test/vip/cache_test_pkg.sv
-      # Level 2
-      - test/tb_ace_ccu_top.sv
+  # - target: test
+  #   files:
+  #     # Level 0
+  #     - test/vip/ace_test_pkg.sv
+  #     - test/vip/snoop_test_pkg.sv
+  #     # Level 1
+  #     - test/vip/cache_test_pkg.sv
+  #     # Level 2
+  #     - test/tb_ace_ccu_top.sv

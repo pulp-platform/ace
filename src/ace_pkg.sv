@@ -267,7 +267,7 @@ package ace_pkg;
 
     // Transaction groups
 
-    function automatic logic ace_aw_is_coherent(logic awbar0, axdomain_t awdomain,
+    function automatic logic ace_aw_is_shareable(logic awbar0, axdomain_t awdomain,
                                                 awsnoop_t awsnoop);
         logic retval;
         unique case (1'b1)
@@ -302,7 +302,7 @@ package ace_pkg;
         return retval;
     endfunction
 
-    function automatic logic ace_ar_is_coherent(logic arbar0, axdomain_t ardomain,
+    function automatic logic ace_ar_is_shareable(logic arbar0, axdomain_t ardomain,
                                                 arsnoop_t arsnoop);
         logic retval;
         unique case (1'b1)
@@ -318,13 +318,12 @@ package ace_pkg;
         return retval;
     endfunction
 
-    function automatic logic ace_ar_is_cache_maintenance(logic arbar0, axdomain_t ardomain,
-                                                         arsnoop_t arsnoop);
+    function automatic logic ace_ar_is_clean(logic arbar0, axdomain_t ardomain, arsnoop_t arsnoop);
         logic retval;
         unique case (1'b1)
+            ace_is_clean_unique(arbar0, ardomain, arsnoop):  retval = 1'b1;
             ace_is_clean_shared(arbar0, ardomain, arsnoop):  retval = 1'b1;
             ace_is_clean_invalid(arbar0, ardomain, arsnoop): retval = 1'b1;
-            ace_is_make_invalid(arbar0, ardomain, arsnoop):  retval = 1'b1;
             default:                                         retval = 1'b0;
         endcase
         return retval;
@@ -332,16 +331,13 @@ package ace_pkg;
 
     // Snoop transaction from initiating master transaction
     function automatic acsnoop_t ace_ar_acsnoop_map(logic arbar0, axdomain_t ardomain,
-                                                    arsnoop_t arsnoop, logic arlock);
+                                                    arsnoop_t arsnoop);
         acsnoop_t acsnoop;
         unique case (1'b1)
             ace_is_clean_unique(arbar0, ardomain, arsnoop): acsnoop = acsnoop_t'(CleanInvalid);
             ace_is_make_unique(arbar0, ardomain, arsnoop):  acsnoop = acsnoop_t'(MakeInvalid);
             default:                                        acsnoop = acsnoop_t'(arsnoop);
         endcase
-        // Hacky way to support AMOs in Culsans with the legacy WB cache
-        if (arlock && ace_is_read_once(arbar0, ardomain, arsnoop))
-            acsnoop = acsnoop_t'(CleanInvalid);
         return acsnoop;
     endfunction
 

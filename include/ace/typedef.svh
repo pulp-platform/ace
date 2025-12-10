@@ -81,10 +81,6 @@
     ar_chan_t ar;                                                 \
     logic     ar_valid;                                           \
     logic     r_ready;                                            \
-    `ifndef __ACE_NO_ACKS                                         \
-    logic     wack;                                               \
-    logic     rack;                                               \
-    `endif                                                        \
   } req_t;
 `define ACE_TYPEDEF_RESP_T(resp_t, b_chan_t, r_chan_t)  \
   typedef struct packed {                               \
@@ -153,7 +149,9 @@
     logic                 last;                                 \
   } cd_chan_t;
 `define SNOOP_TYPEDEF_CR_CHAN_T(cr_chan_t)                      \
-   typedef ace_pkg::crresp_t     cr_chan_t;
+  typedef struct packed {                                       \
+    ace_pkg::crresp_t resp;                                     \
+  } cr_chan_t;
 `define SNOOP_TYPEDEF_REQ_T(req_t, ac_chan_t)      \
   typedef struct packed {                                       \
     logic     ac_valid;                                         \
@@ -167,7 +165,7 @@
     logic     cd_valid;                                         \
     cd_chan_t cd;                                               \
     logic     cr_valid;                                         \
-    cr_chan_t cr_resp;                                          \
+    cr_chan_t cr;                                          \
   } resp_t;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
