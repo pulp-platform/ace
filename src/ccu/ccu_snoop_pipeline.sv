@@ -397,7 +397,7 @@ module ccu_snoop_pipeline
         //  writeback operations
         //  TODO: this might be overkill?
         write_engine_aw_o.id     = {1'b1, stage1_fifo_rdata.ar.id};
-        write_engine_aw_o.addr   = axi_pkg::aligned_addr(stage1_fifo_rdata.ar, ccuCfg.cachelineByteIndexWidth);
+        write_engine_aw_o.addr   = axi_pkg::aligned_addr(stage1_fifo_rdata.ar.addr, ccuCfg.cachelineByteIndexWidth);
         write_engine_aw_o.len    = ccuCfg.cachelineAxiTransfers - 1;
         write_engine_aw_o.size   = ccuCfg.axiDataSize;
         write_engine_aw_o.burst  = axi_pkg::BURST_WRAP;
