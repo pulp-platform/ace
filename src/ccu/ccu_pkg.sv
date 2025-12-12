@@ -27,8 +27,6 @@ package ccu_pkg;
         int unsigned axiSubordinateIdWidth;
         //  Cache parameters
         int unsigned cachelineWidth;
-        //  LR/SC reservation buffer parameters
-        /* TODO */
         //  LSB address bit used for hazard checks (inclusive)
         int unsigned addressCheckLsb;
         //  MSB address bit used for hazard checks (inclusive)
