@@ -74,7 +74,7 @@ package ccu_pkg;
         p.writeTransactionIndexWidth = u.numWriteTransactions > 1 ? $clog2(u.numWriteTransactions) : 1;
         p.cachelineAxiTransfers      = u.cachelineWidth / u.axiDataWidth;
         p.transactionIndexWidth      = u.numShareableTransactions > 1 ? $clog2(u.numShareableTransactions) : 1;
-        p.axiDataSize                = (u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1) - 1;
+        p.axiDataSize                = u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
 
         return p;
