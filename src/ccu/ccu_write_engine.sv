@@ -160,7 +160,7 @@ module ccu_write_engine
         .data_i    (aw_is_writeback),
         .valid_i   (w_ctrl_fifo_valid_in),
         .ready_o   (w_ctrl_fifo_ready_in),
-        .data_o    (w_is_write_back),
+        .data_o    (w_is_writeback),
         .valid_o   (w_ctrl_fifo_valid_out),
         .ready_i   (w_ctrl_fifo_ready_out && w_o.last)
     );
@@ -172,7 +172,7 @@ module ccu_write_engine
         .inp_data_i ({writeback_w_i      , w_i}),
         .inp_valid_i({writeback_w_valid_i, w_valid_i}),
         .inp_ready_o({writeback_w_ready_o, w_ready_o}),
-        .inp_sel_i  (w_is_write_back),
+        .inp_sel_i  (w_is_writeback),
         .oup_data_o (w_o),
         .oup_valid_o(w_mux_valid_out),
         .oup_ready_i(w_mux_ready_out)
