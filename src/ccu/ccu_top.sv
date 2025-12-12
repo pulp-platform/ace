@@ -71,16 +71,16 @@ module ccu_top
 
 localparam int unsigned scoreboardEntryIndexWidth = ccuCfg.transactionIndexWidth;
 
-logic                                                           scoreboard_full;
-logic                                                           scoreboard_alloc_check;
-logic                                                           scoreboard_alloc;
-logic                                                           scoreboard_alloc_hit;
-logic                                                           scoreboard_dealloc_check;
-logic [ccuCfg.axiCcuIdWidth-1:0]                                scoreboard_dealloc_id;
-logic                                                           scoreboard_dealloc_hit;
-logic [scoreboardEntryIndexWidth-1:0]                           scoreboard_dealloc_hit_entry;
-logic [ccuCfg.u.numSubordinates]                                scoreboard_dealloc;
-logic [ccuCfg.u.numSubordinates][scoreboardEntryIndexWidth-1:0] scoreboard_dealloc_entry;
+logic                                                               scoreboard_full;
+logic                                                               scoreboard_alloc_check;
+logic                                                               scoreboard_alloc;
+logic                                                               scoreboard_alloc_hit;
+logic                                                               scoreboard_dealloc_check;
+logic [ccuCfg.axiCcuIdWidth-1:0]                                    scoreboard_dealloc_id;
+logic                                                               scoreboard_dealloc_hit;
+logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_dealloc_hit_entry;
+logic [ccuCfg.u.numSubordinates-1:0]                                scoreboard_dealloc;
+logic [ccuCfg.u.numSubordinates-1:0][scoreboardEntryIndexWidth-1:0] scoreboard_dealloc_entry;
 
 logic                                replay_alloc;
 logic                                replay_full;
