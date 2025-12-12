@@ -404,7 +404,7 @@ module ccu_snoop_pipeline
         write_engine_aw_o.lock   = 1'b0;
         //  Enforce non-bufferable requirements
         //  This should fix premature B responses
-        write_engine_aw_o.cache  = stage1_fifo_rdata.ar.cache & ~{axi_pkg::CacheWidth{1'b1}};
+        write_engine_aw_o.cache  = stage1_fifo_rdata.ar.cache & ~axi_pkg::CACHE_BUFFERABLE;
         write_engine_aw_o.prot   = stage1_fifo_rdata.ar.prot;
         write_engine_aw_o.qos    = stage1_fifo_rdata.ar.qos;
         write_engine_aw_o.region = stage1_fifo_rdata.ar.region;
