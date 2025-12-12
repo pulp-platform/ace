@@ -50,12 +50,40 @@ module ccu_read_engine
 
 //  AR channel
 //  {{{
-    assign ar_addr_check_o = ar_valid_i;
-    assign ar_addr_slice_o = ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-    assign ar_valid_o      = !ar_addr_hit_i && ar_valid_i;
-    assign ar_ready_o      = !ar_addr_hit_i && ar_ready_i;
+    logic ar_fifo_valid;
+    logic ar_fifo_ready;
+    ccu_axi_ar_t ar_fifo_wdata;
+    ccu_axi_ar_t ar_fifo_rdata;
 
-    `AXI_ASSIGN_AR_STRUCT(ar_o, ar_i)
+    `AXI_ASSIGN_AR_STRUCT(ar_fifo_wdata, ar_i)
+
+    //  Fallthrough FIFO inserted to decouple
+    //  snoop pipeline requests from the read
+    //  engine when address hazards happen
+    //  TODO: is one entry enough?
+    stream_fifo #(
+        .FALL_THROUGH (1'b1),
+        .DEPTH        (1),
+        .T            (ccu_axi_ar_t)
+    ) u_ar_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .usage_o    (),
+        .data_i     (ar_fifo_wdata),
+        .valid_i    (ar_valid_i),
+        .ready_o    (ar_ready_o),
+        .data_o     (ar_fifo_rdata),
+        .valid_o    (ar_fifo_valid),
+        .ready_i    (ar_fifo_ready)
+    );
+
+    assign ar_addr_check_o = ar_fifo_valid;
+    assign ar_addr_slice_o = ar_fifo_rdata.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+    assign ar_valid_o      = !ar_addr_hit_i && ar_fifo_valid;
+    assign ar_fifo_ready   = !ar_addr_hit_i && ar_ready_i;
+    `AXI_ASSIGN_AR_STRUCT(ar_o, ar_fifo_rdata)
 //  }}}
 
 //  R channel
