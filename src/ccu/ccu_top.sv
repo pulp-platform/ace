@@ -121,9 +121,6 @@ ccu_axi_manager_resp_t  manager_cut_resp;
     //  The frontend acts as the Point of Serialization (PoS)
     ccu_ace_req_t  frontend_req;
     ccu_ace_resp_t frontend_resp;
-    logic          shareable_stall;
-
-    assign shareable_stall = 1'b0;
 
     ccu_frontend #(
         .ccuCfg                     (ccuCfg),
@@ -143,7 +140,6 @@ ccu_axi_manager_resp_t  manager_cut_resp;
     ) u_ccu_frontend (
         .clk_i,
         .rst_ni,
-        .shareable_stall_i          (shareable_stall),
         .subordinate_req_i          (subordinate_req_i),
         .subordinate_resp_o         (subordinate_resp_o),
         .subordinate_rack_i         (subordinate_rack_i),

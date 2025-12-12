@@ -38,8 +38,6 @@ module ccu_frontend
     input  logic clk_i,
     input  logic rst_ni,
 
-    input  logic                                                                      shareable_stall_i,
-
     input  ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0]                  subordinate_req_i,
     output ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0]                  subordinate_resp_o,
     input  logic                      [ccuCfg.u.numSubordinates-1:0]                  subordinate_rack_i,
@@ -88,18 +86,11 @@ module ccu_frontend
     //  {{{
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_subordinate_monitor
 
-        logic             ar_is_shareable;
         logic             rack_fifo_full;
         rack_fifo_entry_t rack_fifo_wdata;
         rack_fifo_entry_t rack_fifo_rdata;
         logic             rack_fifo_push;
         logic             rack_fifo_pop;
-
-        assign ar_is_shareable = ace_ar_is_shareable(
-            subordinate_req_i[s].ar.bar[0],
-            subordinate_req_i[s].ar.domain,
-            subordinate_req_i[s].ar.snoop
-        );
 
         always_comb begin : ar_comb
             //  Input request --> exclusive monitor
@@ -111,11 +102,6 @@ module ccu_frontend
             `ACE_SET_AR_STRUCT(subordinate_req[s].ar, exclusive_monitor_ar[s])
             subordinate_req[s].ar_valid = exclusive_monitor_ar_valid[s];
             exclusive_monitor_ar_ready[s] = subordinate_resp[s].ar_ready;
-
-            if (ar_is_shareable && shareable_stall_i) begin
-                subordinate_req[s].ar_valid = 1'b0;
-                exclusive_monitor_ar_ready[s] = 1'b0;
-            end
         end
 
         always_comb begin : r_comb
