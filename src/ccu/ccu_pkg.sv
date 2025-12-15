@@ -78,4 +78,17 @@ package ccu_pkg;
         return p;
     endfunction
 
+    //  Performance events
+    typedef struct packed {
+        logic stage0_stall;
+        logic stage0_stall_scoreboard_hit;
+        logic stage0_stall_ac_fifo_full;
+        logic stage0_stall_stage1_fifo_full;
+        logic stage1_stall;
+        logic stage1_stall_cr_not_valid;
+        logic stage1_stall_write_engine_busy;
+        logic stage1_stall_read_engine_busy;
+        logic stage1_stall_cd_engine_busy;
+    } ccu_snoop_pipeline_events_t;
+
 endpackage

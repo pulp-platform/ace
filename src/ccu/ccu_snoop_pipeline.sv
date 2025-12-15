@@ -67,7 +67,9 @@ module ccu_snoop_pipeline
     output ccu_axi_ar_t                                      read_engine_ar_o,
     output logic                                             read_engine_r_valid_o,
     input  logic                                             read_engine_r_ready_i,
-    output ccu_ace_r_t                                       read_engine_r_o
+    output ccu_ace_r_t                                       read_engine_r_o,
+
+    output ccu_snoop_pipeline_events_t                       events_o
 );
 
 //  AC channel
@@ -604,5 +606,20 @@ module ccu_snoop_pipeline
         last: cd.last,
         user: cd_engine_fifo_rdata.ar_user
     };
+//  }}}
+
+//  Performance events
+//  {{{
+always_comb begin : perf_events_comb
+    events_o.stage0_stall                   = ar_valid_i && !ar_ready_o;
+    events_o.stage0_stall_scoreboard_hit    = scoreboard_alloc_hit_i;
+    events_o.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
+    events_o.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
+    events_o.stage1_stall                   = stage1_fifo_valid && !stage1_fifo_ready;
+    events_o.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
+    events_o.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
+    events_o.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
+    events_o.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+end
 //  }}}
 endmodule

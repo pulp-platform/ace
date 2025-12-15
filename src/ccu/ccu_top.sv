@@ -201,7 +201,8 @@ ccu_axi_manager_resp_t  manager_cut_resp;
         .read_engine_ar_o         (snoop_read_engine_ar),
         .read_engine_r_valid_o    (snoop_read_engine_r_valid),
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
-        .read_engine_r_o          (snoop_read_engine_r)
+        .read_engine_r_o          (snoop_read_engine_r),
+        .events_o                 (/* unused */)
     );
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_snoop_assignments
