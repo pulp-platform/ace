@@ -613,16 +613,23 @@ module ccu_snoop_pipeline
 
 //  Performance events
 //  {{{
-always_comb begin : perf_events_comb
-    events_o.stage0_stall                   = ar_valid_i && !ar_ready_o;
-    events_o.stage0_stall_scoreboard_hit    = scoreboard_alloc_hit_i;
-    events_o.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
-    events_o.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
-    events_o.stage1_stall                   = stage1_fifo_valid && !stage1_fifo_ready;
-    events_o.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
-    events_o.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
-    events_o.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
-    events_o.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
-end
+    ccu_snoop_pipeline_events_t events_d;
+
+    always_comb begin : perf_events_comb
+        events_d.stage0_stall                   = ar_valid_i && !ar_ready_o;
+        events_d.stage0_stall_scoreboard_hit    = scoreboard_alloc_hit_i;
+        events_d.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
+        events_d.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
+        events_d.stage1_stall                   = stage1_fifo_valid && !stage1_fifo_ready;
+        events_d.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
+        events_d.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
+        events_d.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
+        events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) events_o <= '0;
+        else         events_o <= events_d;
+    end
 //  }}}
 endmodule
