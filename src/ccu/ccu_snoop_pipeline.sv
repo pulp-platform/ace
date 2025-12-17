@@ -44,7 +44,6 @@ module ccu_snoop_pipeline
     input  logic                                             scoreboard_full_i,
 
     output logic                                             replay_alloc_o,
-    input  logic                                             replay_full_i,
 
     output logic          [ccuCfg.u.numSubordinates-1:0]     ac_valid_o,
     input  logic          [ccuCfg.u.numSubordinates-1:0]     ac_ready_i,
@@ -226,15 +225,20 @@ module ccu_snoop_pipeline
     };
 
     assign scoreboard_alloc_check_o = !ar_is_read_no_snoop && ar_valid_i;
-    assign replay_alloc_o = !replay_full_i && scoreboard_alloc_hit_i;
+    assign replay_alloc_o = scoreboard_alloc_hit_i;
 
     always_comb begin : ar_stall_comb
         ar_fork_valid = ar_valid_i;
         ar_ready_o    = ar_fork_ready;
 
+        //  If a request arrives here, it means
+        //  the replay table is not full since the check
+        //  was performed upstream.
+        //  We can safely allocate one entry as long
+        //  as the replay table is actually instantiated.
         if (scoreboard_alloc_hit_i) begin
             ar_fork_valid = 1'b0;
-            ar_ready_o    = !replay_full_i;
+            ar_ready_o    = ccuCfg.u.enableReplay;
         end
     end
 

@@ -23,6 +23,10 @@ package ccu_pkg;
         int unsigned numWriteTransactions;
         //  Number of simultaneous inflight snoop transactions
         int unsigned numSnoopTransactions;
+        //  Enable replay of conflicting requests
+        bit          enableReplay;
+        //  Number of replay list entries
+        int unsigned numReplayEntries;
         //  AXI/ACE parameters
         int unsigned axiAddressWidth;
         int unsigned axiDataWidth;
@@ -56,6 +60,8 @@ package ccu_pkg;
         int unsigned cachelineAxiTransfers;
         //  Transaction index width
         int unsigned transactionIndexWidth;
+        //  Replay entry index width
+        int unsigned replayEntryIndexWidth;
         //  AXI data size
         int unsigned axiDataSize;
         //  Address slice width used for hazard checks
@@ -75,6 +81,7 @@ package ccu_pkg;
         p.writeTransactionIndexWidth = u.numWriteTransactions > 1 ? $clog2(u.numWriteTransactions) : 1;
         p.cachelineAxiTransfers      = u.cachelineWidth / u.axiDataWidth;
         p.transactionIndexWidth      = u.numShareableTransactions > 1 ? $clog2(u.numShareableTransactions) : 1;
+        p.replayEntryIndexWidth      = u.numReplayEntries > 1 ? $clog2(u.numReplayEntries) : 1;
         p.axiDataSize                = u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
 

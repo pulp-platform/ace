@@ -73,20 +73,21 @@ module ccu_top
 //  }}}
 
 localparam int unsigned scoreboardEntryIndexWidth = ccuCfg.transactionIndexWidth;
+localparam int unsigned numScoreboardEntries      = ccuCfg.u.numShareableTransactions;
 
 logic                                                               scoreboard_full;
 logic                                                               scoreboard_alloc_check;
 logic                                                               scoreboard_alloc;
 logic                                                               scoreboard_alloc_hit;
+logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_alloc_hit_entry;
+logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_alloc_entry;
 logic                                                               scoreboard_dealloc_check;
 logic [ccuCfg.axiCcuIdWidth-1:0]                                    scoreboard_dealloc_id;
 logic                                                               scoreboard_dealloc_hit;
 logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_dealloc_hit_entry;
 logic [ccuCfg.u.numSubordinates-1:0]                                scoreboard_dealloc;
 logic [ccuCfg.u.numSubordinates-1:0][scoreboardEntryIndexWidth-1:0] scoreboard_dealloc_entry;
-
-logic                                replay_alloc;
-logic                                replay_full;
+logic [numScoreboardEntries-1:0]                                    scoreboard_dealloc_bitvector;
 
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_valid;
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_ready;
@@ -115,6 +116,11 @@ ccu_ace_r_t                          snoop_read_engine_r;
 logic                                read_engine_addr_check;
 logic                                read_engine_addr_hit;
 logic [ccuCfg.addressCheckWidth-1:0] read_engine_addr_slice;
+
+logic                                replay_alloc;
+logic                                ar_valid;
+logic                                ar_ready;
+ccu_ace_ar_t                         ar;
 
 ccu_axi_manager_req_t   manager_cut_req;
 ccu_axi_manager_resp_t  manager_cut_resp;
@@ -158,6 +164,74 @@ ccu_axi_manager_resp_t  manager_cut_resp;
     );
 //  }}}
 
+//  Replay list
+    if (ccuCfg.u.enableReplay) begin : gen_replay
+        logic         replay_ar_valid;
+        logic         replay_ar_ready;
+        ccu_ace_ar_t  replay_ar;
+        logic         replay_full;
+        logic         frontend_ar_valid;
+        logic         frontend_ar_ready;
+        logic         frontend_ar_is_read_no_snoop;
+
+        ccu_replay #(
+            .ccuCfg       (ccuCfg),
+            .ccu_ace_ar_t (ccu_ace_ar_t)
+        ) u_ccu_replay (
+            .clk_i,
+            .rst_ni,
+            .alloc_i                   (replay_alloc),
+            .alloc_ar_i                (frontend_req.ar),
+            .alloc_scoreboard_entry_i  (scoreboard_alloc_hit_entry),
+            .replay_scoreboard_entry_i (scoreboard_alloc_entry),
+            .replay_ar_o               (replay_ar),
+            .replay_ar_valid_o         (replay_ar_valid),
+            .replay_ar_ready_i         (replay_ar_ready),
+            .scoreboard_dealloc_i      (scoreboard_dealloc_bitvector),
+            .full_o                    (replay_full)
+        );
+
+        //  Fixed priority arbitration gives precedence
+        //  to replayable requests
+        //  Shareable frontend requests are stalled once the
+        //  replay list is full
+        assign frontend_ar_is_read_no_snoop = ace_is_read_no_snoop(
+            frontend_req.ar.bar[0],
+            frontend_req.ar.domain,
+            frontend_req.ar.snoop
+        );
+
+        assign frontend_ar_valid      = (!replay_full || frontend_ar_is_read_no_snoop) && frontend_req.ar_valid;
+        assign frontend_resp.ar_ready = (!replay_full || frontend_ar_is_read_no_snoop) && frontend_ar_ready;
+
+        rr_arb_tree #(
+            .NumIn     (2),
+            .DataType  (ccu_ace_ar_t),
+            .ExtPrio   (1'b1),
+            .AxiVldRdy (1'b1),
+            .LockIn    (1'b0),
+            .FairArb   (1'b1)
+        ) u_ccu_replay_arbiter (
+            .clk_i,
+            .rst_ni,
+            .flush_i (1'b0),
+            .rr_i    ('1),
+            .req_i   ({replay_ar_valid, frontend_ar_valid}),
+            .gnt_o   ({replay_ar_ready, frontend_ar_ready}),
+            .data_i  ({replay_ar      , frontend_req.ar}),
+            .req_o   (ar_valid),
+            .gnt_i   (ar_ready),
+            .data_o  (ar),
+            .idx_o   (replay)
+        );
+    end else begin : gen_no_replay
+        assign replay                 = 1'b0;
+        assign ar_valid               = frontend_req.ar_valid;
+        assign frontend_resp.ar_ready = ar_ready;
+        assign ar                     = frontend_req.ar;
+    end
+//  }}}
+
 //  AR-related snoop pipeline
 //  {{{
     ccu_snoop_pipeline #(
@@ -175,15 +249,14 @@ ccu_axi_manager_resp_t  manager_cut_resp;
         .clk_i,
         .rst_ni,
         .domain_map_i             (domain_map_i),
-        .ar_i                     (frontend_req.ar),
-        .ar_valid_i               (frontend_req.ar_valid),
-        .ar_ready_o               (frontend_resp.ar_ready),
+        .ar_i                     (ar),
+        .ar_valid_i               (ar_valid),
+        .ar_ready_o               (ar_ready),
         .scoreboard_alloc_check_o (scoreboard_alloc_check),
         .scoreboard_alloc_o       (scoreboard_alloc),
         .scoreboard_alloc_hit_i   (scoreboard_alloc_hit),
         .scoreboard_full_i        (scoreboard_full),
         .replay_alloc_o           (replay_alloc),
-        .replay_full_i            (replay_full),
         .ac_valid_o               (snoop_ac_valid),
         .ac_ready_i               (snoop_ac_ready),
         .ac_o                     (snoop_ac),
@@ -231,28 +304,18 @@ ccu_axi_manager_resp_t  manager_cut_resp;
         .full_o              (scoreboard_full),
         .alloc_check_i       (scoreboard_alloc_check),
         .alloc_i             (scoreboard_alloc),
-        .alloc_addr_i        (frontend_req.ar.addr),
-        .alloc_id_i          (frontend_req.ar.id),
+        .alloc_addr_i        (ar.addr),
+        .alloc_id_i          (ar.id),
         .alloc_hit_o         (scoreboard_alloc_hit),
+        .alloc_hit_entry_o   (scoreboard_alloc_hit_entry),
+        .alloc_entry_o       (scoreboard_alloc_entry),
         .dealloc_check_i     (scoreboard_dealloc_check),
         .dealloc_id_i        (scoreboard_dealloc_id),
         .dealloc_hit_o       (scoreboard_dealloc_hit),
         .dealloc_hit_entry_o (scoreboard_dealloc_hit_entry),
         .dealloc_i           (scoreboard_dealloc),
-        .dealloc_entry_i     (scoreboard_dealloc_entry)
-    );
-//  }}}
-
-//  Replay list
-//  TODO: currently a stub, to be implemented
-//  {{{
-    ccu_replay #(
-        .ccuCfg (ccuCfg)
-    ) u_ccu_replay (
-        .clk_i,
-        .rst_ni,
-        .replay_alloc_i (replay_alloc),
-        .replay_full_o  (replay_full)
+        .dealloc_entry_i     (scoreboard_dealloc_entry),
+        .dealloc_o           (scoreboard_dealloc_bitvector)
     );
 //  }}}
 
