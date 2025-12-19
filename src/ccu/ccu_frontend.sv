@@ -118,6 +118,7 @@ module ccu_frontend
             exclusive_monitor_r_valid[s] = subordinate_resp[s].r_valid;
             subordinate_req[s].r_ready = exclusive_monitor_r_ready[s];
 
+            //  Stall R responses once the RACK fifo is full
             if (rack_fifo_full) begin
                 exclusive_monitor_r_valid[s] = 1'b0;
                 subordinate_req[s].r_ready = 1'b0;
@@ -155,6 +156,11 @@ module ccu_frontend
         assign rack_fifo_push =
             subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready && subordinate_resp_o[s].r.last;
 
+        //  RACK-related metadata are used to:
+        //  - clear the corresponding scoreboard entry
+        //  - clear the corresponding exclusive monitor entry
+        //  SC failure responses are locally generated, thus no entry should be cleared
+        //  once the RACK arrives
         assign rack_fifo_wdata = '{
             tid:       scoreboard_dealloc_entry_i,
             dealloc:   scoreboard_dealloc_hit_i    && !exclusive_monitor_sc_fail[s],
