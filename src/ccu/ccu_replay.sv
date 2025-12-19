@@ -83,8 +83,9 @@ module ccu_replay
     end
 
     //  Entries which are being allocated the same cycle the corresponding
-    //  scoreboard entry is being deallocated can replay from the next cycle
-    assign alloc_hazard     = !scoreboard_dealloc_i[alloc_scoreboard_entry_i];
+    //  scoreboard entry is being deallocated AND are list heads can replay
+    //  from the next cycle
+    assign alloc_hazard     = !alloc_head || !scoreboard_dealloc_i[alloc_scoreboard_entry_i];
     assign alloc_head       = ~|(address_hit & valid_q);
     assign alloc_addr_slice = alloc_ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 //  }}}
