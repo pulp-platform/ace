@@ -86,7 +86,7 @@ module ccu_replay
     //  scoreboard entry is being deallocated AND are list heads can replay
     //  from the next cycle
     assign alloc_hazard     = !alloc_head || !scoreboard_dealloc_i[alloc_scoreboard_entry_i];
-    assign alloc_head       = ~|(address_hit & valid_q);
+    assign alloc_head       = ~|(address_hit & valid_q & ~replay_gnt);
     assign alloc_addr_slice = alloc_ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 //  }}}
 
@@ -105,7 +105,7 @@ module ccu_replay
 
         assign alloc         = alloc_entry       == e && alloc_i;
         assign make_head     = replay_next_entry == e && |replay_gnt && !replay_is_tail;
-        assign link          = valid_q[e] && list_q[e].tail && address_hit[e] && alloc_i;
+        assign link          = valid_q[e] && list_q[e].tail && address_hit[e] && !replay_gnt[e] && alloc_i;
         assign clear_hazard  = valid_q[e] && list_q[e].head && scoreboard_dealloc_i[entry_q[e].dependency];
         assign replay_req[e] = valid_q[e] && list_q[e].head && !hazard_q[e];
 
