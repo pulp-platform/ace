@@ -1,0 +1,57 @@
+addrmap ccu_csr #(
+    longint unsigned numPerfCounters = 16
+) {
+    name = "CCU control and status registers";
+
+    reg perf_eventsel_r {
+        name = "Performance Event Selector";
+        desc = "Selects the microarchitectural event to monitor.";
+        regwidth = 32;
+
+        field {
+            name = "Event Code";
+            desc = "Hardware event ID.";
+            sw = rw;
+            hw = r;
+            fieldwidth = 8;
+        } event_id = 0;
+    };
+
+    reg perf_counter_r {
+        name = "Performance Counter";
+        desc = "32-bit counter value incremented by the hardware.";
+        regwidth = 32;
+
+        field {
+            name = "Count";
+            sw = rw;
+            hw = r;
+            counter;
+            fieldwidth = 32;
+        } val = 0;
+    };
+
+    reg perf_countinhibit_r {
+        name = "Counter Inhibit";
+        desc = "Bit [i] = 1 means counter [i] is STOPPED. Bit [i] = 0 lets it run.";
+        regwidth = 32;
+
+        field {
+            name = "Inhibit Bitmask";
+            sw = rw;
+            hw = r;
+            fieldwidth = numPerfCounters;
+        } inh = (1 << numPerfCounters) - 1;
+    };
+
+    // --- Memory Map Instantiation ---
+
+    // Global Control @ 0x00
+    perf_countinhibit_r perf_countinhibit @ 0x00;
+
+    // Array of Event Selectors @ 0x40
+    perf_eventsel_r perf_eventsel[numPerfCounters] @ 0x40 += 0x4;
+
+    // Array of 32-bit Counters @ 0xC0
+    perf_counter_r perf_counter[numPerfCounters] @ 0xC0 += 0x4;
+};

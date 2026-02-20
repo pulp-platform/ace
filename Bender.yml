@@ -6,9 +6,10 @@ package:
     - "Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>"
 
 dependencies:
-  axi:               { git: "https://github.com/pulp-platform/axi.git", version: 0.39.9 }
-  common_cells:      { git: "https://github.com/pulp-platform/common_cells.git", version: 1.39.0 }
-  axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", rev: 6d3c8b4} # branch: master
+  axi:               { git: "https://github.com/pulp-platform/axi.git",               version: 0.39.9 }
+  common_cells:      { git: "https://github.com/pulp-platform/common_cells.git",      version: 1.39.0 }
+  axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", rev: 6d3c8b4    } # branch: master
+  apb:               { git: "https://github.com/pulp-platform/apb.git",               version: 0.2.4  }
 
 export_include_dirs:
   - include
@@ -20,7 +21,11 @@ sources:
   - src/snoop_intf.sv
   # CCU package
   - src/ccu/ccu_pkg.sv
+    # CCU generated regs
+  - src/ccu/regs/generated/ccu_csr_pkg.sv
+  - src/ccu/regs/generated/ccu_csr.sv
   # CCU source files
+  - src/ccu/ccu_csr_wrap.sv
   - src/ccu/ccu_exclusive_monitor.sv
   - src/ccu/ccu_frontend.sv
   - src/ccu/ccu_read_engine.sv

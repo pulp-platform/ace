@@ -96,7 +96,7 @@ module ccu_snoop_pipeline
     };
 
     stream_fifo #(
-        .FALL_THROUGH (1'b0),
+        .FALL_THROUGH (ccuCfg.u.snoopReqFifoFallthrough),
         .DEPTH        (ccuCfg.u.numSnoopTransactions),
         .T           (ac_fifo_entry_t)
     ) u_ac_fifo (
@@ -138,7 +138,7 @@ module ccu_snoop_pipeline
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cr_fifo
         stream_fifo #(
-            .FALL_THROUGH (1'b0),
+            .FALL_THROUGH (ccuCfg.u.snoopRespFifoFallthrough),
             .DEPTH        (ccuCfg.u.numSnoopTransactions),
             .T            (ccu_snoop_cr_t)
         ) u_cr_fifo (
@@ -165,7 +165,7 @@ module ccu_snoop_pipeline
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_fifo
         stream_fifo #(
-            .FALL_THROUGH (1'b0),
+            .FALL_THROUGH (ccuCfg.u.snoopRespFifoFallthrough),
             .DEPTH        (ccuCfg.u.numSnoopTransactions),
             .T            (ccu_snoop_cd_t)
         ) u_cd_fifo (

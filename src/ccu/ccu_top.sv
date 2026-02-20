@@ -16,6 +16,7 @@
 `include "ace/typedef.svh"
 `include "axi/assign.svh"
 `include "ace/assign.svh"
+`include "apb/typedef.svh"
 
 module ccu_top
     import ace_pkg::*;
@@ -40,7 +41,9 @@ module ccu_top
     parameter type         ccu_snoop_cr_t             = logic,
     parameter type         ccu_snoop_cd_t             = logic,
     parameter type         ccu_snoop_req_t            = logic,
-    parameter type         ccu_snoop_resp_t           = logic
+    parameter type         ccu_snoop_resp_t           = logic,
+    parameter type         mmio_req_t                 = logic,
+    parameter type         mmio_resp_t                = logic
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -53,7 +56,10 @@ module ccu_top
     output ccu_snoop_req_t            [ccuCfg.u.numSubordinates-1:0] snoop_req_o,
     input  ccu_snoop_resp_t           [ccuCfg.u.numSubordinates-1:0] snoop_resp_i,
     output ccu_axi_manager_req_t                                     manager_req_o,
-    input  ccu_axi_manager_resp_t                                    manager_resp_i
+    input  ccu_axi_manager_resp_t                                    manager_resp_i,
+
+    input  mmio_req_t  mmio_subordinate_req_i,
+    output mmio_resp_t mmio_subordinate_resp_o
 );
 
 //  AXI/ACE typedefs
@@ -124,6 +130,8 @@ ccu_ace_ar_t                         ar;
 
 ccu_axi_manager_req_t   manager_cut_req;
 ccu_axi_manager_resp_t  manager_cut_resp;
+
+ccu_snoop_pipeline_events_t perf_events;
 
 //  Frontend
 //  {{{
@@ -278,7 +286,7 @@ ccu_axi_manager_resp_t  manager_cut_resp;
         .read_engine_r_valid_o    (snoop_read_engine_r_valid),
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
         .read_engine_r_o          (snoop_read_engine_r),
-        .events_o                 (/* unused */)
+        .events_o                 (perf_events)
     );
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_snoop_assignments
@@ -422,5 +430,57 @@ ccu_axi_manager_resp_t  manager_cut_resp;
         .mst_req_o  (manager_req_o),
         .mst_resp_i (manager_resp_i)
     );
+//  }}}
+
+//  Control and status registers
+//  {{{
+    typedef logic [$bits(mmio_subordinate_req_i.addr)-1:0] addr_t;
+    typedef logic [31:0]                                   data_t;
+    typedef logic [3:0]                                    strb_t;
+
+    `APB_TYPEDEF_REQ_T(apb_req_t, addr_t, data_t, strb_t)
+    `APB_TYPEDEF_RESP_T(apb_resp_t, data_t)
+
+    apb_req_t  apb_req;
+    apb_resp_t apb_resp;
+
+    if (ccuCfg.u.mmioIntf == CCU_MMIO_REGBUS) begin : gen_reg_to_apb
+        reg_to_apb #(
+            .reg_req_t (mmio_req_t),
+            .reg_rsp_t (mmio_resp_t),
+            .apb_req_t (apb_req_t),
+            .apb_rsp_t (apb_resp_t)
+        ) u_reg_to_apb (
+            .clk_i,
+            .rst_ni,
+            .reg_req_i (mmio_subordinate_req_i),
+            .reg_rsp_o (mmio_subordinate_resp_o),
+            .apb_req_o (apb_req),
+            .apb_rsp_i (apb_resp)
+        );
+    end else if (ccuCfg.u.mmioIntf == CCU_MMIO_APB) begin : gen_apb_passthrough
+        assign apb_req                 = mmio_subordinate_req_i;
+        assign mmio_subordinate_resp_o = apb_resp;
+    end
+
+    if (ccuCfg.u.enableCSRs) begin : gen_csr
+        ccu_csr_wrap #(
+            .ccuCfg     (ccuCfg),
+            .apb_req_t  (apb_req_t),
+            .apb_resp_t (apb_resp_t),
+            .numEvents  ($bits(ccu_snoop_pipeline_events_t))
+        ) u_perf_counters (
+            .clk_i,
+            .rst_ni,
+            .apb_req_i  (apb_req),
+            .apb_resp_o (apb_resp),
+            .events_i   (perf_events)
+        );
+    end else begin
+        always_comb begin : apb_sink_tieoff
+            apb_resp        = '0;
+            apb_resp.pready = 1'b1;
+        end
+    end
 //  }}}
 endmodule

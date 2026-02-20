@@ -14,30 +14,44 @@
 
 package ccu_pkg;
 
+    // Available memory mapped IO interfaces
+    typedef enum {
+        CCU_MMIO_APB,
+        CCU_MMIO_REGBUS
+    } ccu_mmio_intf_e;
+
     typedef struct packed {
         //  Number of subordinate ports (i.e. coherent managers)
-        int unsigned numSubordinates;
+        int unsigned    numSubordinates;
         //  Number of shareable simultaneous inflight transactions
-        int unsigned numShareableTransactions;
+        int unsigned    numShareableTransactions;
         //  Number of simultaneous write transactions
-        int unsigned numWriteTransactions;
+        int unsigned    numWriteTransactions;
         //  Number of simultaneous inflight snoop transactions
-        int unsigned numSnoopTransactions;
+        int unsigned    numSnoopTransactions;
         //  Enable replay of conflicting requests
-        bit          enableReplay;
+        bit             enableReplay;
         //  Number of replay list entries
-        int unsigned numReplayEntries;
+        int unsigned    numReplayEntries;
         //  AXI/ACE parameters
-        int unsigned axiAddressWidth;
-        int unsigned axiDataWidth;
-        int unsigned axiUserWidth;
-        int unsigned axiSubordinateIdWidth;
+        int unsigned    axiAddressWidth;
+        int unsigned    axiDataWidth;
+        int unsigned    axiUserWidth;
+        int unsigned    axiSubordinateIdWidth;
         //  Cache parameters
-        int unsigned cachelineWidth;
+        int unsigned    cachelineWidth;
         //  LSB address bit used for hazard checks (inclusive)
-        int unsigned addressCheckLsb;
+        int unsigned    addressCheckLsb;
         //  MSB address bit used for hazard checks (inclusive)
-        int unsigned addressCheckMsb;
+        int unsigned    addressCheckMsb;
+        //  Make snoop request FIFOs fall through
+        bit             snoopReqFifoFallthrough;
+        //  Make snoop response FIFOs fall through
+        bit             snoopRespFifoFallthrough;
+        //  Protocol used to access the memory mapped registers
+        ccu_mmio_intf_e mmioIntf;
+        //  Instantiate CCU control and status registers
+        bit             enableCSRs;
     } ccu_user_config_t;
 
     typedef struct packed {
@@ -90,15 +104,15 @@ package ccu_pkg;
 
     //  Performance events
     typedef struct packed {
-        logic stage0_stall;
-        logic stage0_stall_scoreboard_hit;
-        logic stage0_stall_ac_fifo_full;
-        logic stage0_stall_stage1_fifo_full;
-        logic stage1_stall;
-        logic stage1_stall_cr_not_valid;
-        logic stage1_stall_write_engine_busy;
-        logic stage1_stall_read_engine_busy;
-        logic stage1_stall_cd_engine_busy;
+        logic stage0_stall;                     // 8
+        logic stage0_stall_scoreboard_hit;      // 7
+        logic stage0_stall_ac_fifo_full;        // 6
+        logic stage0_stall_stage1_fifo_full;    // 5
+        logic stage1_stall;                     // 4
+        logic stage1_stall_cr_not_valid;        // 3
+        logic stage1_stall_write_engine_busy;   // 2
+        logic stage1_stall_read_engine_busy;    // 1
+        logic stage1_stall_cd_engine_busy;      // 0
     } ccu_snoop_pipeline_events_t;
 
 endpackage
