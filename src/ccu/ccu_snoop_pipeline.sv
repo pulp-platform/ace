@@ -580,9 +580,9 @@ module ccu_snoop_pipeline
         read_engine_r_resp[RESP_IS_DIRTY]  = cd_engine_fifo_rdata.resp_dirty;
         read_engine_r_resp[RESP_IS_SHARED] = cd_engine_fifo_rdata.resp_shared;
         if (cd_engine_fifo_rdata.ar_lock)
-            read_engine_r_resp[1:0] = axi_pkg::RESP_EXOKAY;
+            read_engine_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_EXOKAY;
         else
-            read_engine_r_resp[1:0] = axi_pkg::RESP_OKAY;
+            read_engine_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_OKAY;
     end
 
     //  Only the `r_last` field has to be multiplexed
