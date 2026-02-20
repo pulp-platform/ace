@@ -469,7 +469,7 @@ ccu_snoop_pipeline_events_t perf_events;
             .apb_req_t  (apb_req_t),
             .apb_resp_t (apb_resp_t),
             .numEvents  ($bits(ccu_snoop_pipeline_events_t))
-        ) u_perf_counters (
+        ) u_ccu_csrs (
             .clk_i,
             .rst_ni,
             .apb_req_i  (apb_req),
