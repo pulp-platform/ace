@@ -157,7 +157,7 @@ module ccu_snoop_pipeline
     end
 //  }}}
 
-//  CR channel
+//  CD channel
 //  {{{
     logic          [ccuCfg.u.numSubordinates-1:0] cd_fifo_valid;
     logic          [ccuCfg.u.numSubordinates-1:0] cd_fifo_ready;
@@ -262,8 +262,8 @@ module ccu_snoop_pipeline
 //  Stage 1
 //  {{{
     typedef struct packed {
-        ccu_ace_ar_t                                      ar;
-        logic        [ccuCfg.u.numSubordinates-1:0]       sel;
+        ccu_ace_ar_t                                ar;
+        logic        [ccuCfg.u.numSubordinates-1:0] sel;
     } stage1_fifo_entry_t;
 
     logic                                stage1_fifo_valid;
