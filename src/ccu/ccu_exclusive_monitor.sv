@@ -86,23 +86,20 @@ for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_entry
 
     assign r_id_hit_o[s] = entry_q[s].id == r_o[s].id;
 
-    assign is_exclusive_load = ar_i[s].lock && (
-        ace_is_read_clean (
-            ar_i[s].bar,
+    assign is_exclusive_load =
+        ace_ar_is_exclusive_load (
+            ar_i[s].bar[0],
             ar_i[s].domain,
-            ar_i[s].snoop
-        ) ||
-        ace_is_read_shared(
-            ar_i[s].bar,
-            ar_i[s].domain,
-            ar_i[s].snoop
-        ));
+            ar_i[s].snoop,
+            ar_i[s].lock
+        );
 
-    assign is_exclusive_store = ar_i[s].lock &&
-        ace_is_clean_unique(
-            ar_i[s].bar,
+    assign is_exclusive_store =
+        ace_ar_is_exclusive_store(
+            ar_i[s].bar[0],
             ar_i[s].domain,
-            ar_i[s].snoop
+            ar_i[s].snoop,
+            ar_i[s].lock
         );
 
     assign is_exclusive_sequence = is_exclusive_store || is_exclusive_load;

@@ -268,122 +268,86 @@ package ace_pkg;
     // Transaction groups
 
     function automatic logic ace_aw_is_shareable(logic awbar0, axdomain_t awdomain,
-                                                awsnoop_t awsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_write_unique(awbar0, awdomain, awsnoop):      retval = 1'b1;
-            ace_is_write_line_unique(awbar0, awdomain, awsnoop): retval = 1'b1;
-            default:                                             retval = 1'b0;
-        endcase
-        return retval;
+                                                 awsnoop_t awsnoop);
+        return ace_is_write_unique(awbar0, awdomain, awsnoop) ||
+               ace_is_write_line_unique(awbar0, awdomain, awsnoop);
     endfunction
 
     function automatic logic ace_aw_is_memory_update(logic awbar0, axdomain_t awdomain,
                                                      awsnoop_t awsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_write_clean(awbar0, awdomain, awsnoop): retval = 1'b1;
-            ace_is_write_back(awbar0, awdomain, awsnoop):  retval = 1'b1;
-            ace_is_evict(awbar0, awdomain, awsnoop):       retval = 1'b1;
-            ace_is_write_evict(awbar0, awdomain, awsnoop): retval = 1'b1;
-            default:                                       retval = 1'b0;
-        endcase
-        return retval;
+        return ace_is_write_clean(awbar0, awdomain, awsnoop) ||
+               ace_is_write_back(awbar0, awdomain, awsnoop)  ||
+               ace_is_evict(awbar0, awdomain, awsnoop)       ||
+               ace_is_write_evict(awbar0, awdomain, awsnoop);
     endfunction
 
     function automatic logic ace_aw_is_non_blocking(logic awbar0, axdomain_t awdomain,
                                                     awsnoop_t awsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_aw_is_memory_update(awbar0, awdomain, awsnoop): retval = 1'b1;
-            ace_is_write_no_snoop(awbar0, awdomain, awsnoop):   retval = 1'b1;
-            default:                                            retval = 1'b0;
-        endcase
-        return retval;
+        return ace_aw_is_memory_update(awbar0, awdomain, awsnoop) ||
+               ace_is_write_no_snoop(awbar0, awdomain, awsnoop);
     endfunction
 
     function automatic logic ace_ar_is_shareable(logic arbar0, axdomain_t ardomain,
-                                                arsnoop_t arsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_read_once(arbar0, ardomain, arsnoop):             retval = 1'b1;
-            ace_is_read_shared(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            ace_is_read_clean(arbar0, ardomain, arsnoop):            retval = 1'b1;
-            ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop): retval = 1'b1;
-            ace_is_read_unique(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            ace_is_clean_unique(arbar0, ardomain, arsnoop):          retval = 1'b1;
-            ace_is_make_unique(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            default:                                                 retval = 1'b0;
-        endcase
-        return retval;
+                                                 arsnoop_t arsnoop);
+        return ace_is_read_once(arbar0, ardomain, arsnoop)             ||
+               ace_is_read_shared(arbar0, ardomain, arsnoop)           ||
+               ace_is_read_clean(arbar0, ardomain, arsnoop)            ||
+               ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop) ||
+               ace_is_read_unique(arbar0, ardomain, arsnoop)           ||
+               ace_is_clean_unique(arbar0, ardomain, arsnoop)          ||
+               ace_is_make_unique(arbar0, ardomain, arsnoop);
     endfunction
 
-    function automatic logic ace_ar_is_clean(logic arbar0, axdomain_t ardomain, arsnoop_t arsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_clean_unique(arbar0, ardomain, arsnoop):  retval = 1'b1;
-            ace_is_clean_shared(arbar0, ardomain, arsnoop):  retval = 1'b1;
-            ace_is_clean_invalid(arbar0, ardomain, arsnoop): retval = 1'b1;
-            default:                                         retval = 1'b0;
-        endcase
-        return retval;
+    function automatic logic ace_ar_is_clean(logic arbar0, axdomain_t ardomain,
+                                             arsnoop_t arsnoop);
+        return ace_is_clean_unique(arbar0, ardomain, arsnoop)  ||
+               ace_is_clean_shared(arbar0, ardomain, arsnoop)  ||
+               ace_is_clean_invalid(arbar0, ardomain, arsnoop);
     endfunction
 
     // Snoop transaction from initiating master transaction
     function automatic acsnoop_t ace_ar_acsnoop_map(logic arbar0, axdomain_t ardomain,
                                                     arsnoop_t arsnoop);
-        acsnoop_t acsnoop;
-        unique case (1'b1)
-            ace_is_clean_unique(arbar0, ardomain, arsnoop): acsnoop = acsnoop_t'(CleanInvalid);
-            ace_is_make_unique(arbar0, ardomain, arsnoop):  acsnoop = acsnoop_t'(MakeInvalid);
-            default:                                        acsnoop = acsnoop_t'(arsnoop);
-        endcase
-        return acsnoop;
+        return ace_is_clean_unique(arbar0, ardomain, arsnoop) ? acsnoop_t'(CleanInvalid) :
+               ace_is_make_unique(arbar0, ardomain, arsnoop)  ? acsnoop_t'(MakeInvalid)  :
+                                                                acsnoop_t'(arsnoop);
     endfunction
 
     function automatic acsnoop_t ace_aw_acsnoop_map(logic awbar0, axdomain_t awdomain,
-                                                    arsnoop_t awsnoop);
-        acsnoop_t acsnoop;
-        unique case (1'b1)
-            ace_is_write_unique(awbar0, awdomain, awsnoop):      acsnoop = acsnoop_t'(CleanInvalid);
-            ace_is_write_line_unique(awbar0, awdomain, awsnoop): acsnoop = acsnoop_t'(MakeInvalid);
-            default:                                             acsnoop = acsnoop_t'(CleanInvalid);
-        endcase
-        return acsnoop;
+                                                    awsnoop_t awsnoop);
+        return ace_is_write_unique(awbar0, awdomain, awsnoop)      ? acsnoop_t'(CleanInvalid) :
+               ace_is_write_line_unique(awbar0, awdomain, awsnoop) ? acsnoop_t'(MakeInvalid)  :
+                                                                     acsnoop_t'(CleanInvalid);
     endfunction
 
     function automatic logic ace_ar_accepts_dirty(logic arbar0, axdomain_t ardomain,
                                                   arsnoop_t arsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop): retval = 1'b1;
-            ace_is_read_shared(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            ace_is_read_unique(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            default:                                                 retval = 1'b0;
-        endcase
-        return retval;
+        return ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop) ||
+               ace_is_read_shared(arbar0, ardomain, arsnoop)           ||
+               ace_is_read_unique(arbar0, ardomain, arsnoop);
     endfunction
 
     function automatic logic ace_ar_accepts_dirty_shared(logic arbar0, axdomain_t ardomain,
                                                          arsnoop_t arsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_read_shared(arbar0, ardomain, arsnoop): retval = 1'b1;
-            default:                                       retval = 1'b0;
-        endcase
-        return retval;
+        return ace_is_read_shared(arbar0, ardomain, arsnoop);
     endfunction
 
     function automatic logic ace_ar_accepts_shared(logic arbar0, axdomain_t ardomain,
                                                    arsnoop_t arsnoop);
-        logic retval;
-        unique case (1'b1)
-            ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop): retval = 1'b1;
-            ace_is_read_shared(arbar0, ardomain, arsnoop):           retval = 1'b1;
-            ace_is_read_clean(arbar0, ardomain, arsnoop):            retval = 1'b1;
-            default:                                                 retval = 1'b0;
-        endcase
-        return retval;
+        return ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop) ||
+               ace_is_read_shared(arbar0, ardomain, arsnoop)           ||
+               ace_is_read_clean(arbar0, ardomain, arsnoop);
+    endfunction
+
+    function automatic logic ace_ar_is_exclusive_load(logic arbar0, axdomain_t ardomain,
+                                                      arsnoop_t arsnoop, logic arlock);
+        return (ace_is_read_shared(arbar0, ardomain, arsnoop) ||
+                ace_is_read_clean(arbar0, ardomain, arsnoop)) && arlock;
+    endfunction
+
+    function automatic logic ace_ar_is_exclusive_store(logic arbar0, axdomain_t ardomain,
+                                                       arsnoop_t arsnoop, logic arlock);
+        return (ace_is_clean_unique(arbar0, ardomain, arsnoop)) && arlock;
     endfunction
 
 endpackage
