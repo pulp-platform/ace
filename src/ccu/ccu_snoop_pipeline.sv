@@ -285,6 +285,8 @@ module ccu_snoop_pipeline
     logic                                cd_engine_ack_to_read;
     logic                                cd_engine_valid;
     logic                                cd_engine_ready;
+    logic                                cd_engine_resp_shared;
+    logic                                cd_engine_resp_dirty;
 
     assign stage1_fifo_wdata = '{
         ar : ar_i,
