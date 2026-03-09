@@ -348,6 +348,10 @@ module ccu_snoop_pipeline
         stage1_fifo_rdata.ar.bar[0],
         stage1_fifo_rdata.ar.domain,
         stage1_fifo_rdata.ar.snoop
+    ) || ace_is_make_unique(
+        stage1_fifo_rdata.ar.bar[0],
+        stage1_fifo_rdata.ar.domain,
+        stage1_fifo_rdata.ar.snoop
     );
 
     always_comb begin : engine_sel_comb
