@@ -221,7 +221,7 @@ module ccu_snoop_pipeline
     assign ac = '{
         addr: axi_pkg::aligned_addr(ar_i.addr, ccuCfg.cachelineByteIndexWidth),
         snoop: ac_snoop,
-        prot: '0
+        prot: ar_i.prot
     };
 
     assign scoreboard_alloc_check_o = !ar_is_read_no_snoop && ar_valid_i;
