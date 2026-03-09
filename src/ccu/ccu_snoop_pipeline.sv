@@ -98,7 +98,7 @@ module ccu_snoop_pipeline
     stream_fifo #(
         .FALL_THROUGH (ccuCfg.u.snoopReqFifoFallthrough),
         .DEPTH        (ccuCfg.u.numSnoopTransactions),
-        .T           (ac_fifo_entry_t)
+        .T            (ac_fifo_entry_t)
     ) u_ac_fifo (
         .clk_i,
         .rst_ni,
