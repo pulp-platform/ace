@@ -30,7 +30,8 @@ module ccu_csr_wrap
   input  logic [numEvents-1:0] events_i
 );
 
-  localparam int unsigned numPerfCounters = 16;
+  localparam int unsigned numPerfCounters =
+    $bits(ccu_csr__perf_countinhibit_r__inh__out_t);
 
   ccu_csr__in_t  hwif_in;
   ccu_csr__out_t hwif_out;
