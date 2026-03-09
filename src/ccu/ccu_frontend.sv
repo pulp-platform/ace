@@ -238,9 +238,9 @@ module ccu_frontend
         .NoSlvPorts    (ccuCfg.u.numSubordinates),
         .MaxWTrans     (ccuCfg.u.numWriteTransactions),
         .FallThrough   (1'b1),
-        .SpillAw       (1'b1),
-        .SpillW        (1'b1),
-        .SpillB        (1'b1),
+        .SpillAw       (1'b0),
+        .SpillW        (1'b0),
+        .SpillB        (1'b0),
         .SpillAr       (1'b0),
         .SpillR        (1'b0)
     ) u_subordinate_mux (

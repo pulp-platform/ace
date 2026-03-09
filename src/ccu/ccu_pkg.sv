@@ -52,6 +52,12 @@ package ccu_pkg;
         ccu_mmio_intf_e mmioIntf;
         //  Instantiate CCU control and status registers
         bit             enableCSRs;
+        //  Insert spill registers in the frontend
+        bit             frontendPipeAw;
+        bit             frontendPipeW;
+        bit             frontendPipeB;
+        bit             frontendPipeAr;
+        bit             frontendPipeR;
     } ccu_user_config_t;
 
     typedef struct packed {
