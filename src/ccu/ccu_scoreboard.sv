@@ -98,7 +98,7 @@ module ccu_scoreboard
         logic [ccuCfg.subordinateIndexWidth-1:0] subordinate_index;
         logic                                    alloc;
         assign subordinate_index = entry_q[e].id[ccuCfg.axiCcuIdWidth-1-:ccuCfg.subordinateIndexWidth];
-        assign alloc             = alloc_i && alloc_entry_o == e;
+        assign alloc             = alloc_i && alloc_entry_o == e && !full_o;
         assign dealloc_o[e]      = dealloc_i[subordinate_index] && dealloc_entry_i[subordinate_index] == e;
         assign address_hit[e]    = alloc_addr_slice == entry_q[e].addr;
         assign dealloc_id_hit[e] = dealloc_id_i == entry_q[e].id;
