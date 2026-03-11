@@ -1,5 +1,5 @@
 addrmap ccu_csr #(
-    longint unsigned numPerfCounters = 16
+    longint unsigned numPerfCounters = 32
 ) {
     name = "CCU control and status registers";
 

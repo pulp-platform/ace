@@ -626,6 +626,33 @@ module ccu_snoop_pipeline
     ccu_snoop_pipeline_events_t events_d;
 
     always_comb begin : perf_events_comb
+        events_d = '0;
+        // Transaction occurrence
+        if (stage1_fifo_valid && stage1_fifo_ready) begin
+            events_d.stage1_read_no_snoop         =
+                ace_is_read_no_snoop(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_read_once             =
+                ace_is_read_once(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_read_shared           =
+                ace_is_read_shared(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_read_clean            =
+                ace_is_read_clean(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_read_not_shared_dirty =
+                ace_is_read_not_shared_dirty(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_read_unique           =
+                ace_is_read_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_clean_unique          =
+                ace_is_clean_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_make_unique           =
+                ace_is_make_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_clean_shared          =
+                ace_is_clean_shared(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_clean_invalid         =
+                ace_is_clean_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.stage1_make_invalid          =
+                ace_is_make_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+        end
+        // Stalls
         events_d.stage0_stall                   = ar_valid_i && !ar_ready_o;
         events_d.stage0_stall_scoreboard_hit    = scoreboard_alloc_hit_i;
         events_d.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;

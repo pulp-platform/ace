@@ -4,7 +4,7 @@
 package ccu_csr_pkg;
 
     localparam CCU_CSR_DATA_WIDTH = 32;
-    localparam CCU_CSR_MIN_ADDR_WIDTH = 8;
+    localparam CCU_CSR_MIN_ADDR_WIDTH = 9;
 
     typedef struct {
         logic incr;
@@ -15,11 +15,11 @@ package ccu_csr_pkg;
     } ccu_csr__perf_counter_r__in_t;
 
     typedef struct {
-        ccu_csr__perf_counter_r__in_t perf_counter[16];
+        ccu_csr__perf_counter_r__in_t perf_counter[32];
     } ccu_csr__in_t;
 
     typedef struct {
-        logic [15:0] value;
+        logic [31:0] value;
     } ccu_csr__perf_countinhibit_r__inh__out_t;
 
     typedef struct {
@@ -44,7 +44,7 @@ package ccu_csr_pkg;
 
     typedef struct {
         ccu_csr__perf_countinhibit_r__out_t perf_countinhibit;
-        ccu_csr__perf_eventsel_r__out_t perf_eventsel[16];
-        ccu_csr__perf_counter_r__out_t perf_counter[16];
+        ccu_csr__perf_eventsel_r__out_t perf_eventsel[32];
+        ccu_csr__perf_counter_r__out_t perf_counter[32];
     } ccu_csr__out_t;
 endpackage

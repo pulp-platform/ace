@@ -9,7 +9,7 @@ module ccu_csr (
         input wire s_apb_penable,
         input wire s_apb_pwrite,
         input wire [2:0] s_apb_pprot,
-        input wire [7:0] s_apb_paddr,
+        input wire [8:0] s_apb_paddr,
         input wire [31:0] s_apb_pwdata,
         input wire [3:0] s_apb_pstrb,
         output logic s_apb_pready,
@@ -25,7 +25,7 @@ module ccu_csr (
     //--------------------------------------------------------------------------
     logic cpuif_req;
     logic cpuif_req_is_wr;
-    logic [7:0] cpuif_addr;
+    logic [8:0] cpuif_addr;
     logic [31:0] cpuif_wr_data;
     logic [31:0] cpuif_wr_biten;
     logic cpuif_req_stall_wr;
@@ -54,7 +54,7 @@ module ccu_csr (
                     is_active <= '1;
                     cpuif_req <= '1;
                     cpuif_req_is_wr <= s_apb_pwrite;
-                    cpuif_addr <= {s_apb_paddr[7:2], 2'b0};
+                    cpuif_addr <= {s_apb_paddr[8:2], 2'b0};
                     cpuif_wr_data <= s_apb_pwdata;
                     for(int i=0; i<4; i++) begin
                         cpuif_wr_biten[i*8 +: 8] <= {8{s_apb_pstrb[i]}};
@@ -88,8 +88,8 @@ module ccu_csr (
     //--------------------------------------------------------------------------
     typedef struct {
         logic perf_countinhibit;
-        logic perf_eventsel[16];
-        logic perf_counter[16];
+        logic perf_eventsel[32];
+        logic perf_counter[32];
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_req;
@@ -98,12 +98,12 @@ module ccu_csr (
     logic [31:0] decoded_wr_biten;
 
     always_comb begin
-        decoded_reg_strb.perf_countinhibit = cpuif_req_masked & (cpuif_addr == 8'h0);
-        for(int i0=0; i0<16; i0++) begin
-            decoded_reg_strb.perf_eventsel[i0] = cpuif_req_masked & (cpuif_addr == 8'h40 + (8)'(i0) * 8'h4);
+        decoded_reg_strb.perf_countinhibit = cpuif_req_masked & (cpuif_addr == 9'h0);
+        for(int i0=0; i0<32; i0++) begin
+            decoded_reg_strb.perf_eventsel[i0] = cpuif_req_masked & (cpuif_addr == 9'h40 + (9)'(i0) * 9'h4);
         end
-        for(int i0=0; i0<16; i0++) begin
-            decoded_reg_strb.perf_counter[i0] = cpuif_req_masked & (cpuif_addr == 8'hc0 + (8)'(i0) * 8'h4);
+        for(int i0=0; i0<32; i0++) begin
+            decoded_reg_strb.perf_counter[i0] = cpuif_req_masked & (cpuif_addr == 9'hc0 + (9)'(i0) * 9'h4);
         end
     end
 
@@ -119,7 +119,7 @@ module ccu_csr (
     typedef struct {
         struct {
             struct {
-                logic [15:0] next;
+                logic [31:0] next;
                 logic load_next;
             } inh;
         } perf_countinhibit;
@@ -128,7 +128,7 @@ module ccu_csr (
                 logic [7:0] next;
                 logic load_next;
             } event_id;
-        } perf_eventsel[16];
+        } perf_eventsel[32];
         struct {
             struct {
                 logic [31:0] next;
@@ -136,37 +136,37 @@ module ccu_csr (
                 logic incrthreshold;
                 logic overflow;
             } val;
-        } perf_counter[16];
+        } perf_counter[32];
     } field_combo_t;
     field_combo_t field_combo;
 
     typedef struct {
         struct {
             struct {
-                logic [15:0] value;
+                logic [31:0] value;
             } inh;
         } perf_countinhibit;
         struct {
             struct {
                 logic [7:0] value;
             } event_id;
-        } perf_eventsel[16];
+        } perf_eventsel[32];
         struct {
             struct {
                 logic [31:0] value;
             } val;
-        } perf_counter[16];
+        } perf_counter[32];
     } field_storage_t;
     field_storage_t field_storage;
 
     // Field: ccu_csr.perf_countinhibit.inh
     always_comb begin
-        automatic logic [15:0] next_c;
+        automatic logic [31:0] next_c;
         automatic logic load_next_c;
         next_c = field_storage.perf_countinhibit.inh.value;
         load_next_c = '0;
         if(decoded_reg_strb.perf_countinhibit && decoded_req_is_wr) begin // SW write
-            next_c = (field_storage.perf_countinhibit.inh.value & ~decoded_wr_biten[15:0]) | (decoded_wr_data[15:0] & decoded_wr_biten[15:0]);
+            next_c = (field_storage.perf_countinhibit.inh.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
             load_next_c = '1;
         end
         field_combo.perf_countinhibit.inh.next = next_c;
@@ -174,7 +174,7 @@ module ccu_csr (
     end
     always_ff @(posedge clk or negedge arst_n) begin
         if(~arst_n) begin
-            field_storage.perf_countinhibit.inh.value <= 16'hffff;
+            field_storage.perf_countinhibit.inh.value <= 32'hffffffff;
         end else begin
             if(field_combo.perf_countinhibit.inh.load_next) begin
                 field_storage.perf_countinhibit.inh.value <= field_combo.perf_countinhibit.inh.next;
@@ -182,7 +182,7 @@ module ccu_csr (
         end
     end
     assign hwif_out.perf_countinhibit.inh.value = field_storage.perf_countinhibit.inh.value;
-    for(genvar i0=0; i0<16; i0++) begin
+    for(genvar i0=0; i0<32; i0++) begin
         // Field: ccu_csr.perf_eventsel[].event_id
         always_comb begin
             automatic logic [7:0] next_c;
@@ -207,7 +207,7 @@ module ccu_csr (
         end
         assign hwif_out.perf_eventsel[i0].event_id.value = field_storage.perf_eventsel[i0].event_id.value;
     end
-    for(genvar i0=0; i0<16; i0++) begin
+    for(genvar i0=0; i0<32; i0++) begin
         // Field: ccu_csr.perf_counter[].val
         always_comb begin
             automatic logic [31:0] next_c;
@@ -257,15 +257,14 @@ module ccu_csr (
     logic [31:0] readback_data;
 
     // Assign readback values to a flattened array
-    logic [31:0] readback_array[33];
-    assign readback_array[0][15:0] = (decoded_reg_strb.perf_countinhibit && !decoded_req_is_wr) ? field_storage.perf_countinhibit.inh.value : '0;
-    assign readback_array[0][31:16] = '0;
-    for(genvar i0=0; i0<16; i0++) begin
+    logic [31:0] readback_array[65];
+    assign readback_array[0][31:0] = (decoded_reg_strb.perf_countinhibit && !decoded_req_is_wr) ? field_storage.perf_countinhibit.inh.value : '0;
+    for(genvar i0=0; i0<32; i0++) begin
         assign readback_array[i0 * 1 + 1][7:0] = (decoded_reg_strb.perf_eventsel[i0] && !decoded_req_is_wr) ? field_storage.perf_eventsel[i0].event_id.value : '0;
         assign readback_array[i0 * 1 + 1][31:8] = '0;
     end
-    for(genvar i0=0; i0<16; i0++) begin
-        assign readback_array[i0 * 1 + 17][31:0] = (decoded_reg_strb.perf_counter[i0] && !decoded_req_is_wr) ? field_storage.perf_counter[i0].val.value : '0;
+    for(genvar i0=0; i0<32; i0++) begin
+        assign readback_array[i0 * 1 + 33][31:0] = (decoded_reg_strb.perf_counter[i0] && !decoded_req_is_wr) ? field_storage.perf_counter[i0].val.value : '0;
     end
 
     // Reduce the array
@@ -274,7 +273,7 @@ module ccu_csr (
         readback_done = decoded_req & ~decoded_req_is_wr;
         readback_err = '0;
         readback_data_var = '0;
-        for(int i=0; i<33; i++) readback_data_var |= readback_array[i];
+        for(int i=0; i<65; i++) readback_data_var |= readback_array[i];
         readback_data = readback_data_var;
     end
 
