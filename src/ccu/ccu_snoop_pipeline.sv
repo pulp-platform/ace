@@ -652,16 +652,22 @@ module ccu_snoop_pipeline
             events_d.stage1_make_invalid          =
                 ace_is_make_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
         end
-        // Stalls
-        events_d.stage0_stall                   = ar_valid_i && !ar_ready_o;
-        events_d.stage0_stall_scoreboard_hit    = scoreboard_alloc_hit_i;
-        events_d.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
-        events_d.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
-        events_d.stage1_stall                   = stage1_fifo_valid && !stage1_fifo_ready;
-        events_d.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
-        events_d.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
-        events_d.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
-        events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+        // Stage 0 stalls
+        if (ar_valid_i && !ar_ready_o) begin
+            events_d.stage0_stall                 = 1'b1;
+            events_d.stage0_stall_scoreboard_hit  = scoreboard_alloc_hit_i;
+            events_d.stage0_stall_scoreboard_full = scoreboard_full_i;
+            events_d.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
+            events_d.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
+        end
+        // Stage 1 stalls
+        if (stage1_fifo_valid && !stage1_fifo_ready) begin
+            events_d.stage1_stall                   = 1'b1;
+            events_d.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
+            events_d.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
+            events_d.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
+            events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+        end
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
