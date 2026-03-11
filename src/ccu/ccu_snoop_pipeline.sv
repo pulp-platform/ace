@@ -252,7 +252,7 @@ module ccu_snoop_pipeline
         .valid_i     (ar_fork_valid),
         .ready_o     (ar_fork_ready),
         .sel_i       ({!ar_is_read_no_snoop, 1'b1}),
-        .sel_valid_i (!ar_is_read_no_snoop || !scoreboard_full_i),
+        .sel_valid_i (ar_is_read_no_snoop || !scoreboard_full_i),
         .sel_ready_o (),
         .valid_o     ({ac_valid, stage0_valid}),
         .ready_i     ({ac_ready, stage0_ready})
