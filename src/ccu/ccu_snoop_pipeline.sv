@@ -272,7 +272,7 @@ module ccu_snoop_pipeline
     stage1_fifo_entry_t                  stage1_fifo_rdata;
     logic                                accepts_dirty;
     logic                                accepts_shared;
-    logic                                is_clean;
+    logic                                is_clean_or_make;
     ccu_snoop_cr_t                       cr;
     logic [ccuCfg.u.numSubordinates-1:0] cd_data_transfer;
     logic                                engine_fork_valid;
@@ -344,11 +344,11 @@ module ccu_snoop_pipeline
         stage1_fifo_rdata.ar.snoop
     );
 
-    assign is_clean = ace_ar_is_clean(
+    assign is_clean_or_make = ace_ar_is_clean(
         stage1_fifo_rdata.ar.bar[0],
         stage1_fifo_rdata.ar.domain,
         stage1_fifo_rdata.ar.snoop
-    ) || ace_is_make_unique(
+    ) || ace_ar_is_make(
         stage1_fifo_rdata.ar.bar[0],
         stage1_fifo_rdata.ar.domain,
         stage1_fifo_rdata.ar.snoop
@@ -362,7 +362,7 @@ module ccu_snoop_pipeline
         cd_engine_forward_to_write = 1'b0;
         cd_engine_ack_to_read      = 1'b0;
 
-        case ({cr.resp.DataTransfer, is_clean})
+        case ({cr.resp.DataTransfer, is_clean_or_make})
             //  Forward the request to memory
             2'b00: read_engine_sel = 1'b1;
             //  Send only the clean R response
@@ -374,8 +374,8 @@ module ccu_snoop_pipeline
             //  is providing data
             default: begin
                 cd_engine_sel = 1'b1;
-                cd_engine_forward_to_read = !is_clean;
-                cd_engine_ack_to_read = is_clean;
+                cd_engine_forward_to_read = !is_clean_or_make;
+                cd_engine_ack_to_read = is_clean_or_make;
                 if (cr.resp.PassDirty && !accepts_dirty) begin
                     //  The initiator cannot accept dirty data,
                     //  thus we need a writeback

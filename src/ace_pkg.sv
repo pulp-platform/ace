@@ -305,6 +305,12 @@ package ace_pkg;
                ace_is_clean_invalid(arbar0, ardomain, arsnoop);
     endfunction
 
+    function automatic logic ace_ar_is_make(logic arbar0, axdomain_t ardomain,
+                                             arsnoop_t arsnoop);
+        return ace_is_make_invalid(arbar0, ardomain, arsnoop) ||
+               ace_is_make_unique(arbar0, ardomain, arsnoop);
+    endfunction
+
     // Snoop transaction from initiating master transaction
     function automatic acsnoop_t ace_ar_acsnoop_map(logic arbar0, axdomain_t ardomain,
                                                     arsnoop_t arsnoop);
