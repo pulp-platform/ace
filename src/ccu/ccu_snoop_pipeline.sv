@@ -654,19 +654,36 @@ module ccu_snoop_pipeline
         end
         // Stage 0 stalls
         if (ar_valid_i && !ar_ready_o) begin
-            events_d.stage0_stall                 = 1'b1;
-            events_d.stage0_stall_scoreboard_hit  = scoreboard_alloc_hit_i;
-            events_d.stage0_stall_scoreboard_full = scoreboard_full_i;
-            events_d.stage0_stall_ac_fifo_full      = ac_valid && !ac_ready;
-            events_d.stage0_stall_stage1_fifo_full  = stage0_valid && !stage0_ready;
+            events_d.stage0_stall_scoreboard_hit   = scoreboard_alloc_hit_i;
+            events_d.stage0_stall_scoreboard_full  = scoreboard_full_i;
+            events_d.stage0_stall_ac_fifo_full     = ac_valid && !ac_ready;
+            events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
+            // Catch all event
+            events_d.stage0_stall_other            = ~|{
+                events_d.stage0_stall_scoreboard_hit,
+                events_d.stage0_stall_scoreboard_full,
+                events_d.stage0_stall_ac_fifo_full,
+                events_d.stage0_stall_stage1_fifo_full
+            };
         end
         // Stage 1 stalls
         if (stage1_fifo_valid && !stage1_fifo_ready) begin
-            events_d.stage1_stall                   = 1'b1;
             events_d.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
             events_d.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
             events_d.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
             events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+            // Catch all event
+            events_d.stage1_stall_other             = ~|{
+                events_d.stage1_stall_cr_not_valid,
+                events_d.stage1_stall_write_engine_busy,
+                events_d.stage1_stall_read_engine_busy,
+                events_d.stage1_stall_cd_engine_busy
+            };
+        end
+
+        if (stage1_fifo_valid && stage1_fifo_ready && |stage1_fifo_rdata.sel && !is_clean_or_make) begin
+            events_d.snoop_hit  = cr.resp.DataTransfer;
+            events_d.snoop_miss = !cr.resp.DataTransfer;
         end
     end
 

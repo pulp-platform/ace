@@ -110,6 +110,8 @@ package ccu_pkg;
 
     //  Performance events
     typedef struct packed {
+        logic snoop_hit;                        // 0x16
+        logic snoop_miss;                       // 0x15
         logic stage1_read_no_snoop;             // 0x14
         logic stage1_read_once;                 // 0x13
         logic stage1_read_shared;               // 0x12
@@ -121,12 +123,12 @@ package ccu_pkg;
         logic stage1_clean_shared;              // 0x0C
         logic stage1_clean_invalid;             // 0x0B
         logic stage1_make_invalid;              // 0x0A
-        logic stage0_stall;                     // 0x09
+        logic stage0_stall_other;               // 0x09
         logic stage0_stall_scoreboard_hit;      // 0x08
         logic stage0_stall_scoreboard_full;     // 0x07
         logic stage0_stall_ac_fifo_full;        // 0x06
         logic stage0_stall_stage1_fifo_full;    // 0x05
-        logic stage1_stall;                     // 0x04
+        logic stage1_stall_other;               // 0x04
         logic stage1_stall_cr_not_valid;        // 0x03
         logic stage1_stall_write_engine_busy;   // 0x02
         logic stage1_stall_read_engine_busy;    // 0x01
