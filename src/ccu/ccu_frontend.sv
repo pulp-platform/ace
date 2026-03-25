@@ -220,38 +220,34 @@ module ccu_frontend
 
     //  Point of Serialization (PoS)
     //  {{{
-    axi_mux #(
-        .SlvAxiIDWidth (ccuCfg.u.axiSubordinateIdWidth),
-        .slv_aw_chan_t (ccu_ace_subordinate_aw_t),
-        .mst_aw_chan_t (ccu_ace_manager_aw_t),
-        .w_chan_t      (ccu_w_t),
-        .slv_b_chan_t  (ccu_ace_subordinate_b_t),
-        .mst_b_chan_t  (ccu_ace_manager_b_t),
-        .slv_ar_chan_t (ccu_ace_subordinate_ar_t),
-        .mst_ar_chan_t (ccu_ace_manager_ar_t),
-        .slv_r_chan_t  (ccu_ace_subordinate_r_t),
-        .mst_r_chan_t  (ccu_ace_manager_r_t),
-        .slv_req_t     (ccu_ace_subordinate_req_t),
-        .slv_resp_t    (ccu_ace_subordinate_resp_t),
-        .mst_req_t     (ccu_ace_manager_req_t),
-        .mst_resp_t    (ccu_ace_manager_resp_t),
-        .NoSlvPorts    (ccuCfg.u.numSubordinates),
-        .MaxWTrans     (ccuCfg.u.numWriteTransactions),
-        .FallThrough   (1'b1),
-        .SpillAw       (1'b0),
-        .SpillW        (1'b0),
-        .SpillB        (1'b0),
-        .SpillAr       (1'b0),
-        .SpillR        (1'b0)
-    ) u_subordinate_mux (
+    ccu_frontend_arbiter #(
+        .numSubordinates      (ccuCfg.u.numSubordinates),
+        .aceSubordinateIdWidth(ccuCfg.u.axiSubordinateIdWidth),
+        .maxWTrans            (ccuCfg.u.numWriteTransactions),
+        .fallThrough          (1'b1),
+
+        .ccu_ace_manager_ar_t  (ccu_ace_manager_ar_t),
+        .ccu_ace_manager_aw_t  (ccu_ace_manager_aw_t),
+        .ccu_w_t               (ccu_w_t),
+        .ccu_ace_manager_r_t   (ccu_ace_manager_r_t),
+        .ccu_ace_manager_b_t   (ccu_ace_manager_b_t),
+        .ccu_ace_manager_req_t (ccu_ace_manager_req_t),
+        .ccu_ace_manager_resp_t(ccu_ace_manager_resp_t),
+
+        .ccu_ace_subordinate_ar_t  (ccu_ace_subordinate_ar_t),
+        .ccu_ace_subordinate_aw_t  (ccu_ace_subordinate_aw_t),
+        .ccu_ace_subordinate_r_t   (ccu_ace_subordinate_r_t),
+        .ccu_ace_subordinate_b_t   (ccu_ace_subordinate_b_t),
+        .ccu_ace_subordinate_req_t (ccu_ace_subordinate_req_t),
+        .ccu_ace_subordinate_resp_t(ccu_ace_subordinate_resp_t)
+    ) u_subordinate_arbiter (
         .clk_i,
         .rst_ni,
-        .test_i      (1'b0),
-        .slv_reqs_i  (subordinate_req),
-        .slv_resps_o (subordinate_resp),
-        .mst_req_o   (manager_req_o),
-        .mst_resp_i  (manager_resp_i)
-    );
+        .subordinate_req_i  (subordinate_req),
+        .subordinate_resp_o (subordinate_resp),
+        .manager_req_o      (manager_req_o),
+        .manager_resp_i     (manager_resp_i)
+     );
     // }}}
 
     //  Scoreboard dealloc check

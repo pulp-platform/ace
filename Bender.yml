@@ -27,6 +27,7 @@ sources:
   # CCU source files
   - src/ccu/ccu_csr_wrap.sv
   - src/ccu/ccu_exclusive_monitor.sv
+  - src/ccu/ccu_frontend_arbiter.sv
   - src/ccu/ccu_frontend.sv
   - src/ccu/ccu_read_engine.sv
   - src/ccu/ccu_replay.sv
