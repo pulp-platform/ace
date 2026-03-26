@@ -136,34 +136,8 @@ ccu_snoop_pipeline_events_t perf_events;
 //  Frontend
 //  {{{
     //  The frontend acts as the Point of Serialization (PoS)
-    ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0] subordinate_cut_req;
-    ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0] subordinate_cut_resp;
     ccu_ace_req_t  frontend_req;
     ccu_ace_resp_t frontend_resp;
-
-    for (genvar s = 0 ; s < ccuCfg.u.numSubordinates; s++) begin : gen_subordinate_cut
-        axi_cut #(
-            .BypassAw   (!ccuCfg.u.frontendPipeAw),
-            .BypassW    (!ccuCfg.u.frontendPipeW),
-            .BypassB    (!ccuCfg.u.frontendPipeB),
-            .BypassAr   (!ccuCfg.u.frontendPipeAr),
-            .BypassR    (!ccuCfg.u.frontendPipeR),
-            .aw_chan_t  (ccu_ace_subordinate_aw_t),
-            .w_chan_t   (ccu_w_t),
-            .b_chan_t   (ccu_ace_subordinate_b_t),
-            .ar_chan_t  (ccu_ace_subordinate_ar_t),
-            .r_chan_t   (ccu_ace_subordinate_r_t),
-            .axi_req_t  (ccu_ace_subordinate_req_t),
-            .axi_resp_t (ccu_ace_subordinate_resp_t)
-        ) u_subordinate_cut (
-            .clk_i,
-            .rst_ni,
-            .slv_req_i  (subordinate_req_i[s]),
-            .slv_resp_o (subordinate_resp_o[s]),
-            .mst_req_o  (subordinate_cut_req[s]),
-            .mst_resp_i (subordinate_cut_resp[s])
-        );
-    end
 
     ccu_frontend #(
         .ccuCfg                     (ccuCfg),
@@ -183,8 +157,8 @@ ccu_snoop_pipeline_events_t perf_events;
     ) u_ccu_frontend (
         .clk_i,
         .rst_ni,
-        .subordinate_req_i          (subordinate_cut_req),
-        .subordinate_resp_o         (subordinate_cut_resp),
+        .subordinate_req_i          (subordinate_req_i),
+        .subordinate_resp_o         (subordinate_resp_o),
         .subordinate_rack_i         (subordinate_rack_i),
         .subordinate_wack_i         (subordinate_wack_i),
         .manager_req_o              (frontend_req),

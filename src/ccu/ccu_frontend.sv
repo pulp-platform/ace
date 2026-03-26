@@ -63,31 +63,43 @@ module ccu_frontend
         logic                                      exclusive;
     } rack_fifo_entry_t;
 
+    typedef struct packed {
+        ccu_ace_manager_r_t r;
+        logic               sc_fail;
+    } r_spill_entry_t;
+
     ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0] subordinate_req;
     ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0] subordinate_resp;
 
-    ccu_ace_subordinate_ar_t [ccuCfg.u.numSubordinates-1:0] subordinate_ar;
-    logic                    [ccuCfg.u.numSubordinates-1:0] subordinate_ar_valid;
-    logic                    [ccuCfg.u.numSubordinates-1:0] subordinate_ar_ready;
-    ccu_ace_subordinate_r_t  [ccuCfg.u.numSubordinates-1:0] subordinate_r;
-    logic                    [ccuCfg.u.numSubordinates-1:0] subordinate_r_valid;
-    logic                    [ccuCfg.u.numSubordinates-1:0] subordinate_r_ready;
+    ccu_ace_manager_req_t  arbiter_req;
+    ccu_ace_manager_resp_t arbiter_resp;
 
-    ccu_ace_subordinate_ar_t [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_ar;
-    logic                    [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_ar_valid;
-    logic                    [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_ar_ready;
-    ccu_ace_subordinate_r_t  [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_r;
-    logic                    [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_r_valid;
-    logic                    [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_r_ready;
-
-
-    logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_id_hit;
+    logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_lock;
+    logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiSubordinateIdWidth-1:0] exclusive_monitor_entry_id;
+    logic exclusive_monitor_sc_fail;
     logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_dealloc;
-    logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_sc_fail;
+
+    // Exclusive monitor AR/R (post AR-spill, pre manager)
+    ccu_ace_manager_ar_t exclusive_monitor_ar_in;
+    logic                exclusive_monitor_ar_valid_in;
+    logic                exclusive_monitor_ar_ready_in;
+
+    // Exclusive monitor R output (pre R-spill)
+    ccu_ace_manager_r_t  exclusive_monitor_r;
+    logic                exclusive_monitor_r_valid;
+    logic                exclusive_monitor_r_ready;
+
+    r_spill_entry_t      r_spill_in;
+    r_spill_entry_t      r_spill_out;
+    logic                r_spill_valid_out;
+    logic                r_spill_ready_out;
 
     //  Per-subordinate logic
     //  {{{
-    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_subordinate_monitor
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_subordinate
+
+        logic is_exclusive_sequence;
+        logic lock_stall;
 
         logic             rack_fifo_full;
         rack_fifo_entry_t rack_fifo_wdata;
@@ -95,57 +107,44 @@ module ccu_frontend
         logic             rack_fifo_push;
         logic             rack_fifo_pop;
 
-        always_comb begin : ar_comb
-            //  Input request --> exclusive monitor
-            `ACE_SET_AR_STRUCT(subordinate_ar[s], subordinate_req_i[s].ar)
-            subordinate_ar_valid[s] = subordinate_req_i[s].ar_valid;
-            subordinate_resp_o[s].ar_ready = subordinate_ar_ready[s];
+        logic             r_id_hit;
 
-            //  Exclusive monitor --> mux
-            `ACE_SET_AR_STRUCT(subordinate_req[s].ar, exclusive_monitor_ar[s])
-            subordinate_req[s].ar_valid = exclusive_monitor_ar_valid[s];
-            exclusive_monitor_ar_ready[s] = subordinate_resp[s].ar_ready;
-        end
+        assign is_exclusive_sequence =
+            ace_ar_is_exclusive_load (
+                subordinate_req_i[s].ar.bar[0],
+                subordinate_req_i[s].ar.domain,
+                subordinate_req_i[s].ar.snoop,
+                subordinate_req_i[s].ar.lock
+            ) ||
+            ace_ar_is_exclusive_store(
+                subordinate_req_i[s].ar.bar[0],
+                subordinate_req_i[s].ar.domain,
+                subordinate_req_i[s].ar.snoop,
+                subordinate_req_i[s].ar.lock
+            );
 
-        always_comb begin : r_comb
-            //  Input request <-- exclusive monitor
-            `ACE_SET_R_STRUCT(subordinate_resp_o[s].r, subordinate_r[s])
-            subordinate_resp_o[s].r_valid = subordinate_r_valid[s];
-            subordinate_r_ready[s] = subordinate_req_i[s].r_ready;
+        assign lock_stall = is_exclusive_sequence &&
+                            |exclusive_monitor_lock && !exclusive_monitor_lock[s];
 
-            //  Exclusive monitor <-- mux
-            `ACE_SET_R_STRUCT(exclusive_monitor_r[s], subordinate_resp[s].r)
-            exclusive_monitor_r_valid[s] = subordinate_resp[s].r_valid;
-            subordinate_req[s].r_ready = exclusive_monitor_r_ready[s];
+        `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
+        assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid && !lock_stall;
+        assign subordinate_resp_o[s].ar_ready = subordinate_resp[s].ar_ready  && !lock_stall;
 
-            //  Stall R responses once the RACK fifo is full
-            if (rack_fifo_full) begin
-                exclusive_monitor_r_valid[s] = 1'b0;
-                subordinate_req[s].r_ready = 1'b0;
-            end
-        end
+        `ACE_ASSIGN_R_STRUCT(subordinate_resp_o[s].r, subordinate_resp[s].r)
+        assign subordinate_resp_o[s].r_valid = subordinate_resp[s].r_valid && !rack_fifo_full;
+        assign subordinate_req[s].r_ready    = subordinate_req_i[s].r_ready && !rack_fifo_full;
 
-        always_comb begin : aw_comb
-            //  Input request --> mux
-            `ACE_SET_AW_STRUCT(subordinate_req[s].aw, subordinate_req_i[s].aw)
-            subordinate_req[s].aw_valid = subordinate_req_i[s].aw_valid;
-            subordinate_resp_o[s].aw_ready = subordinate_resp[s].aw_ready;
-        end
+        `ACE_ASSIGN_AW_STRUCT(subordinate_req[s].aw, subordinate_req_i[s].aw)
+        assign subordinate_req[s].aw_valid    = subordinate_req_i[s].aw_valid;
+        assign subordinate_resp_o[s].aw_ready = subordinate_resp[s].aw_ready;
 
-        always_comb begin : w_comb
-            //  Input request --> mux
-            `AXI_SET_W_STRUCT(subordinate_req[s].w, subordinate_req_i[s].w)
-            subordinate_req[s].w_valid = subordinate_req_i[s].w_valid;
-            subordinate_resp_o[s].w_ready = subordinate_resp[s].w_ready;
-        end
+        `AXI_ASSIGN_W_STRUCT(subordinate_req[s].w, subordinate_req_i[s].w)
+        assign subordinate_req[s].w_valid    = subordinate_req_i[s].w_valid;
+        assign subordinate_resp_o[s].w_ready = subordinate_resp[s].w_ready;
 
-        always_comb begin : b_comb
-            //  Input request <-- mux
-            `AXI_SET_B_STRUCT(subordinate_resp_o[s].b, subordinate_resp[s].b)
-            subordinate_resp_o[s].b_valid = subordinate_resp[s].b_valid;
-            subordinate_req[s].b_ready = subordinate_req_i[s].b_ready;
-        end
-
+        `AXI_ASSIGN_B_STRUCT(subordinate_resp_o[s].b, subordinate_resp[s].b)
+        assign subordinate_resp_o[s].b_valid = subordinate_resp[s].b_valid;
+        assign subordinate_req[s].b_ready    = subordinate_req_i[s].b_ready;
 
         //  The xACK signal is used to extend the lifetime of
         //  a transaction beyond the last R handshake.
@@ -161,10 +160,12 @@ module ccu_frontend
         //  - clear the corresponding exclusive monitor entry
         //  SC failure responses are locally generated, thus no entry should be cleared
         //  once the RACK arrives
+        assign r_id_hit = exclusive_monitor_entry_id[s] == subordinate_resp_o[s].r.id;
+
         assign rack_fifo_wdata = '{
             tid:       scoreboard_dealloc_entry_i,
-            dealloc:   scoreboard_dealloc_hit_i    && !exclusive_monitor_sc_fail[s],
-            exclusive: exclusive_monitor_id_hit[s] && !exclusive_monitor_sc_fail[s]
+            dealloc:   scoreboard_dealloc_hit_i && !r_spill_out.sc_fail,
+            exclusive: r_id_hit                 && !r_spill_out.sc_fail
         };
 
         assign rack_fifo_pop = subordinate_rack_i[s];
@@ -191,31 +192,6 @@ module ccu_frontend
         assign scoreboard_dealloc_entry_o[s] = rack_fifo_rdata.tid;
         assign exclusive_monitor_dealloc[s]  = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
     end
-
-    // ACE exclusive monitor as prescribed in the specs
-    ccu_exclusive_monitor #(
-        .ccuCfg       (ccuCfg),
-        .ccu_ace_ar_t (ccu_ace_subordinate_ar_t),
-        .ccu_ace_r_t  (ccu_ace_subordinate_r_t)
-    ) u_ccu_exclusive_monitor (
-        .clk_i,
-        .rst_ni,
-        .dealloc_i  (exclusive_monitor_dealloc),
-        .sc_fail_o  (exclusive_monitor_sc_fail),
-        .r_id_hit_o (exclusive_monitor_id_hit),
-        .ar_i       (subordinate_ar),
-        .ar_valid_i (subordinate_ar_valid),
-        .ar_ready_o (subordinate_ar_ready),
-        .r_o        (subordinate_r),
-        .r_valid_o  (subordinate_r_valid),
-        .r_ready_i  (subordinate_r_ready),
-        .ar_o       (exclusive_monitor_ar),
-        .ar_valid_o (exclusive_monitor_ar_valid),
-        .ar_ready_i (exclusive_monitor_ar_ready),
-        .r_i        (exclusive_monitor_r),
-        .r_valid_i  (exclusive_monitor_r_valid),
-        .r_ready_o  (exclusive_monitor_r_ready)
-    );
     //  }}}
 
     //  Point of Serialization (PoS)
@@ -245,15 +221,126 @@ module ccu_frontend
         .rst_ni,
         .subordinate_req_i  (subordinate_req),
         .subordinate_resp_o (subordinate_resp),
-        .manager_req_o      (manager_req_o),
-        .manager_resp_i     (manager_resp_i)
+        .manager_req_o      (arbiter_req),
+        .manager_resp_i     (arbiter_resp)
      );
     // }}}
 
-    //  Scoreboard dealloc check
+    //  Per-channel spill registers
+    //  {{{
+    spill_register #(
+        .T      (ccu_ace_manager_ar_t),
+        .Bypass (!ccuCfg.u.frontendPipeAr)
+    ) u_ar_spill (
+        .clk_i,
+        .rst_ni,
+        .valid_i (arbiter_req.ar_valid),
+        .ready_o (arbiter_resp.ar_ready),
+        .data_i  (arbiter_req.ar),
+        .valid_o (exclusive_monitor_ar_valid_in),
+        .ready_i (exclusive_monitor_ar_ready_in),
+        .data_o  (exclusive_monitor_ar_in)
+    );
+
+    spill_register #(
+        .T      (ccu_ace_manager_aw_t),
+        .Bypass (!ccuCfg.u.frontendPipeAw)
+    ) u_aw_spill (
+        .clk_i,
+        .rst_ni,
+        .valid_i (arbiter_req.aw_valid),
+        .ready_o (arbiter_resp.aw_ready),
+        .data_i  (arbiter_req.aw),
+        .valid_o (manager_req_o.aw_valid),
+        .ready_i (manager_resp_i.aw_ready),
+        .data_o  (manager_req_o.aw)
+    );
+
+    spill_register #(
+        .T      (ccu_w_t),
+        .Bypass (!ccuCfg.u.frontendPipeW)
+    ) u_w_spill (
+        .clk_i,
+        .rst_ni,
+        .valid_i (arbiter_req.w_valid),
+        .ready_o (arbiter_resp.w_ready),
+        .data_i  (arbiter_req.w),
+        .valid_o (manager_req_o.w_valid),
+        .ready_i (manager_resp_i.w_ready),
+        .data_o  (manager_req_o.w)
+    );
+
+    spill_register #(
+        .T      (ccu_ace_manager_b_t),
+        .Bypass (!ccuCfg.u.frontendPipeB)
+    ) u_b_spill (
+        .clk_i,
+        .rst_ni,
+        .valid_i (manager_resp_i.b_valid),
+        .ready_o (manager_req_o.b_ready),
+        .data_i  (manager_resp_i.b),
+        .valid_o (arbiter_resp.b_valid),
+        .ready_i (arbiter_req.b_ready),
+        .data_o  (arbiter_resp.b)
+    );
+
+    // R channel: wrap R data + sc_fail through the spill register
+    assign r_spill_in = '{
+        r:       exclusive_monitor_r,
+        sc_fail: exclusive_monitor_sc_fail
+    };
+
+    spill_register #(
+        .T      (r_spill_entry_t),
+        .Bypass (!ccuCfg.u.frontendPipeR)
+    ) u_r_spill (
+        .clk_i,
+        .rst_ni,
+        .valid_i (exclusive_monitor_r_valid),
+        .ready_o (exclusive_monitor_r_ready),
+        .data_i  (r_spill_in),
+        .valid_o (r_spill_valid_out),
+        .ready_i (r_spill_ready_out),
+        .data_o  (r_spill_out)
+    );
+
+    `ACE_ASSIGN_R_STRUCT(arbiter_resp.r, r_spill_out.r)
+    assign arbiter_resp.r_valid = r_spill_valid_out;
+    assign r_spill_ready_out    = arbiter_req.r_ready;
+    //  }}}
+
+    // ACE exclusive monitor
+    //  {{{
+    ccu_exclusive_monitor #(
+        .ccuCfg       (ccuCfg),
+        .ccu_ace_ar_t (ccu_ace_manager_ar_t),
+        .ccu_ace_r_t  (ccu_ace_manager_r_t)
+    ) u_ccu_exclusive_monitor (
+        .clk_i,
+        .rst_ni,
+        .dealloc_i  (exclusive_monitor_dealloc),
+        .lock_o     (exclusive_monitor_lock),
+        .entry_id_o (exclusive_monitor_entry_id),
+        .sc_fail_o  (exclusive_monitor_sc_fail),
+        .ar_i       (exclusive_monitor_ar_in),
+        .ar_valid_i (exclusive_monitor_ar_valid_in),
+        .ar_ready_o (exclusive_monitor_ar_ready_in),
+        .ar_o       (manager_req_o.ar),
+        .ar_valid_o (manager_req_o.ar_valid),
+        .ar_ready_i (manager_resp_i.ar_ready),
+        .r_i        (manager_resp_i.r),
+        .r_valid_i  (manager_resp_i.r_valid),
+        .r_ready_o  (manager_req_o.r_ready),
+        .r_o        (exclusive_monitor_r),
+        .r_valid_o  (exclusive_monitor_r_valid),
+        .r_ready_i  (exclusive_monitor_r_ready)
+    );
+    //  }}}
+
+    //  Scoreboard dealloc check on post-spill R (aligned with per-sub R demux)
     //  {{{
         assign scoreboard_dealloc_check_o =
-            manager_resp_i.r_valid && manager_req_o.r_ready && manager_resp_i.r.last;
-        assign scoreboard_dealloc_id_o    = manager_resp_i.r.id;
+            r_spill_valid_out && r_spill_ready_out && r_spill_out.r.last;
+        assign scoreboard_dealloc_id_o    = r_spill_out.r.id;
     //  }}}
 endmodule
