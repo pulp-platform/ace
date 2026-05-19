@@ -92,12 +92,18 @@ module ccu_csr (
         logic perf_counter[32];
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
+    logic decoded_err;
+    logic [8:0] decoded_addr;
     logic decoded_req;
     logic decoded_req_is_wr;
     logic [31:0] decoded_wr_data;
     logic [31:0] decoded_wr_biten;
 
     always_comb begin
+        automatic logic is_valid_addr;
+        automatic logic is_valid_rw;
+        is_valid_addr = '1; // No valid address check
+        is_valid_rw = '1; // No valid RW check
         decoded_reg_strb.perf_countinhibit = cpuif_req_masked & (cpuif_addr == 9'h0);
         for(int i0=0; i0<32; i0++) begin
             decoded_reg_strb.perf_eventsel[i0] = cpuif_req_masked & (cpuif_addr == 9'h40 + (9)'(i0) * 9'h4);
@@ -105,9 +111,11 @@ module ccu_csr (
         for(int i0=0; i0<32; i0++) begin
             decoded_reg_strb.perf_counter[i0] = cpuif_req_masked & (cpuif_addr == 9'hc0 + (9)'(i0) * 9'h4);
         end
+        decoded_err = '0;
     end
 
     // Pass down signals to next stage
+    assign decoded_addr = cpuif_addr;
     assign decoded_req = cpuif_req_masked;
     assign decoded_req_is_wr = cpuif_req_is_wr;
     assign decoded_wr_data = cpuif_wr_data;
@@ -219,7 +227,7 @@ module ccu_csr (
                 load_next_c = '1;
             end
             if(hwif_in.perf_counter[i0].val.incr) begin // increment
-                field_combo.perf_counter[i0].val.overflow = (((33)'(next_c) + 32'h1) > 32'hffffffff);
+                field_combo.perf_counter[i0].val.overflow = (((33)'(next_c) + 32'h1) > 33'hffffffff);
                 next_c = next_c + 32'h1;
                 load_next_c = '1;
             end else begin
@@ -252,29 +260,31 @@ module ccu_csr (
     // Readback
     //--------------------------------------------------------------------------
 
+    logic [8:0] rd_mux_addr;
+    assign rd_mux_addr = decoded_addr;
+
     logic readback_err;
     logic readback_done;
     logic [31:0] readback_data;
-
-    // Assign readback values to a flattened array
-    logic [31:0] readback_array[65];
-    assign readback_array[0][31:0] = (decoded_reg_strb.perf_countinhibit && !decoded_req_is_wr) ? field_storage.perf_countinhibit.inh.value : '0;
-    for(genvar i0=0; i0<32; i0++) begin
-        assign readback_array[i0 * 1 + 1][7:0] = (decoded_reg_strb.perf_eventsel[i0] && !decoded_req_is_wr) ? field_storage.perf_eventsel[i0].event_id.value : '0;
-        assign readback_array[i0 * 1 + 1][31:8] = '0;
-    end
-    for(genvar i0=0; i0<32; i0++) begin
-        assign readback_array[i0 * 1 + 33][31:0] = (decoded_reg_strb.perf_counter[i0] && !decoded_req_is_wr) ? field_storage.perf_counter[i0].val.value : '0;
-    end
-
-    // Reduce the array
     always_comb begin
         automatic logic [31:0] readback_data_var;
+        readback_data_var = '0;
+        if(rd_mux_addr == 9'h0) begin
+            readback_data_var[31:0] = field_storage.perf_countinhibit.inh.value;
+        end
+        for(int i0=0; i0<32; i0++) begin
+            if(rd_mux_addr == 9'h40 + (9)'(i0) * 9'h4) begin
+                readback_data_var[7:0] = field_storage.perf_eventsel[i0].event_id.value;
+            end
+        end
+        for(int i0=0; i0<32; i0++) begin
+            if(rd_mux_addr == 9'hc0 + (9)'(i0) * 9'h4) begin
+                readback_data_var[31:0] = field_storage.perf_counter[i0].val.value;
+            end
+        end
+        readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;
         readback_err = '0;
-        readback_data_var = '0;
-        for(int i=0; i<65; i++) readback_data_var |= readback_array[i];
-        readback_data = readback_data_var;
     end
 
     assign cpuif_rd_ack = readback_done;

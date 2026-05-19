@@ -5,6 +5,8 @@ package ccu_csr_pkg;
 
     localparam CCU_CSR_DATA_WIDTH = 32;
     localparam CCU_CSR_MIN_ADDR_WIDTH = 9;
+    localparam CCU_CSR_SIZE = 'h140;
+    localparam numPerfCounters = 'h20;
 
     typedef struct {
         logic incr;

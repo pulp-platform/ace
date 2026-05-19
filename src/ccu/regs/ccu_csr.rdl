@@ -50,8 +50,8 @@ addrmap ccu_csr #(
     perf_countinhibit_r perf_countinhibit @ 0x00;
 
     // Array of Event Selectors @ 0x40
-    perf_eventsel_r perf_eventsel[numPerfCounters] @ 0x40 += 0x4;
+    perf_eventsel_r perf_eventsel[numPerfCounters] @ 0x40;
 
     // Array of 32-bit Counters @ 0xC0
-    perf_counter_r perf_counter[numPerfCounters] @ 0xC0 += 0x4;
+    perf_counter_r perf_counter[numPerfCounters] @ 0xC0;
 };
