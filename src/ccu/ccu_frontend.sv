@@ -164,8 +164,8 @@ module ccu_frontend
 
         assign rack_fifo_wdata = '{
             tid:       scoreboard_dealloc_entry_i,
-            dealloc:   scoreboard_dealloc_hit_i && !r_spill_out.sc_fail,
-            exclusive: r_id_hit                 && !r_spill_out.sc_fail
+            dealloc:   scoreboard_dealloc_hit_i              && !r_spill_out.sc_fail,
+            exclusive: r_id_hit && exclusive_monitor_lock[s] && !r_spill_out.sc_fail
         };
 
         assign rack_fifo_pop = subordinate_rack_i[s];
