@@ -18,6 +18,38 @@ package ace_test;
   import axi_pkg::*;
   import ace_pkg::*;
 
+  typedef enum logic [3:0] {
+    AR_READ_NO_SNOOP,
+    AR_READ_ONCE,
+    AR_READ_SHARED,
+    AR_READ_CLEAN,
+    AR_READ_NOT_SHARED_DIRTY,
+    AR_READ_UNIQUE,
+    AR_CLEAN_UNIQUE,
+    AR_MAKE_UNIQUE,
+    AR_CLEAN_SHARED,
+    AR_CLEAN_INVALID,
+    AR_MAKE_INVALID,
+    AR_BARRIER,
+    AR_DVM_COMPLETE,
+    AR_DVM_MESSAGE
+  } ar_snoop_e;
+
+  ar_snoop_e ar_unsupported_ops[] = '{AR_READ_NO_SNOOP, AR_BARRIER, AR_DVM_COMPLETE, AR_DVM_MESSAGE};
+
+  typedef enum logic [2:0] {
+    AW_WRITE_NO_SNOOP,
+    AW_WRITE_UNIQUE,
+    AW_WRITE_LINE_UNIQUE,
+    AW_WRITE_CLEAN,
+    AW_WRITE_BACK,
+    AW_EVICT,
+    AW_WRITE_EVICT,
+    AW_BARRIER
+  } aw_snoop_e;
+
+  aw_snoop_e aw_unsupported_ops[] = '{AW_BARRIER};
+
   /// The data transferred on a beat on the AW/AR channels.
   class ace_ax_beat #(
     parameter AW = 32,
@@ -431,7 +463,7 @@ endclass
       beat.r_user = ace.r_user;
       cycle_end();
       ace.r_ready <= #TA 0;
-      ace.rack <= #TA 1;
+      ace.rack <= #TA ace.r_last;
       cycle_start();
       ace.rack <= #TA 0;
     endtask
@@ -576,8 +608,8 @@ endclass
     typedef axi_pkg::len_t      len_t;
     typedef axi_pkg::size_t     size_t;
     typedef ace_pkg::arsnoop_t  snoop_t; // use only arsnoop_t, which is bigger than awsnoop_t
-    typedef ace_pkg::bar_t      bar_t;
-    typedef ace_pkg::domain_t   domain_t;
+    typedef ace_pkg::axbar_t      bar_t;
+    typedef ace_pkg::axdomain_t   domain_t;
     typedef ace_pkg::awunique_t awunique_t;
 
 
@@ -691,8 +723,8 @@ endclass
       automatic int unsigned mem_region_idx;
       automatic mem_region_t mem_region;
       automatic int cprob;
-      automatic logic [2:0] trs;
-
+      ar_snoop_e ar_trs;
+      aw_snoop_e aw_trs;
       // No memory regions defined
       if (mem_map.size() == 0) begin
         // Return a dummy region
@@ -712,9 +744,9 @@ endclass
 
       // Randomly pick burst type.
       burst = BURST_FIXED;
-      // rand_success = std::randomize(burst) with {
-      //   burst inside {this.allowed_bursts};
-      // }; assert(rand_success);
+      rand_success = std::randomize(burst) with {
+        burst inside {this.allowed_bursts};
+      }; assert(rand_success);
       ax_ace_beat.ax_burst = burst;
       // Determine memory type.
       ax_ace_beat.ax_cache = is_read ? axi_pkg::get_arcache(mem_region.mem_type) : axi_pkg::get_awcache(mem_region.mem_type);
@@ -736,7 +768,7 @@ endclass
 
         // Randomize address.  Make sure that the burst does not cross a 4KiB boundary.
         forever begin
-          size  = $clog2(AXI_STRB_WIDTH)-1;
+          size  = $clog2(AXI_STRB_WIDTH);
           // rand_success = std::randomize(size) with {
           //   2**size <= AXI_STRB_WIDTH;
           //   2**size <= len;
@@ -782,68 +814,171 @@ endclass
       id       = $urandom();
       qos      = $urandom();
       awunique = 0;
-      trs      = $urandom_range(0,7);
-      size     = $clog2(AXI_STRB_WIDTH)-1;
-      case(trs )
-        ace_pkg::READ_NO_SNOOP: begin
-          snoop   = 'b0000;
-          domain  = 'b00;
-          bar     = 'b00;
-          len     = $urandom();
-        end
-        ace_pkg::READ_ONCE: begin
-          snoop   = 'b0000;
-          domain  = 'b01;
-          bar     = 'b00;
-          len     = 1;
-        end
-        ace_pkg::READ_SHARED: begin
-          snoop   = 'b0001;
-          domain  = 'b01;
-          bar     = 'b00;
-          len     = 1;
-        end
-        ace_pkg::READ_UNIQUE: begin
-          snoop   = 'b0111;
-          domain  = 'b01;
-          bar     = 'b00;
-          len     = 1;
-        end
+      size     = $clog2(AXI_STRB_WIDTH);
+      if (is_read) begin
+        // Read operation
+        std::randomize(ar_trs) with { !(ar_trs inside {ar_unsupported_ops}); };
+        case( ar_trs )
+          AR_READ_NO_SNOOP: begin
+            snoop   = ace_pkg::ReadNoSnoop;
+            domain  = 'b00;
+            bar     = 'b00;
+            len     = $urandom();
+          end
+          AR_READ_ONCE: begin
+            snoop   = ace_pkg::ReadOnce;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = $urandom_range(0,1);
+          end
+          AR_READ_SHARED: begin
+            snoop   = ace_pkg::ReadShared;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_READ_CLEAN: begin
+            snoop   = ace_pkg::ReadClean;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_READ_NOT_SHARED_DIRTY: begin
+            snoop   = ace_pkg::ReadNotSharedDirty;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_READ_UNIQUE: begin
+            snoop   = ace_pkg::ReadUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_CLEAN_UNIQUE: begin
+            snoop   = ace_pkg::CleanUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_MAKE_UNIQUE: begin
+            snoop   = ace_pkg::CleanUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_CLEAN_SHARED: begin
+            snoop   = ace_pkg::CleanShared;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_CLEAN_INVALID: begin
+            snoop   = ace_pkg::CleanInvalid;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_MAKE_INVALID: begin
+            snoop   = ace_pkg::MakeInvalid;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_BARRIER: begin
+            snoop   = ace_pkg::Barrier;
+            domain  = 'b01;
+            bar     = 'b01;
+            len     = 1;
+          end
+          AR_DVM_COMPLETE: begin
+            snoop   = ace_pkg::DVMComplete;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_DVM_MESSAGE: begin
+            snoop   = ace_pkg::DVMMessage;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          default: begin
+            $error("Invalid snoop op enumeration.");
+            snoop   = 'b0000;
+            domain  = 'b00;
+            bar     = 'b00;
+            len     = $urandom();
+          end
+        endcase
+      end else begin
+        // Write operation
+        std::randomize(aw_trs) with { !(aw_trs inside {aw_unsupported_ops}); };
+        case( aw_trs )
+          AW_WRITE_NO_SNOOP: begin
+            snoop   = ace_pkg::WriteNoSnoop;
+            domain  = 'b00;
+            bar     = 'b00;
+            len     = $urandom();
+          end
+          AW_WRITE_UNIQUE: begin
+            snoop   = ace_pkg::WriteUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_WRITE_LINE_UNIQUE: begin
+            snoop   = ace_pkg::WriteLineUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_WRITE_CLEAN: begin
+            snoop   = ace_pkg::WriteClean;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_WRITE_BACK: begin
+            snoop   = ace_pkg::WriteBack;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_EVICT: begin
+            snoop   = ace_pkg::Evict;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_WRITE_EVICT: begin
+            snoop   = ace_pkg::WriteEvict;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AR_MAKE_UNIQUE: begin
+            snoop   = ace_pkg::CleanUnique;
+            domain  = 'b01;
+            bar     = 'b00;
+            len     = 1;
+          end
+          AW_BARRIER: begin
+            snoop   = ace_pkg::Barrier;
+            domain  = 'b01;
+            bar     = 'b01;
+            len     = 1;
+          end
+          default: begin
+            $error("Invalid snoop op enumeration.");
+            snoop   = 'b0000;
+            domain  = 'b00;
+            bar     = 'b00;
+            len     = $urandom();
+          end
+        endcase
+      end
 
-        ace_pkg::CLEAN_UNIQUE: begin
-          snoop   = 'b1011;
-          domain  = 'b01;
-          bar     = 'b00;
-          len     = 0;
-        end
-
-        ace_pkg::WRITE_NO_SNOOP: begin
-          snoop   = 'b0000;
-          domain  = 'b00;
-          bar     = 'b00;
-          len     = $urandom();
-        end
-        ace_pkg::WRITE_BACK: begin
-          snoop   = 'b0011;
-          domain  = 'b00;
-          bar     = 'b00;
-          len     = 1;
-        end
-        ace_pkg::WRITE_UNIQUE: begin
-          snoop   = 'b0000;
-          domain  = 'b10;
-          bar     = 'b00;
-          len     = 1;
-        end
-
-
-        default: begin
-          snoop   = 'b0000;
-          domain  = 'b00;
-          bar     = 'b00;
-          len     = $urandom();
-        end
-      endcase
          
       ax_ace_beat.ax_addr     = addr;
       ax_ace_beat.ax_size     = size;
@@ -936,7 +1071,7 @@ endclass
         automatic int unsigned n_bytes;
         automatic size_t size;
         automatic addr_t addr_mask;
-        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH)-1;
+        ar_ace_beat.ax_size = $clog2(AXI_STRB_WIDTH);
         
         // The address must be aligned to the total number of bytes in the burst.
         ar_ace_beat.ax_addr = ar_ace_beat.ax_addr & ~(2);
@@ -1048,6 +1183,7 @@ endclass
         drv.send_ar(ar_ace_beat);
         if (ar_ace_beat.ax_lock) excl_queue.push_back(ar_ace_beat);
       end
+      $info("Finish ARs");
     endtask
 
     task recv_rs(ref logic ar_done, aw_done);
@@ -1070,6 +1206,7 @@ endclass
           end
         end
       end
+      $info("Finish Rs");
     endtask
 
     task create_aws(input int n_writes);
@@ -1091,6 +1228,7 @@ endclass
         aw_ace_queue.push_back(aw_ace_beat);
         w_queue.push_back(aw_ace_beat);
       end
+      $info("Finish AWs");
     endtask
 
     task send_aws(ref logic aw_done);
@@ -1134,6 +1272,7 @@ endclass
           drv.send_w(w_beat);
         end
       end
+      $info("Finish Ws");
     endtask
 
     task recv_bs(ref logic aw_done);
@@ -1149,6 +1288,7 @@ endclass
         tot_w_flight_cnt--;
         cnt_sem.put();
       end
+      $info("Finish Bs");
     endtask
 
     // Issue n_reads random read and n_writes random write transactions to an address range.
