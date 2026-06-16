@@ -1,41 +1,42 @@
 # ACE SystemVerilog modules for cache coherent SoC design
 
-This repository provides modules to implement cache coherence SoC's.
+> 🚧 **Work in progress:** this repository is under active development. Breaking changes can happen at any time. 🚧
 
-## List of modules
+This repository provides modules to implement cache coherence SoCs.
 
-| Name                                                 | Description                                                                                                  | Doc                            |
-|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|--------------------------------|
-| [`ace_ccu_top`](src/ace_ccu_top.sv)                  | ACE interconnector, broadcasts snooping messages to the cache controllers and AXI transactions to the slave  | [Doc](doc/ace_ccu_top.md)      |
-
-## Verification
-
-Generate the initial cache and memory states, as well as the transaction streams, with the following command:
+## Repository structure
 
 ```
-make init_mem
+src/
+├── ace_intf.sv        # ACE bus interface definitions
+├── ace_pkg.sv         # ACE type definitions and constants
+├── snoop_intf.sv      # Snoop channel interface definitions
+└── ccu/               # Coherence Control Unit
+    ├── ccu_top.sv
+    ├── ccu_pkg.sv
+    ├── ccu_frontend.sv
+    ├── ccu_frontend_arbiter.sv
+    ├── ccu_read_engine.sv
+    ├── ccu_write_engine.sv
+    ├── ccu_snoop_pipeline.sv
+    ├── ccu_replay.sv
+    ├── ccu_exclusive_monitor.sv
+    ├── ccu_csr_wrap.sv
+    ├── ccu_scoreboard.sv
+    └── regs/          # CSR definitions and generated register files
+
+include/
+└── ace/               # SystemVerilog header files (typedef, assign, convert, domain macros)
 ```
 
-You can control simulation parameters, such as the memory and cache sizes and structures, number of caches, and number of transactions, in `Makefile`.
+## Include files
 
-You can simulate the top level design with
-```
-make -B sim-ace_ccu_top.log
-```
-
-### Coherency check
-
-To run coherency check, run
-```
-make init_mem CHECK=1
-```
-It will generate the initial cache and memory states, and stall until given a prompt.
-
-Next, open another terminal and simulate the top level design with
-```
-make -B sim-ace_ccu_top.log
-```
-Once the simulation finishes, press enter on the coherency check prompt. A coherency check will be run. A log file is generated called `cache_python.log`. Search with keyword `ERROR` to find whether coherency was broken during the simulation. When run with `DEBUG=1` (the default option), a pdb session is opened the moment a coherency problem is found.
+| Name                                              | Description                                        |
+|---------------------------------------------------|----------------------------------------------------|
+| [`ace/typedef.svh`](include/ace/typedef.svh)      | Macros for defining ACE and snoop struct types     |
+| [`ace/assign.svh`](include/ace/assign.svh)        | Macros for assigning ACE and snoop signals         |
+| [`ace/convert.svh`](include/ace/convert.svh)      | Macros for converting between ACE signal formats   |
+| [`ace/domain.svh`](include/ace/domain.svh)        | Macros for ACE domain signal handling              |
 
 ## License
 
