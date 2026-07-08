@@ -25,13 +25,13 @@ sources:
   - src/ccu/regs/generated/ccu_csr_pkg.sv
   - src/ccu/regs/generated/ccu_csr.sv
   # CCU source files
+  - src/ccu/ccu_fifo.sv
   - src/ccu/ccu_csr_wrap.sv
   - src/ccu/ccu_exclusive_monitor.sv
   - src/ccu/ccu_frontend_arbiter.sv
   - src/ccu/ccu_frontend.sv
+  - src/ccu/ccu_ar_dispatch.sv
   - src/ccu/ccu_read_engine.sv
-  - src/ccu/ccu_replay.sv
-  - src/ccu/ccu_scoreboard.sv
   - src/ccu/ccu_snoop_pipeline.sv
   - src/ccu/ccu_top.sv
   - src/ccu/ccu_write_engine.sv

@@ -29,10 +29,12 @@ package ccu_pkg;
         int unsigned    numWriteTransactions;
         //  Number of simultaneous inflight snoop transactions
         int unsigned    numSnoopTransactions;
-        //  Enable replay of conflicting requests
-        bit             enableReplay;
-        //  Number of replay list entries
-        int unsigned    numReplayEntries;
+        //  Number of AR dispatch FIFOs (colliding addresses share a FIFO)
+        int unsigned    numArFifos;
+        //  Depth of each AR dispatch FIFO
+        int unsigned    arFifoDepth;
+        //  Address bits hashed to index the write-engine inflight FIFOs
+        int unsigned    writeHashWidth;
         //  AXI/ACE parameters
         int unsigned    axiAddressWidth;
         int unsigned    axiDataWidth;
@@ -80,8 +82,10 @@ package ccu_pkg;
         int unsigned cachelineAxiTransfers;
         //  Transaction index width
         int unsigned transactionIndexWidth;
-        //  Replay entry index width
-        int unsigned replayEntryIndexWidth;
+        //  AR dispatch FIFO index width
+        int unsigned arFifoIndexWidth;
+        //  Number of write-engine inflight FIFOs (2**writeHashWidth)
+        int unsigned numWriteFifos;
         //  AXI data size
         int unsigned axiDataSize;
         //  Address slice width used for hazard checks
@@ -95,13 +99,15 @@ package ccu_pkg;
 
         p.subordinateIndexWidth      = $clog2(u.numSubordinates);
         p.axiCcuIdWidth              = u.axiSubordinateIdWidth + p.subordinateIndexWidth;
-        p.axiManagerIdWidth          = p.axiCcuIdWidth + 1;
+        p.axiManagerIdWidth          = p.axiCcuIdWidth > u.writeHashWidth ?
+                                       p.axiCcuIdWidth : u.writeHashWidth;
         p.cachelineByteIndexWidth    = u.cachelineWidth > 8 ? $clog2(u.cachelineWidth / 8) : 1;
         p.numLineWidth               = u.axiAddressWidth - p.cachelineByteIndexWidth;
         p.writeTransactionIndexWidth = u.numWriteTransactions > 1 ? $clog2(u.numWriteTransactions) : 1;
         p.cachelineAxiTransfers      = u.cachelineWidth / u.axiDataWidth;
         p.transactionIndexWidth      = u.numShareableTransactions > 1 ? $clog2(u.numShareableTransactions) : 1;
-        p.replayEntryIndexWidth      = u.numReplayEntries > 1 ? $clog2(u.numReplayEntries) : 1;
+        p.arFifoIndexWidth           = u.numArFifos > 1 ? $clog2(u.numArFifos) : 1;
+        p.numWriteFifos              = 2 ** u.writeHashWidth;
         p.axiDataSize                = u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
 

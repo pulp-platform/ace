@@ -38,13 +38,6 @@ module ccu_snoop_pipeline
     input  logic                                             ar_valid_i,
     output logic                                             ar_ready_o,
 
-    output logic                                             scoreboard_alloc_check_o,
-    output logic                                             scoreboard_alloc_o,
-    input  logic                                             scoreboard_alloc_hit_i,
-    input  logic                                             scoreboard_full_i,
-
-    output logic                                             replay_alloc_o,
-
     output logic          [ccuCfg.u.numSubordinates-1:0]     ac_valid_o,
     input  logic          [ccuCfg.u.numSubordinates-1:0]     ac_ready_i,
     output ccu_snoop_ac_t [ccuCfg.u.numSubordinates-1:0]     ac_o,
@@ -188,8 +181,6 @@ module ccu_snoop_pipeline
 // Stage 0
 // {{{
     logic        [ccuCfg.subordinateIndexWidth-1:0] subordinate_ar_index;
-    logic                                           ar_fork_valid;
-    logic                                           ar_fork_ready;
     logic                                           ar_is_read_no_snoop;
     acsnoop_t                                       ac_snoop;
     logic                                           stage0_valid;
@@ -224,35 +215,15 @@ module ccu_snoop_pipeline
         prot: ar_i.prot
     };
 
-    assign scoreboard_alloc_check_o = !ar_is_read_no_snoop && ar_valid_i;
-    assign replay_alloc_o = scoreboard_alloc_hit_i;
-
-    always_comb begin : ar_stall_comb
-        ar_fork_valid = ar_valid_i;
-        ar_ready_o    = ar_fork_ready;
-
-        //  If a request arrives here, it means
-        //  the replay table is not full since the check
-        //  was performed upstream.
-        //  We can safely allocate one entry as long
-        //  as the replay table is actually instantiated.
-        if (scoreboard_alloc_hit_i) begin
-            ar_fork_valid = 1'b0;
-            ar_ready_o    = ccuCfg.u.enableReplay;
-        end
-    end
-
-    assign scoreboard_alloc_o = !ar_is_read_no_snoop && ar_fork_valid && ar_fork_ready;
-
     stream_fork_dynamic #(
         .N_OUP (2)
     ) u_ac_fork (
         .clk_i,
         .rst_ni,
-        .valid_i     (ar_fork_valid),
-        .ready_o     (ar_fork_ready),
+        .valid_i     (ar_valid_i),
+        .ready_o     (ar_ready_o),
         .sel_i       ({!ar_is_read_no_snoop, 1'b1}),
-        .sel_valid_i (ar_is_read_no_snoop || !scoreboard_full_i),
+        .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     ({ac_valid, stage0_valid}),
         .ready_i     ({ac_ready, stage0_ready})
@@ -278,7 +249,6 @@ module ccu_snoop_pipeline
     logic                                engine_fork_valid;
     logic                                engine_fork_ready;
     logic                                read_engine_sel;
-    logic                                write_engine_sel;
     logic                                cd_engine_sel;
     logic                                cd_engine_forward_to_read;
     logic                                cd_engine_forward_to_write;
@@ -356,7 +326,6 @@ module ccu_snoop_pipeline
 
     always_comb begin : engine_sel_comb
         read_engine_sel            = 1'b0;
-        write_engine_sel           = 1'b0;
         cd_engine_sel              = 1'b0;
         cd_engine_forward_to_read  = 1'b0;
         cd_engine_forward_to_write = 1'b0;
@@ -365,66 +334,42 @@ module ccu_snoop_pipeline
         case ({cr.resp.DataTransfer, is_clean_or_make})
             //  Forward the request to memory
             2'b00: read_engine_sel = 1'b1;
-            //  Send only the clean R response
+            //  Clean/make with no data: acknowledge only
             2'b01: begin
-                cd_engine_sel = 1'b1;
+                cd_engine_sel         = 1'b1;
                 cd_engine_ack_to_read = 1'b1;
             end
-            //  At least one snooped manager
-            //  is providing data
+            //  At least one snooped manager is providing data: forward it to
+            //  the initiator (normal read) or acknowledge (clean/make)
             default: begin
-                cd_engine_sel = 1'b1;
+                cd_engine_sel             = 1'b1;
                 cd_engine_forward_to_read = !is_clean_or_make;
-                cd_engine_ack_to_read = is_clean_or_make;
+                cd_engine_ack_to_read     = is_clean_or_make;
                 if (cr.resp.PassDirty && !accepts_dirty) begin
-                    //  The initiator cannot accept dirty data,
-                    //  thus we need a writeback
+                    //  The initiator cannot accept dirty data, writeback
                     cd_engine_forward_to_write = 1'b1;
-                    write_engine_sel = 1'b1;
                 end
             end
         endcase
     end
 
     stream_fork_dynamic #(
-        .N_OUP(3)
+        .N_OUP(2)
     ) u_engine_fork (
         .clk_i,
         .rst_ni,
         .valid_i    (engine_fork_valid),
         .ready_o    (engine_fork_ready),
-        .sel_i      ({read_engine_sel, write_engine_sel, cd_engine_sel}),
+        .sel_i      ({read_engine_sel, cd_engine_sel}),
         .sel_valid_i(1'b1),
         .sel_ready_o(),
-        .valid_o    ({read_engine_ar_valid_o, write_engine_aw_valid_o, cd_engine_valid}),
-        .ready_i    ({read_engine_ar_ready_i, write_engine_aw_ready_i, cd_engine_ready})
+        .valid_o    ({read_engine_ar_valid_o, cd_engine_valid}),
+        .ready_i    ({read_engine_ar_ready_i, cd_engine_ready})
     );
 
     always_comb begin : read_engine_ar_comb
         //  ACE to AXI conversion can be done via the macro
         `AXI_SET_AR_STRUCT(read_engine_ar_o, stage1_fifo_rdata.ar)
-    end
-
-    always_comb begin : write_engine_aw_comb
-        //  Derive an AW struct to issue writebacks from the
-        //  original AR request
-        //  The additional ID bit is used to uniquely identify
-        //  writeback operations
-        //  TODO: this might be overkill?
-        write_engine_aw_o.id     = {1'b1, stage1_fifo_rdata.ar.id};
-        write_engine_aw_o.addr   = axi_pkg::aligned_addr(stage1_fifo_rdata.ar.addr, ccuCfg.cachelineByteIndexWidth);
-        write_engine_aw_o.len    = ccuCfg.cachelineAxiTransfers - 1;
-        write_engine_aw_o.size   = ccuCfg.axiDataSize;
-        write_engine_aw_o.burst  = axi_pkg::BURST_WRAP;
-        write_engine_aw_o.lock   = 1'b0;
-        //  Enforce non-bufferable requirements
-        //  This should fix premature B responses
-        write_engine_aw_o.cache  = stage1_fifo_rdata.ar.cache & ~axi_pkg::CACHE_BUFFERABLE;
-        write_engine_aw_o.prot   = stage1_fifo_rdata.ar.prot;
-        write_engine_aw_o.qos    = stage1_fifo_rdata.ar.qos;
-        write_engine_aw_o.region = stage1_fifo_rdata.ar.region;
-        write_engine_aw_o.atop   = '0;
-        write_engine_aw_o.user   = stage1_fifo_rdata.ar.user;
     end
 
     assign cd_engine_resp_shared = cr.resp.IsShared  && accepts_shared;
@@ -443,9 +388,7 @@ module ccu_snoop_pipeline
         logic                                    ack_to_read;
         logic                                    resp_shared;
         logic                                    resp_dirty;
-        logic [ccuCfg.axiCcuIdWidth-1:0]         ar_id;
-        logic [ccuCfg.u.axiUserWidth-1:0]        ar_user;
-        logic                                    ar_lock;
+        ccu_ace_ar_t                             ar;
     } cd_engine_fifo_entry_t;
 
     logic                  cd_engine_fifo_valid;
@@ -460,28 +403,21 @@ module ccu_snoop_pipeline
         ack_to_read:      cd_engine_ack_to_read,
         resp_shared:      cd_engine_resp_shared,
         resp_dirty:       cd_engine_resp_dirty,
-        ar_id:            stage1_fifo_rdata.ar.id,
-        ar_user:          stage1_fifo_rdata.ar.user,
-        ar_lock:          stage1_fifo_rdata.ar.lock
+        ar:               stage1_fifo_rdata.ar
     };
 
     logic                                   cd_global_counter_en;
     logic [cachelineTransferIndexWidth-1:0] cd_global_counter_q;
-    logic                                   cd_fork_valid;
-    logic                                   cd_fork_ready;
-    logic                                   r_mux_ack_valid;
-    logic                                   r_mux_ack_ready;
 
-    logic                                   read_engine_r_last;
-    rresp_t                                 read_engine_r_resp;
+    rresp_t                                 cd_r_resp;
     logic [ccuCfg.u.numSubordinates-1:0]    cd_up_to_date;
     logic [ccuCfg.u.numSubordinates-1:0]    cd_valid;
     logic [ccuCfg.u.numSubordinates-1:0]    cd_ready;
     ccu_snoop_cd_t                          cd;
     logic                                   cd_engine_data_valid;
     logic                                   cd_engine_data_ready;
-    logic                                   cd_read_engine_r_valid;
-    logic                                   cd_read_engine_r_ready;
+    logic                                   cd_read_valid;
+    logic                                   cd_read_ready;
 
     stream_fifo #(
         .FALL_THROUGH (1'b0),
@@ -501,19 +437,37 @@ module ccu_snoop_pipeline
         .ready_i    (cd_engine_fifo_ready)
     );
 
-    stream_fork_dynamic #(
-        .N_OUP (2)
-    ) u_cd_engine_fork (
-        .clk_i,
-        .rst_ni,
-        .valid_i     (cd_engine_fifo_valid),
-        .ready_o     (cd_engine_fifo_ready),
-        .sel_i       ({cd_engine_fifo_rdata.ack_to_read, |cd_engine_fifo_rdata.sel}),
-        .sel_valid_i (1'b1),
-        .sel_ready_o (),
-        .valid_o     ({r_mux_ack_valid, cd_fork_valid}),
-        .ready_i     ({r_mux_ack_ready, cd_fork_ready} & {1'b1, cd.last})
-    );
+    //  Head-entry fork branches: writeback AW, CD data, initiator ack
+    logic cd_fork_valid;
+    logic cd_fork_ready;
+    logic ack_branch_valid;
+    logic ack_branch_ready;
+    logic aw_committed_q;
+    logic aw_committed_set;
+    logic aw_committed_clear;
+    logic aw_committed_d;
+    logic aw_handshake;
+    logic aw_token_valid;
+    logic aw_token_ready;
+    logic ordered_ack_valid;
+    logic ordered_ack_ready;
+
+    always_comb begin : write_engine_aw_comb
+        //  Derive the writeback AW from the AR. The id is irrelevant here:
+        //  the write engine swaps it for the address hash.
+        write_engine_aw_o.id     = '0;
+        write_engine_aw_o.addr   = axi_pkg::aligned_addr(cd_engine_fifo_rdata.ar.addr, ccuCfg.cachelineByteIndexWidth);
+        write_engine_aw_o.len    = ccuCfg.cachelineAxiTransfers - 1;
+        write_engine_aw_o.size   = ccuCfg.axiDataSize;
+        write_engine_aw_o.burst  = axi_pkg::BURST_INCR;
+        write_engine_aw_o.lock   = 1'b0;
+        write_engine_aw_o.cache  = cd_engine_fifo_rdata.ar.cache;
+        write_engine_aw_o.prot   = cd_engine_fifo_rdata.ar.prot;
+        write_engine_aw_o.qos    = cd_engine_fifo_rdata.ar.qos;
+        write_engine_aw_o.region = cd_engine_fifo_rdata.ar.region;
+        write_engine_aw_o.atop   = '0;
+        write_engine_aw_o.user   = cd_engine_fifo_rdata.ar.user;
+    end
 
     assign cd_valid      = cd_fifo_valid & cd_engine_fifo_rdata.sel;
     assign cd_fifo_ready = cd_ready      & cd_engine_fifo_rdata.sel;
@@ -568,6 +522,26 @@ module ccu_snoop_pipeline
         end
     end
 
+    //  {ACK, AW, DATA}: pops the entry only when every selected branch has
+    //  handshaked; DATA completes on the last CD beat
+    stream_fork_dynamic #(
+        .N_OUP (3)
+    ) u_cd_engine_fork (
+        .clk_i,
+        .rst_ni,
+        .valid_i     (cd_engine_fifo_valid),
+        .ready_o     (cd_engine_fifo_ready),
+        .sel_i       ({cd_engine_fifo_rdata.ack_to_read,
+                       cd_engine_fifo_rdata.forward_to_write,
+                       |cd_engine_fifo_rdata.sel}),
+        .sel_valid_i (1'b1),
+        .sel_ready_o (),
+        .valid_o     ({ack_branch_valid, write_engine_aw_valid_o, cd_fork_valid}),
+        .ready_i     ({ack_branch_ready, write_engine_aw_ready_i, cd_fork_ready && cd.last})
+    );
+
+    //  Per-beat CD data fork to the initiator (read) and/or the writeback W,
+    //  driven while the entry's DATA branch is active
     stream_fork_dynamic #(
         .N_OUP (2)
     ) u_cd_data_fork (
@@ -578,47 +552,81 @@ module ccu_snoop_pipeline
         .sel_i       ({cd_engine_fifo_rdata.forward_to_read, cd_engine_fifo_rdata.forward_to_write}),
         .sel_valid_i (cd_fork_valid),
         .sel_ready_o (cd_fork_ready),
-        .valid_o     ({cd_read_engine_r_valid, write_engine_w_valid_o}),
-        .ready_i     ({cd_read_engine_r_ready, write_engine_w_ready_i})
+        .valid_o     ({cd_read_valid, write_engine_w_valid_o}),
+        .ready_i     ({cd_read_ready, write_engine_w_ready_i})
     );
 
     always_comb begin : rresp_comb
-        read_engine_r_resp[RESP_IS_DIRTY]  = cd_engine_fifo_rdata.resp_dirty;
-        read_engine_r_resp[RESP_IS_SHARED] = cd_engine_fifo_rdata.resp_shared;
-        if (cd_engine_fifo_rdata.ar_lock)
-            read_engine_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_EXOKAY;
+        cd_r_resp[RESP_IS_DIRTY]  = cd_engine_fifo_rdata.resp_dirty;
+        cd_r_resp[RESP_IS_SHARED] = cd_engine_fifo_rdata.resp_shared;
+        if (cd_engine_fifo_rdata.ar.lock)
+            cd_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_EXOKAY;
         else
-            read_engine_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_OKAY;
+            cd_r_resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_OKAY;
     end
-
-    //  Only the `r_last` field has to be multiplexed
-    stream_mux #(
-        .N_INP (2),
-        .DATA_T(logic)
-    ) u_r_mux (
-        .inp_data_i  ({1'b1, cd.last}),
-        .inp_valid_i ({r_mux_ack_valid, cd_read_engine_r_valid}),
-        .inp_ready_o ({r_mux_ack_ready, cd_read_engine_r_ready}),
-        .inp_sel_i   (cd_engine_fifo_rdata.ack_to_read),
-        .oup_data_o  (read_engine_r_last),
-        .oup_valid_o (read_engine_r_valid_o),
-        .oup_ready_i (read_engine_r_ready_i)
-    );
-
-    assign read_engine_r_o = '{
-        id:   cd_engine_fifo_rdata.ar_id,
-        data: cd.data,
-        resp: read_engine_r_resp,
-        last: read_engine_r_last,
-        user: cd_engine_fifo_rdata.ar_user
-    };
 
     assign write_engine_w_o = '{
         data: cd.data,
         strb: '1,
         last: cd.last,
-        user: cd_engine_fifo_rdata.ar_user
+        user: cd_engine_fifo_rdata.ar.user
     };
+
+    ccu_ace_r_t ack_r;
+    ccu_ace_r_t cd_read_r;
+
+    //  AW-committed token, joined with the ack branch to order the ack
+    assign aw_handshake   = write_engine_aw_valid_o && write_engine_aw_ready_i;
+    assign aw_token_valid = !cd_engine_fifo_rdata.forward_to_write || aw_committed_q;
+
+    assign aw_committed_set   = aw_handshake;
+    assign aw_committed_clear = cd_engine_fifo_valid && cd_engine_fifo_ready;
+    assign aw_committed_d     = !aw_committed_clear && (aw_committed_q || aw_committed_set);
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) aw_committed_q <= 1'b0;
+        else         aw_committed_q <= aw_committed_d;
+    end
+
+    stream_join #(
+        .N_INP (2)
+    ) u_ack_join (
+        .inp_valid_i ({aw_token_valid, ack_branch_valid}),
+        .inp_ready_o ({aw_token_ready, ack_branch_ready}),
+        .oup_valid_o (ordered_ack_valid),
+        .oup_ready_i (ordered_ack_ready)
+    );
+
+    assign ack_r = '{
+        id:   cd_engine_fifo_rdata.ar.id,
+        data: '0,
+        resp: cd_r_resp,
+        last: 1'b1,
+        user: cd_engine_fifo_rdata.ar.user
+    };
+
+    assign cd_read_r = '{
+        id:   cd_engine_fifo_rdata.ar.id,
+        data: cd.data,
+        resp: cd_r_resp,
+        last: cd.last,
+        user: cd_engine_fifo_rdata.ar.user
+    };
+
+    //  One initiator R source is active per head entry (read data XOR ack),
+    //  so a mux selected by ack_to_read suffices
+    stream_mux #(
+        .DATA_T (ccu_ace_r_t),
+        .N_INP  (2)
+    ) u_read_r_mux (
+        .inp_data_i  ({ack_r,             cd_read_r}),
+        .inp_valid_i ({ordered_ack_valid, cd_read_valid}),
+        .inp_ready_o ({ordered_ack_ready, cd_read_ready}),
+        .inp_sel_i   (cd_engine_fifo_rdata.ack_to_read),
+        .oup_data_o  (read_engine_r_o),
+        .oup_valid_o (read_engine_r_valid_o),
+        .oup_ready_i (read_engine_r_ready_i)
+    );
 //  }}}
 
 //  Performance events
@@ -652,16 +660,12 @@ module ccu_snoop_pipeline
             events_d.stage1_make_invalid          =
                 ace_is_make_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
         end
-        // Stage 0 stalls
+        // Stage 0 stalls (address hazards now handled by the AR dispatch unit)
         if (ar_valid_i && !ar_ready_o) begin
-            events_d.stage0_stall_scoreboard_hit   = scoreboard_alloc_hit_i;
-            events_d.stage0_stall_scoreboard_full  = scoreboard_full_i;
             events_d.stage0_stall_ac_fifo_full     = ac_valid && !ac_ready;
             events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
             // Catch all event
             events_d.stage0_stall_other            = ~|{
-                events_d.stage0_stall_scoreboard_hit,
-                events_d.stage0_stall_scoreboard_full,
                 events_d.stage0_stall_ac_fifo_full,
                 events_d.stage0_stall_stage1_fifo_full
             };

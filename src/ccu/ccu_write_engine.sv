@@ -53,58 +53,36 @@ module ccu_write_engine
     output logic                                b_ready_o,
     input  ccu_axi_b_t                          b_i,
 
+    //  WACK of master writes, retires the address from the hazard check
+    input  logic [ccuCfg.u.numSubordinates-1:0] wack_i,
+
+    //  Address hazard check: a read collides while a write to the same line
+    //  is inflight towards memory (issued .. B) or awaiting its WACK (B .. WACK)
     input  logic                                read_engine_addr_check_i,
     output logic                                read_engine_addr_hit_o,
     input  logic [ccuCfg.addressCheckWidth-1:0] read_engine_addr_slice_i
 );
 
-//  Inflight addresses associative map
+    localparam int unsigned numFifos   = ccuCfg.numWriteFifos;
+    localparam int unsigned hashWidth  = ccuCfg.u.writeHashWidth;
+    localparam int unsigned hashLsb    = ccuCfg.u.addressCheckLsb;
+
+    typedef struct packed {
+        logic [ccuCfg.addressCheckWidth-1:0] addr;
+        logic [ccuCfg.axiCcuIdWidth-1:0]     id;
+        logic                                is_wb;
+    } inflight_entry_t;
+
+//  AW arbitration
 //  {{{
-    logic [ccuCfg.addressCheckWidth-1:0] write_inflight_map_wdata;
-    logic                                write_inflight_map_push;
-    logic                                write_inflight_map_pop;
-    logic                                write_inflight_map_full;
-
-    assign write_inflight_map_wdata = aw_o.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-    assign write_inflight_map_push  = aw_valid_o && aw_ready_i;
-    assign write_inflight_map_pop   = b_valid_i && b_ready_o;
-
-    id_queue #(
-        .ID_WIDTH            (ccuCfg.axiManagerIdWidth),
-        .CAPACITY            (ccuCfg.u.numWriteTransactions),
-        .FULL_BW             (1'b1),
-        .CUT_OUP_POP_INP_GNT (1'b1),
-        .NUM_CMP_PORTS       (1),
-        .data_t              (logic [ccuCfg.addressCheckWidth-1:0])
-    ) u_write_inflight_map (
-        .clk_i,
-        .rst_ni,
-        .inp_id_i         (aw_o.id),
-        .inp_data_i       (write_inflight_map_wdata),
-        .inp_req_i        (write_inflight_map_push),
-        .inp_gnt_o        (),
-        .exists_data_i    (read_engine_addr_slice_i),
-        .exists_mask_i    ('1),
-        .exists_req_i     (read_engine_addr_check_i),
-        .exists_o         (read_engine_addr_hit_o),
-        .exists_gnt_o     (),
-        .oup_id_i         (b_i.id),
-        .oup_pop_i        (1'b1),
-        .oup_req_i        (write_inflight_map_pop),
-        .oup_data_o       (),
-        .oup_data_valid_o (),
-        .oup_gnt_o        (),
-        .full_o           (write_inflight_map_full),
-        .empty_o          ()
-    );
-//  }}}
-
-//  AW channel
-//  {{{
+    logic            aw_arb_valid;
+    logic            aw_arb_ready;
+    ccu_axi_aw_t     aw_arb;
+    logic            aw_is_writeback;
+    logic [hashWidth-1:0] aw_hash;
 
     logic w_ctrl_fifo_valid_in;
     logic w_ctrl_fifo_ready_in;
-    logic aw_is_writeback;
 
     rr_arb_tree #(
         .NumIn     (2),
@@ -121,21 +99,134 @@ module ccu_write_engine
         .req_i   ({writeback_aw_valid_i, aw_valid_i}),
         .gnt_o   ({writeback_aw_ready_o, aw_ready_o}),
         .data_i  ({writeback_aw_i      , aw_i      }),
-        .req_o   (aw_valid),
-        .gnt_i   (aw_ready),
-        .data_o  (aw_o),
+        .req_o   (aw_arb_valid),
+        .gnt_i   (aw_arb_ready),
+        .data_o  (aw_arb),
         .idx_o   (aw_is_writeback)
     );
 
+    assign aw_hash = aw_arb.addr[hashLsb +: hashWidth];
+
+    //  Swap the id for the hash index so same-address writes share it
+    always_comb begin : aw_id_swap_comb
+        aw_o    = aw_arb;
+        aw_o.id = '0;
+        aw_o.id[hashWidth-1:0] = aw_hash;
+    end
+//  }}}
+
+//  Inflight FIFOs (one per hash)
+//  {{{
+    logic            [numFifos-1:0] fifo_full;
+    logic            [numFifos-1:0] fifo_push;
+    logic            [numFifos-1:0] fifo_pop;
+    inflight_entry_t [numFifos-1:0] fifo_rdata;
+    logic            [numFifos-1:0] fifo_exists;
+    inflight_entry_t                fifo_wdata;
+    inflight_entry_t                exists_mask;
+
+    logic [hashWidth-1:0] b_hash;
+    logic [hashWidth-1:0] check_hash;
+    inflight_entry_t      b_entry;
+
+    assign fifo_wdata = '{
+        addr:  aw_arb.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb],
+        id:    aw_arb.id[ccuCfg.axiCcuIdWidth-1:0],
+        is_wb: aw_is_writeback
+    };
+
+    always_comb begin : exists_mask_comb
+        exists_mask       = '0;
+        exists_mask.addr  = '1;
+    end
+
+    assign b_hash     = b_i.id[hashWidth-1:0];
+    assign check_hash = read_engine_addr_slice_i[hashWidth-1:0];
+
+    for (genvar h = 0; h < numFifos; h++) begin : gen_inflight_fifo
+        inflight_entry_t exists_data;
+        assign exists_data = '{addr: read_engine_addr_slice_i, id: '0, is_wb: 1'b0};
+
+        assign fifo_push[h] = aw_valid_o && aw_ready_i && aw_hash == hashWidth'(h);
+        assign fifo_pop[h]  = b_valid_i  && b_ready_o  && b_hash  == hashWidth'(h);
+
+        ccu_fifo #(
+            .numEntries (ccuCfg.u.numWriteTransactions),
+            .data_t     (inflight_entry_t)
+        ) u_inflight_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i       (1'b0),
+            .full_o        (fifo_full[h]),
+            .empty_o       (),
+            .usage_o       (),
+            .data_i        (fifo_wdata),
+            .push_i        (fifo_push[h]),
+            .data_o        (fifo_rdata[h]),
+            .pop_i         (fifo_pop[h]),
+            .exists_data_i (exists_data),
+            .exists_mask_i (exists_mask),
+            .exists_o      (fifo_exists[h])
+        );
+    end
+
+//  }}}
+
+//  WACK address tracking (B .. WACK, master writes only)
+//  {{{
+    //  A master write leaves the hash FIFO at its B, but the ACE snoop
+    //  ordering rule (IHI0022E C6.2) forbids snooping the line until its
+    //  WACK. Each master write's address is therefore parked, per
+    //  subordinate, from the B forwarded to the master until its WACK.
+    logic [ccuCfg.addressCheckWidth-1:0] b_addr_slice;
+    logic [ccuCfg.subordinateIndexWidth-1:0] b_sub_index;
+    logic [ccuCfg.u.numSubordinates-1:0] wack_fifo_exists;
+
+    assign b_addr_slice = b_entry.addr;
+    assign b_sub_index  = b_entry.id[ccuCfg.axiCcuIdWidth-1 -: ccuCfg.subordinateIndexWidth];
+
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_wack_fifo
+        logic push;
+        assign push = b_valid_o && b_ready_i && b_sub_index == ccuCfg.subordinateIndexWidth'(s);
+
+        ccu_fifo #(
+            .numEntries (ccuCfg.u.numWriteTransactions),
+            .data_t     (logic [ccuCfg.addressCheckWidth-1:0])
+        ) u_wack_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i       (1'b0),
+            .full_o        (),
+            .empty_o       (),
+            .usage_o       (),
+            .data_i        (b_addr_slice),
+            .push_i        (push),
+            .data_o        (),
+            .pop_i         (wack_i[s]),
+            .exists_data_i (read_engine_addr_slice_i),
+            .exists_mask_i ('1),
+            .exists_o      (wack_fifo_exists[s])
+        );
+    end
+
+    //  A read hazards a write inflight to memory or awaiting its WACK
+    assign read_engine_addr_hit_o = read_engine_addr_check_i &&
+                                    (fifo_exists[check_hash] || |wack_fifo_exists);
+//  }}}
+
+//  AW fork
+//  {{{
+    //  Fork the arbitrated AW into the manager AW and the W-steering fifo.
+    //  Stall on a full hash FIFO so the inflight bookkeeping never overflows.
     stream_fork_dynamic #(
-        .N_OUP(2)
+        .N_OUP (2)
     ) u_aw_fork (
         .clk_i,
         .rst_ni,
-        .valid_i     (aw_valid),
-        .ready_o     (aw_ready),
+        .valid_i     (aw_arb_valid),
+        .ready_o     (aw_arb_ready),
         .sel_i       ('1),
-        .sel_valid_i (!write_inflight_map_full),
+        .sel_valid_i (!fifo_full[aw_hash]),
         .sel_ready_o (),
         .valid_o     ({aw_valid_o, w_ctrl_fifo_valid_in}),
         .ready_i     ({aw_ready_i, w_ctrl_fifo_ready_in})
@@ -191,23 +282,22 @@ module ccu_write_engine
     );
 //  }}}
 
-//  B channel filtering
+//  B channel: recover the original id and drop writeback responses
 //  {{{
-    logic b_is_write_back;
-
-    //  The additional ID bit is used to uniquely identify
-    //  writeback operations
-    //  TODO: this might be overkill?
-    assign b_is_write_back = b_i.id[ccuCfg.axiCcuIdWidth];
+    assign b_entry = fifo_rdata[b_hash];
 
     stream_filter u_b_filter (
         .valid_i(b_valid_i),
         .ready_o(b_ready_o),
-        .drop_i (b_is_write_back),
+        .drop_i (b_entry.is_wb),
         .valid_o(b_valid_o),
         .ready_i(b_ready_i)
     );
 
-    `AXI_ASSIGN_B_STRUCT(b_o, b_i)
+    always_comb begin : b_comb
+        `AXI_SET_B_STRUCT(b_o, b_i)
+        b_o.id                           = '0;
+        b_o.id[ccuCfg.axiCcuIdWidth-1:0] = b_entry.id;
+    end
 //  }}}
 endmodule

@@ -78,22 +78,12 @@ module ccu_top
     `ACE_TYPEDEF_RESP_T(ccu_ace_resp_t, ccu_ace_b_t, ccu_ace_r_t)
 //  }}}
 
-localparam int unsigned scoreboardEntryIndexWidth = ccuCfg.transactionIndexWidth;
-localparam int unsigned numScoreboardEntries      = ccuCfg.u.numShareableTransactions;
+logic [ccuCfg.u.numSubordinates-1:0]                            rack_valid;
+logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0]  rack_id;
 
-logic                                                               scoreboard_full;
-logic                                                               scoreboard_alloc_check;
-logic                                                               scoreboard_alloc;
-logic                                                               scoreboard_alloc_hit;
-logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_alloc_hit_entry;
-logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_alloc_entry;
-logic                                                               scoreboard_dealloc_check;
-logic [ccuCfg.axiCcuIdWidth-1:0]                                    scoreboard_dealloc_id;
-logic                                                               scoreboard_dealloc_hit;
-logic [scoreboardEntryIndexWidth-1:0]                               scoreboard_dealloc_hit_entry;
-logic [ccuCfg.u.numSubordinates-1:0]                                scoreboard_dealloc;
-logic [ccuCfg.u.numSubordinates-1:0][scoreboardEntryIndexWidth-1:0] scoreboard_dealloc_entry;
-logic [numScoreboardEntries-1:0]                                    scoreboard_dealloc_bitvector;
+logic                                                           ar_dispatch_aw_check;
+logic [ccuCfg.addressCheckWidth-1:0]                            ar_dispatch_aw_slice;
+logic                                                           ar_dispatch_aw_hazard;
 
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_valid;
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_ready;
@@ -119,11 +109,6 @@ logic                                snoop_read_engine_r_ready;
 ccu_ace_r_t                          snoop_read_engine_r;
 
 
-logic                                read_engine_addr_check;
-logic                                read_engine_addr_hit;
-logic [ccuCfg.addressCheckWidth-1:0] read_engine_addr_slice;
-
-logic                                replay_alloc;
 logic                                ar_valid;
 logic                                ar_ready;
 ccu_ace_ar_t                         ar;
@@ -163,81 +148,31 @@ ccu_snoop_pipeline_events_t perf_events;
         .subordinate_wack_i         (subordinate_wack_i),
         .manager_req_o              (frontend_req),
         .manager_resp_i             (frontend_resp),
-        .scoreboard_dealloc_check_o (scoreboard_dealloc_check),
-        .scoreboard_dealloc_id_o    (scoreboard_dealloc_id),
-        .scoreboard_dealloc_hit_i   (scoreboard_dealloc_hit),
-        .scoreboard_dealloc_entry_i (scoreboard_dealloc_hit_entry),
-        .scoreboard_dealloc_o       (scoreboard_dealloc),
-        .scoreboard_dealloc_entry_o (scoreboard_dealloc_entry)
+        .rack_valid_o               (rack_valid),
+        .rack_id_o                  (rack_id)
     );
 //  }}}
 
-//  Replay list
-    if (ccuCfg.u.enableReplay) begin : gen_replay
-        logic         replay_ar_valid;
-        logic         replay_ar_ready;
-        ccu_ace_ar_t  replay_ar;
-        logic         replay_full;
-        logic         frontend_ar_valid;
-        logic         frontend_ar_ready;
-        logic         frontend_ar_is_read_no_snoop;
-
-        ccu_replay #(
-            .ccuCfg       (ccuCfg),
-            .ccu_ace_ar_t (ccu_ace_ar_t)
-        ) u_ccu_replay (
-            .clk_i,
-            .rst_ni,
-            .alloc_i                   (replay_alloc),
-            .alloc_ar_i                (frontend_req.ar),
-            .alloc_scoreboard_entry_i  (scoreboard_alloc_hit_entry),
-            .replay_scoreboard_entry_i (scoreboard_alloc_entry),
-            .replay_ar_o               (replay_ar),
-            .replay_ar_valid_o         (replay_ar_valid),
-            .replay_ar_ready_i         (replay_ar_ready),
-            .scoreboard_dealloc_i      (scoreboard_dealloc_bitvector),
-            .full_o                    (replay_full)
-        );
-
-        //  Fixed priority arbitration gives precedence
-        //  to replayable requests
-        //  Shareable frontend requests are stalled once the
-        //  replay list is full
-        assign frontend_ar_is_read_no_snoop = ace_is_read_no_snoop(
-            frontend_req.ar.bar[0],
-            frontend_req.ar.domain,
-            frontend_req.ar.snoop
-        );
-
-        assign frontend_ar_valid      = (!replay_full || frontend_ar_is_read_no_snoop) && frontend_req.ar_valid;
-        assign frontend_resp.ar_ready = (!replay_full || frontend_ar_is_read_no_snoop) && frontend_ar_ready;
-
-        rr_arb_tree #(
-            .NumIn     (2),
-            .DataType  (ccu_ace_ar_t),
-            .ExtPrio   (1'b1),
-            .AxiVldRdy (1'b1),
-            .LockIn    (1'b0),
-            .FairArb   (1'b1)
-        ) u_ccu_replay_arbiter (
-            .clk_i,
-            .rst_ni,
-            .flush_i (1'b0),
-            .rr_i    ('1),
-            .req_i   ({replay_ar_valid, frontend_ar_valid}),
-            .gnt_o   ({replay_ar_ready, frontend_ar_ready}),
-            .data_i  ({replay_ar      , frontend_req.ar}),
-            .req_o   (ar_valid),
-            .gnt_i   (ar_ready),
-            .data_o  (ar),
-            .idx_o   (replay)
-        );
-    end else begin : gen_no_replay
-        assign replay                 = 1'b0;
-        assign ar_valid               = frontend_req.ar_valid;
-        assign frontend_resp.ar_ready = ar_ready;
-        assign ar                     = frontend_req.ar;
-    end
+//  AR dispatch
+//  {{{
+    ccu_ar_dispatch #(
+        .ccuCfg       (ccuCfg),
+        .ccu_ace_ar_t (ccu_ace_ar_t)
+    ) u_ccu_ar_dispatch (
+        .clk_i,
+        .rst_ni,
+        .ar_i             (frontend_req.ar),
+        .ar_valid_i       (frontend_req.ar_valid),
+        .ar_ready_o       (frontend_resp.ar_ready),
+        .ar_o             (ar),
+        .ar_valid_o       (ar_valid),
+        .ar_ready_i       (ar_ready),
+        .aw_addr_check_o  (ar_dispatch_aw_check),
+        .aw_addr_slice_o  (ar_dispatch_aw_slice),
+        .aw_addr_hazard_i (ar_dispatch_aw_hazard),
+        .rack_valid_i     (rack_valid),
+        .rack_id_i        (rack_id)
+    );
 //  }}}
 
 //  AR-related snoop pipeline
@@ -260,11 +195,6 @@ ccu_snoop_pipeline_events_t perf_events;
         .ar_i                     (ar),
         .ar_valid_i               (ar_valid),
         .ar_ready_o               (ar_ready),
-        .scoreboard_alloc_check_o (scoreboard_alloc_check),
-        .scoreboard_alloc_o       (scoreboard_alloc),
-        .scoreboard_alloc_hit_i   (scoreboard_alloc_hit),
-        .scoreboard_full_i        (scoreboard_full),
-        .replay_alloc_o           (replay_alloc),
         .ac_valid_o               (snoop_ac_valid),
         .ac_ready_i               (snoop_ac_ready),
         .ac_o                     (snoop_ac),
@@ -300,31 +230,6 @@ ccu_snoop_pipeline_events_t perf_events;
         assign snoop_cd_valid[s] = snoop_resp_i[s].cd_valid;
         assign snoop_req_o[s].cd_ready = snoop_cd_ready[s];
     end
-//  }}}
-
-//  Scoreboard
-//  {{{
-    ccu_scoreboard #(
-        .ccuCfg (ccuCfg)
-    ) u_ccu_scoreboard (
-        .clk_i,
-        .rst_ni,
-        .full_o              (scoreboard_full),
-        .alloc_check_i       (scoreboard_alloc_check),
-        .alloc_i             (scoreboard_alloc),
-        .alloc_addr_i        (ar.addr),
-        .alloc_id_i          (ar.id),
-        .alloc_hit_o         (scoreboard_alloc_hit),
-        .alloc_hit_entry_o   (scoreboard_alloc_hit_entry),
-        .alloc_entry_o       (scoreboard_alloc_entry),
-        .dealloc_check_i     (scoreboard_dealloc_check),
-        .dealloc_id_i        (scoreboard_dealloc_id),
-        .dealloc_hit_o       (scoreboard_dealloc_hit),
-        .dealloc_hit_entry_o (scoreboard_dealloc_hit_entry),
-        .dealloc_i           (scoreboard_dealloc),
-        .dealloc_entry_i     (scoreboard_dealloc_entry),
-        .dealloc_o           (scoreboard_dealloc_bitvector)
-    );
 //  }}}
 
 //  Write engine
@@ -374,9 +279,10 @@ ccu_snoop_pipeline_events_t perf_events;
         .b_valid_i                (manager_cut_resp.b_valid),
         .b_ready_o                (manager_cut_req.b_ready),
         .b_i                      (manager_cut_resp.b),
-        .read_engine_addr_check_i (read_engine_addr_check),
-        .read_engine_addr_hit_o   (read_engine_addr_hit),
-        .read_engine_addr_slice_i (read_engine_addr_slice)
+        .wack_i                   (subordinate_wack_i),
+        .read_engine_addr_check_i (ar_dispatch_aw_check),
+        .read_engine_addr_hit_o   (ar_dispatch_aw_hazard),
+        .read_engine_addr_slice_i (ar_dispatch_aw_slice)
     );
 //  }}}
 
@@ -393,9 +299,6 @@ ccu_snoop_pipeline_events_t perf_events;
         .ar_valid_i               (snoop_read_engine_ar_valid),
         .ar_ready_o               (snoop_read_engine_ar_ready),
         .ar_i                     (snoop_read_engine_ar),
-        .ar_addr_check_o          (read_engine_addr_check),
-        .ar_addr_hit_i            (read_engine_addr_hit),
-        .ar_addr_slice_o          (read_engine_addr_slice),
         .snoop_pipeline_r_valid_i (snoop_read_engine_r_valid),
         .snoop_pipeline_r_ready_o (snoop_read_engine_r_ready),
         .snoop_pipeline_r_i       (snoop_read_engine_r),
@@ -434,9 +337,9 @@ ccu_snoop_pipeline_events_t perf_events;
 
 //  Control and status registers
 //  {{{
-    typedef logic [$bits(mmio_subordinate_req_i.addr)-1:0] addr_t;
-    typedef logic [31:0]                                   data_t;
-    typedef logic [3:0]                                    strb_t;
+    typedef logic [31:0] addr_t;
+    typedef logic [31:0] data_t;
+    typedef logic [3:0]  strb_t;
 
     `APB_TYPEDEF_REQ_T(apb_req_t, addr_t, data_t, strb_t)
     `APB_TYPEDEF_RESP_T(apb_resp_t, data_t)

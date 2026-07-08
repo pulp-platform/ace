@@ -41,25 +41,21 @@ module ccu_frontend
     input  logic clk_i,
     input  logic rst_ni,
 
-    input  ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0]                  subordinate_req_i,
-    output ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0]                  subordinate_resp_o,
-    input  logic                      [ccuCfg.u.numSubordinates-1:0]                  subordinate_rack_i,
-    input  logic                      [ccuCfg.u.numSubordinates-1:0]                  subordinate_wack_i,
+    input  ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0]      subordinate_req_i,
+    output ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0]      subordinate_resp_o,
+    input  logic                      [ccuCfg.u.numSubordinates-1:0]      subordinate_rack_i,
+    input  logic                      [ccuCfg.u.numSubordinates-1:0]      subordinate_wack_i,
 
-    output  ccu_ace_manager_req_t                                                     manager_req_o,
-    input   ccu_ace_manager_resp_t                                                    manager_resp_i,
+    output  ccu_ace_manager_req_t                                         manager_req_o,
+    input   ccu_ace_manager_resp_t                                        manager_resp_i,
 
-    output logic                                                                      scoreboard_dealloc_check_o,
-    output logic [ccuCfg.axiCcuIdWidth-1:0]                                           scoreboard_dealloc_id_o,
-    input  logic                                                                      scoreboard_dealloc_hit_i,
-    input  logic [scoreboardEntryIndexWidth-1:0]                                      scoreboard_dealloc_entry_i,
-    output logic [ccuCfg.u.numSubordinates-1:0]                                       scoreboard_dealloc_o,
-    output logic [ccuCfg.u.numSubordinates-1:0][scoreboardEntryIndexWidth-1:0]        scoreboard_dealloc_entry_o
+    output logic [ccuCfg.u.numSubordinates-1:0]                           rack_valid_o,
+    output logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0] rack_id_o
 );
 
     typedef struct packed {
-        logic [ccuCfg.transactionIndexWidth-1:0]   tid;
-        logic                                      dealloc;
+        logic [ccuCfg.u.axiSubordinateIdWidth-1:0] id;
+        logic                                      real_txn;
         logic                                      exclusive;
     } rack_fifo_entry_t;
 
@@ -156,15 +152,15 @@ module ccu_frontend
             subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready && subordinate_resp_o[s].r.last;
 
         //  RACK-related metadata are used to:
-        //  - clear the corresponding scoreboard entry
+        //  - retire the AR dispatch FIFO entry (by id)
         //  - clear the corresponding exclusive monitor entry
         //  SC failure responses are locally generated, thus no entry should be cleared
         //  once the RACK arrives
         assign r_id_hit = exclusive_monitor_entry_id[s] == subordinate_resp_o[s].r.id;
 
         assign rack_fifo_wdata = '{
-            tid:       scoreboard_dealloc_entry_i,
-            dealloc:   scoreboard_dealloc_hit_i              && !r_spill_out.sc_fail,
+            id:        subordinate_resp_o[s].r.id,
+            real_txn:  !r_spill_out.sc_fail,
             exclusive: r_id_hit && exclusive_monitor_lock[s] && !r_spill_out.sc_fail
         };
 
@@ -188,9 +184,9 @@ module ccu_frontend
             .pop_i      (rack_fifo_pop)
         );
 
-        assign scoreboard_dealloc_o[s]       = subordinate_rack_i[s] && rack_fifo_rdata.dealloc;
-        assign scoreboard_dealloc_entry_o[s] = rack_fifo_rdata.tid;
-        assign exclusive_monitor_dealloc[s]  = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
+        assign rack_valid_o[s]              = subordinate_rack_i[s] && rack_fifo_rdata.real_txn;
+        assign rack_id_o[s]                 = {ccuCfg.subordinateIndexWidth'(s), rack_fifo_rdata.id};
+        assign exclusive_monitor_dealloc[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
     end
     //  }}}
 
@@ -337,10 +333,4 @@ module ccu_frontend
     );
     //  }}}
 
-    //  Scoreboard dealloc check on post-spill R (aligned with per-sub R demux)
-    //  {{{
-        assign scoreboard_dealloc_check_o =
-            r_spill_valid_out && r_spill_ready_out && r_spill_out.r.last;
-        assign scoreboard_dealloc_id_o    = r_spill_out.r.id;
-    //  }}}
 endmodule

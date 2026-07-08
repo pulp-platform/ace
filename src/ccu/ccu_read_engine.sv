@@ -27,22 +27,22 @@ module ccu_read_engine
     input  logic                                clk_i,
     input  logic                                rst_ni,
 
+    //  Read request from the snoop pipeline (already hazard-free)
     input  logic                                ar_valid_i,
     output logic                                ar_ready_o,
     input  ccu_axi_ar_t                         ar_i,
 
-    output logic                                ar_addr_check_o,
-    input  logic                                ar_addr_hit_i,
-    output logic [ccuCfg.addressCheckWidth-1:0] ar_addr_slice_o,
-
+    //  Initiator R sourced by the snoop pipeline (read data and acks)
     input  logic                                snoop_pipeline_r_valid_i,
     output logic                                snoop_pipeline_r_ready_o,
     input  ccu_ace_r_t                          snoop_pipeline_r_i,
 
+    //  Initiator R towards the frontend
     output logic                                r_valid_o,
     input  logic                                r_ready_i,
     output ccu_ace_r_t                          r_o,
 
+    //  Memory AR/R
     output logic                                ar_valid_o,
     input  logic                                ar_ready_i,
     output ccu_axi_ar_t                         ar_o,
@@ -51,53 +51,22 @@ module ccu_read_engine
     input  ccu_axi_r_t                          r_i
 );
 
-//  AR channel
+//  AR channel: straight through to memory
 //  {{{
-    logic ar_fifo_valid;
-    logic ar_fifo_ready;
-    ccu_axi_ar_t ar_fifo_wdata;
-    ccu_axi_ar_t ar_fifo_rdata;
-
-    `AXI_ASSIGN_AR_STRUCT(ar_fifo_wdata, ar_i)
-
-    //  Fallthrough FIFO inserted to decouple
-    //  snoop pipeline requests from the read
-    //  engine when address hazards happen
-    //  TODO: is one entry enough?
-    stream_fifo #(
-        .FALL_THROUGH (1'b1),
-        .DEPTH        (1),
-        .T            (ccu_axi_ar_t)
-    ) u_ar_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .usage_o    (),
-        .data_i     (ar_fifo_wdata),
-        .valid_i    (ar_valid_i),
-        .ready_o    (ar_ready_o),
-        .data_o     (ar_fifo_rdata),
-        .valid_o    (ar_fifo_valid),
-        .ready_i    (ar_fifo_ready)
-    );
-
-    assign ar_addr_check_o = ar_fifo_valid;
-    assign ar_addr_slice_o = ar_fifo_rdata.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-    assign ar_valid_o      = !ar_addr_hit_i && ar_fifo_valid;
-    assign ar_fifo_ready   = !ar_addr_hit_i && ar_ready_i;
-    `AXI_ASSIGN_AR_STRUCT(ar_o, ar_fifo_rdata)
+    assign ar_valid_o = ar_valid_i;
+    assign ar_ready_o = ar_ready_i;
+    `AXI_ASSIGN_AR_STRUCT(ar_o, ar_i)
 //  }}}
 
-//  R channel
+//  R channel: arbitrate memory reads and snoop-pipeline responses
 //  {{{
-    ccu_ace_r_t r_in;
+    ccu_ace_r_t r_mem;
     logic [1:0] r_arbiter_valid;
     logic [1:0] r_arbiter_ready;
     logic [1:0] mask_d;
     logic [1:0] mask_q;
 
-    `AXI_TO_ACE_ASSIGN_R_STRUCT(r_in, r_i)
+    `AXI_TO_ACE_ASSIGN_R_STRUCT(r_mem, r_i)
 
     assign r_arbiter_valid = {r_valid_i, snoop_pipeline_r_valid_i} & ~mask_q;
     assign {r_ready_o, snoop_pipeline_r_ready_o} = r_arbiter_ready & ~mask_q;
@@ -129,7 +98,7 @@ module ccu_read_engine
         .rr_i    ('0),
         .req_i   (r_arbiter_valid),
         .gnt_o   (r_arbiter_ready),
-        .data_i  ({r_in, snoop_pipeline_r_i}),
+        .data_i  ({r_mem, snoop_pipeline_r_i}),
         .req_o   (r_valid_o),
         .gnt_i   (r_ready_i),
         .data_o  (r_o),
