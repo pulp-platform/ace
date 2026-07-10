@@ -16,7 +16,6 @@
 `include "ace/typedef.svh"
 `include "axi/assign.svh"
 `include "ace/assign.svh"
-`include "apb/typedef.svh"
 
 module ccu_top
     import ace_pkg::*;
@@ -42,8 +41,8 @@ module ccu_top
     parameter type         ccu_snoop_cd_t             = logic,
     parameter type         ccu_snoop_req_t            = logic,
     parameter type         ccu_snoop_resp_t           = logic,
-    parameter type         mmio_req_t                 = logic,
-    parameter type         mmio_resp_t                = logic
+    parameter type         apb_req_t                  = logic,
+    parameter type         apb_resp_t                 = logic
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -58,8 +57,8 @@ module ccu_top
     output ccu_axi_manager_req_t                                     manager_req_o,
     input  ccu_axi_manager_resp_t                                    manager_resp_i,
 
-    input  mmio_req_t  mmio_subordinate_req_i,
-    output mmio_resp_t mmio_subordinate_resp_o
+    input  apb_req_t  apb_subordinate_req_i,
+    output apb_resp_t apb_subordinate_resp_o
 );
 
 //  AXI/ACE typedefs
@@ -337,35 +336,6 @@ ccu_snoop_pipeline_events_t perf_events;
 
 //  Control and status registers
 //  {{{
-    typedef logic [31:0] addr_t;
-    typedef logic [31:0] data_t;
-    typedef logic [3:0]  strb_t;
-
-    `APB_TYPEDEF_REQ_T(apb_req_t, addr_t, data_t, strb_t)
-    `APB_TYPEDEF_RESP_T(apb_resp_t, data_t)
-
-    apb_req_t  apb_req;
-    apb_resp_t apb_resp;
-
-    if (ccuCfg.u.mmioIntf == CCU_MMIO_REGBUS) begin : gen_reg_to_apb
-        reg_to_apb #(
-            .reg_req_t (mmio_req_t),
-            .reg_rsp_t (mmio_resp_t),
-            .apb_req_t (apb_req_t),
-            .apb_rsp_t (apb_resp_t)
-        ) u_reg_to_apb (
-            .clk_i,
-            .rst_ni,
-            .reg_req_i (mmio_subordinate_req_i),
-            .reg_rsp_o (mmio_subordinate_resp_o),
-            .apb_req_o (apb_req),
-            .apb_rsp_i (apb_resp)
-        );
-    end else if (ccuCfg.u.mmioIntf == CCU_MMIO_APB) begin : gen_apb_passthrough
-        assign apb_req                 = mmio_subordinate_req_i;
-        assign mmio_subordinate_resp_o = apb_resp;
-    end
-
     if (ccuCfg.u.enableCSRs) begin : gen_csr
         ccu_csr_wrap #(
             .ccuCfg     (ccuCfg),
@@ -375,14 +345,14 @@ ccu_snoop_pipeline_events_t perf_events;
         ) u_ccu_csrs (
             .clk_i,
             .rst_ni,
-            .apb_req_i  (apb_req),
-            .apb_resp_o (apb_resp),
+            .apb_req_i  (apb_subordinate_req_i),
+            .apb_resp_o (apb_subordinate_resp_o),
             .events_i   (perf_events)
         );
     end else begin
         always_comb begin : apb_sink_tieoff
-            apb_resp        = '0;
-            apb_resp.pready = 1'b1;
+            apb_subordinate_resp_o        = '0;
+            apb_subordinate_resp_o.pready = 1'b1;
         end
     end
 //  }}}

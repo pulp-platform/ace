@@ -14,12 +14,6 @@
 
 package ccu_pkg;
 
-    // Available memory mapped IO interfaces
-    typedef enum {
-        CCU_MMIO_APB,
-        CCU_MMIO_REGBUS
-    } ccu_mmio_intf_e;
-
     typedef struct packed {
         //  Number of subordinate ports (i.e. coherent managers)
         int unsigned    numSubordinates;
@@ -50,8 +44,6 @@ package ccu_pkg;
         bit             snoopReqFifoFallthrough;
         //  Make snoop response FIFOs fall through
         bit             snoopRespFifoFallthrough;
-        //  Protocol used to access the memory mapped registers
-        ccu_mmio_intf_e mmioIntf;
         //  Instantiate CCU control and status registers
         bit             enableCSRs;
         //  Insert spill registers in the frontend
