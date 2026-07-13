@@ -70,6 +70,8 @@ module ccu_ar_dispatch
     logic                              alloc;
     logic                              arb_req;
     logic                              arb_gnt;
+    logic                              committed_q;
+    logic                              hazard_drop;
 //  }}}
 
 //  Allocation: pick a free slot; ready when the pool is not full
@@ -194,14 +196,21 @@ module ccu_ar_dispatch
     assign aw_addr_check_o = arb_req;
     assign aw_addr_slice_o = ar_o.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) committed_q <= 1'b0;
+        else         committed_q <= ar_valid_o && !ar_ready_i;
+    end
+
+    assign hazard_drop = aw_addr_hazard_i && !committed_q;
+
     stream_filter u_ar_hazard_drop (
         .valid_i (arb_req),
         .ready_o (arb_gnt),
-        .drop_i  (aw_addr_hazard_i),
+        .drop_i  (hazard_drop),
         .valid_o (ar_valid_o),
         .ready_i (ar_ready_i)
     );
 
-    assign dispatch = aw_addr_hazard_i ? '0 : gnt;
+    assign dispatch = hazard_drop ? '0 : gnt;
 //  }}}
 endmodule
