@@ -26,9 +26,16 @@ fi
 # regression-consistent.
 SEEDS=(0)
 
+# $VSIM -do ${ROOT}/scripts/dofile.do -sv_seed $seed "$@" | tee vsim.log 2>&1
+# echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
 call_vsim() {
     for seed in ${SEEDS[@]}; do
-        echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
+        #echo "run -all" | $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
+        if [ -f ${ROOT}/scripts/$1.do ]; then
+            $VSIM -do ${ROOT}/scripts/$1.do -sv_seed $seed "$@" | tee vsim.log 2>&1
+        else
+            $VSIM -sv_seed $seed "$@" | tee vsim.log 2>&1
+        fi
         grep "Errors: 0," vsim.log
     done
 }
@@ -40,37 +47,30 @@ exec_test() {
     fi
     case "$1" in
         ace_ccu_top)
-            for NumMst in 2 4 6; do
-                for NumSlv in  1; do
-                    for Atop in 0 1  ; do
-                        for Exclusive in 0 1; do
-                            for UniqueIds in 0 1 ; do
-                                call_vsim tb_ace_ccu_top -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
-                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
-                                        -gTbUniqueIds=$UniqueIds
-                            done
-                        done
-                    done
-                done
-            done
+            call_vsim tb_ace_ccu_top -t 1ns -classdebug -coverage -voptargs="+acc" \
+            -gAddrWidth=$ADDR_WIDTH \
+            -gDataWidth=$DATA_WIDTH \
+            -gWordWidth=$WORD_WIDTH \
+            -gCachelineWords=$CACHELINE_WORDS \
+            -gWays=$WAYS \
+            -gSets=$SETS \
+            -gTbNumMst=$NMASTERS \
+            -gNoMstGroups=$NGROUPS \
+            -gMemDir=$MEM_DIR
             ;;
-        ace_ccu_top_sanity)
-            for NumMst in 2; do
-                for NumSlv in  1; do
-                    for Atop in 0; do
-                        for Exclusive in 0; do
-                            for UniqueIds in 0; do
-                                call_vsim tb_ace_ccu_top -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
-                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
-                                        -gTbUniqueIds=$UniqueIds
-                            done
-                        done
-                    done
-                done
-            done
+        ccu_ctrl_r_snoop)
+            call_vsim tb_ccu_ctrl_r_snoop -t 1ns -coverage -voptargs="+acc" \
+            -gAddrWidth=$ADDR_WIDTH \
+            -gDataWidth=$DATA_WIDTH \
+            -gWordWidth=$WORD_WIDTH \
+            -gCachelineWords=$CACHELINE_WORDS \
+            -gWays=$WAYS \
+            -gSets=$SETS \
+            -gTbNumMst=$NMASTERS \
+            -gMemDir=$MEM_DIR
             ;;
         *)
-            call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc +cover=bcesfx"
+            call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc"
             ;;
     esac
 }

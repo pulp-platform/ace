@@ -17,6 +17,7 @@
 `define ACE_ASSIGN_SVH_
 
 `include "axi/assign.svh"
+`include "ace/assign.svh"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Internal implementation for assigning one ACE struct or interface to another struct or interface.
@@ -71,9 +72,7 @@
   __opt_as __lhs.b_ready = __rhs.b_ready;                           \
   `__ACE_TO_AR(__opt_as, __lhs.ar, __lhs_sep, __rhs.ar, __rhs_sep)  \
   __opt_as __lhs.ar_valid = __rhs.ar_valid;                         \
-  __opt_as __lhs.r_ready = __rhs.r_ready;                           \
-  __opt_as __lhs.wack = __rhs.wack;                                 \
-  __opt_as __lhs.rack = __rhs.rack;
+  __opt_as __lhs.r_ready = __rhs.r_ready;
 `define __ACE_TO_RESP(__opt_as, __lhs, __lhs_sep, __rhs, __rhs_sep) \
   __opt_as __lhs.aw_ready = __rhs.aw_ready;                         \
   __opt_as __lhs.ar_ready = __rhs.ar_ready;                         \
@@ -116,9 +115,7 @@
   `AXI_ASSIGN_W(slv, mst)     \
   `AXI_ASSIGN_B(mst, slv)     \
   `ACE_ASSIGN_AR(slv, mst)    \
-  `ACE_ASSIGN_R(mst, slv)     \
-  assign slv.wack = mst.wack; \
-  assign slv.rack = mst.rack;
+  `ACE_ASSIGN_R(mst, slv)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -146,9 +143,7 @@
   assign mon_dv.ar_ready  = axi_if.ar_ready;        \
   `__ACE_TO_R(assign, mon_dv.r, _, axi_if.r, _)     \
   assign mon_dv.r_valid   = axi_if.r_valid;         \
-  assign mon_dv.r_ready   = axi_if.r_ready;         \
-  assign mon_dv.wack   = axi_if.wack;               \
-  assign mon_dv.rack   = axi_if.rack;
+  assign mon_dv.r_ready   = axi_if.r_ready;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -317,7 +312,7 @@
   __opt_as __lhs.cd_valid = __rhs.cd_valid;                               \
   `__SNOOP_TO_CD(__opt_as, __lhs.cd, __lhs_sep, __rhs.cd, __rhs_sep)      \
   __opt_as __lhs.cr_valid = __rhs.cr_valid;                               \
-  __opt_as __lhs.cr_resp = __rhs.cr_resp;
+  __opt_as __lhs.cr = __rhs.cr;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 

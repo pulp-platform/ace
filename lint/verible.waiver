@@ -1,0 +1,3 @@
+waive --rule=interface-name-style --location=".*ace_intf\.sv"
+waive --rule=line-length --location=".*ace_intf\.sv"
+waive --rule=interface-name-style --location=".*snoop_intf\.sv"
