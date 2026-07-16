@@ -19,8 +19,9 @@
 //  still-live, same-hash entry exists), while different addresses dispatch in
 //  parallel. An entry retires on its RACK. The dispatched AR is held back
 //  while it collides with an inflight write (RAW hazard against the write
-//  engine). Storage is bounded by the number of inflight transactions, not by
-//  the FIFO grid it replaces.
+//  engine) or, for registering exclusive ARs, while another core holds the
+//  exclusive lock (IHI0022E C9.3.1). Storage is bounded by the number of
+//  inflight transactions, not by the FIFO grid it replaces.
 module ccu_ar_dispatch
     import ace_pkg::*;
     import ccu_pkg::*;
@@ -48,6 +49,9 @@ module ccu_ar_dispatch
     output logic [ccuCfg.addressCheckWidth-1:0] aw_addr_slice_o,
     input  logic                                aw_addr_hazard_i,
 
+    //  Exclusive monitor lock
+    input  logic [ccuCfg.u.numSubordinates-1:0] excl_lock_i,
+
     //  RACK of the dispatched ARs, matched by id to retire the entry
     input  logic [ccuCfg.u.numSubordinates-1:0]                          rack_valid_i,
     input  logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0] rack_id_i
@@ -72,6 +76,8 @@ module ccu_ar_dispatch
     logic                              arb_gnt;
     logic                              committed_q;
     logic                              hazard_drop;
+    logic                              excl_blocked;
+    logic [ccuCfg.subordinateIndexWidth-1:0] ar_sub_idx;
 //  }}}
 
 //  Allocation: pick a free slot; ready when the pool is not full
@@ -201,7 +207,15 @@ module ccu_ar_dispatch
         else         committed_q <= ar_valid_o && !ar_ready_i;
     end
 
-    assign hazard_drop = aw_addr_hazard_i && !committed_q;
+    //  Registering exclusive AR while another core holds the lock
+    assign ar_sub_idx = ar_o.id[ccuCfg.axiCcuIdWidth-1 -: ccuCfg.subordinateIndexWidth];
+
+    assign excl_blocked =
+        (ace_ar_is_exclusive_load (ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock) ||
+         ace_ar_is_exclusive_store(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock)) &&
+        |excl_lock_i && !excl_lock_i[ar_sub_idx];
+
+    assign hazard_drop = (aw_addr_hazard_i && !committed_q) || excl_blocked;
 
     stream_filter u_ar_hazard_drop (
         .valid_i (arb_req),
@@ -212,5 +226,17 @@ module ccu_ar_dispatch
     );
 
     assign dispatch = hazard_drop ? '0 : gnt;
+//  }}}
+
+//  Assertions
+//  {{{
+    // pragma translate_off
+    `ifndef VERILATOR
+    //  lock can never rise under a committed AR
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        committed_q |-> !(excl_blocked && !$past(excl_blocked)))
+        else $error("excl_blocked rose under a committed AR");
+    `endif
+    // pragma translate_on
 //  }}}
 endmodule

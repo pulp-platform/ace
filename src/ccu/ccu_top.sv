@@ -112,6 +112,20 @@ logic                                ar_valid;
 logic                                ar_ready;
 ccu_ace_ar_t                         ar;
 
+logic                                dispatch_ar_valid;
+logic                                dispatch_ar_ready;
+ccu_ace_ar_t                         dispatch_ar;
+
+logic [ccuCfg.u.numSubordinates-1:0] exclusive_lock;
+logic [ccuCfg.u.numSubordinates-1:0]
+      [ccuCfg.u.axiSubordinateIdWidth-1:0] exclusive_entry_id;
+logic [ccuCfg.u.numSubordinates-1:0] exclusive_dealloc;
+logic                                exclusive_sc_fail;
+
+logic                                sc_fail_r_valid;
+logic                                sc_fail_r_ready;
+ccu_ace_r_t                          sc_fail_r;
+
 ccu_axi_manager_req_t   manager_cut_req;
 ccu_axi_manager_resp_t  manager_cut_resp;
 
@@ -147,6 +161,10 @@ ccu_snoop_pipeline_events_t perf_events;
         .subordinate_wack_i         (subordinate_wack_i),
         .manager_req_o              (frontend_req),
         .manager_resp_i             (frontend_resp),
+        .manager_r_sc_fail_i        (exclusive_sc_fail),
+        .exclusive_lock_i           (exclusive_lock),
+        .exclusive_entry_id_i       (exclusive_entry_id),
+        .exclusive_dealloc_o        (exclusive_dealloc),
         .rack_valid_o               (rack_valid),
         .rack_id_o                  (rack_id)
     );
@@ -163,14 +181,40 @@ ccu_snoop_pipeline_events_t perf_events;
         .ar_i             (frontend_req.ar),
         .ar_valid_i       (frontend_req.ar_valid),
         .ar_ready_o       (frontend_resp.ar_ready),
-        .ar_o             (ar),
-        .ar_valid_o       (ar_valid),
-        .ar_ready_i       (ar_ready),
+        .ar_o             (dispatch_ar),
+        .ar_valid_o       (dispatch_ar_valid),
+        .ar_ready_i       (dispatch_ar_ready),
         .aw_addr_check_o  (ar_dispatch_aw_check),
         .aw_addr_slice_o  (ar_dispatch_aw_slice),
         .aw_addr_hazard_i (ar_dispatch_aw_hazard),
+        .excl_lock_i      (exclusive_lock),
         .rack_valid_i     (rack_valid),
         .rack_id_i        (rack_id)
+    );
+//  }}}
+
+//  Exclusive monitor (PoS): filters failing exclusive stores on the
+//  dispatched stream, their SC fail responses are merged in the read engine
+//  {{{
+    ccu_exclusive_monitor #(
+        .ccuCfg       (ccuCfg),
+        .ccu_ace_ar_t (ccu_ace_ar_t),
+        .ccu_ace_r_t  (ccu_ace_r_t)
+    ) u_ccu_exclusive_monitor (
+        .clk_i,
+        .rst_ni,
+        .dealloc_i  (exclusive_dealloc),
+        .lock_o     (exclusive_lock),
+        .entry_id_o (exclusive_entry_id),
+        .ar_i       (dispatch_ar),
+        .ar_valid_i (dispatch_ar_valid),
+        .ar_ready_o (dispatch_ar_ready),
+        .ar_o       (ar),
+        .ar_valid_o (ar_valid),
+        .ar_ready_i (ar_ready),
+        .r_o        (sc_fail_r),
+        .r_valid_o  (sc_fail_r_valid),
+        .r_ready_i  (sc_fail_r_ready)
     );
 //  }}}
 
@@ -301,9 +345,13 @@ ccu_snoop_pipeline_events_t perf_events;
         .snoop_pipeline_r_valid_i (snoop_read_engine_r_valid),
         .snoop_pipeline_r_ready_o (snoop_read_engine_r_ready),
         .snoop_pipeline_r_i       (snoop_read_engine_r),
+        .sc_fail_r_valid_i        (sc_fail_r_valid),
+        .sc_fail_r_ready_o        (sc_fail_r_ready),
+        .sc_fail_r_i              (sc_fail_r),
         .r_valid_o                (frontend_resp.r_valid),
         .r_ready_i                (frontend_req.r_ready),
         .r_o                      (frontend_resp.r),
+        .r_sc_fail_o              (exclusive_sc_fail),
         .ar_valid_o               (manager_cut_req.ar_valid),
         .ar_ready_i               (manager_cut_resp.ar_ready),
         .ar_o                     (manager_cut_req.ar),

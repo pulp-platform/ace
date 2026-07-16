@@ -48,6 +48,14 @@ module ccu_frontend
 
     output  ccu_ace_manager_req_t                                         manager_req_o,
     input   ccu_ace_manager_resp_t                                        manager_resp_i,
+    //  Locally-generated SC fail response marker, aligned with manager R
+    input   logic                                                         manager_r_sc_fail_i,
+
+    //  Exclusive monitor state and dealloc (monitor lives downstream)
+    input  logic [ccuCfg.u.numSubordinates-1:0]                           exclusive_lock_i,
+    input  logic [ccuCfg.u.numSubordinates-1:0]
+                 [ccuCfg.u.axiSubordinateIdWidth-1:0]                     exclusive_entry_id_i,
+    output logic [ccuCfg.u.numSubordinates-1:0]                           exclusive_dealloc_o,
 
     output logic [ccuCfg.u.numSubordinates-1:0]                           rack_valid_o,
     output logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0] rack_id_o
@@ -55,7 +63,6 @@ module ccu_frontend
 
     typedef struct packed {
         logic [ccuCfg.u.axiSubordinateIdWidth-1:0] id;
-        logic                                      real_txn;
         logic                                      exclusive;
     } rack_fifo_entry_t;
 
@@ -69,21 +76,6 @@ module ccu_frontend
 
     ccu_ace_manager_req_t  arbiter_req;
     ccu_ace_manager_resp_t arbiter_resp;
-
-    logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_lock;
-    logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiSubordinateIdWidth-1:0] exclusive_monitor_entry_id;
-    logic exclusive_monitor_sc_fail;
-    logic [ccuCfg.u.numSubordinates-1:0] exclusive_monitor_dealloc;
-
-    // Exclusive monitor AR/R (post AR-spill, pre manager)
-    ccu_ace_manager_ar_t exclusive_monitor_ar_in;
-    logic                exclusive_monitor_ar_valid_in;
-    logic                exclusive_monitor_ar_ready_in;
-
-    // Exclusive monitor R output (pre R-spill)
-    ccu_ace_manager_r_t  exclusive_monitor_r;
-    logic                exclusive_monitor_r_valid;
-    logic                exclusive_monitor_r_ready;
 
     r_spill_entry_t      r_spill_in;
     r_spill_entry_t      r_spill_out;
@@ -120,7 +112,7 @@ module ccu_frontend
             );
 
         assign lock_stall = is_exclusive_sequence &&
-                            |exclusive_monitor_lock && !exclusive_monitor_lock[s];
+                            |exclusive_lock_i && !exclusive_lock_i[s];
 
         `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
         assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid && !lock_stall;
@@ -152,16 +144,15 @@ module ccu_frontend
             subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready && subordinate_resp_o[s].r.last;
 
         //  RACK-related metadata are used to:
-        //  - retire the AR dispatch FIFO entry (by id)
+        //  - retire the AR dispatch entry (by id)
         //  - clear the corresponding exclusive monitor entry
-        //  SC failure responses are locally generated, thus no entry should be cleared
-        //  once the RACK arrives
-        assign r_id_hit = exclusive_monitor_entry_id[s] == subordinate_resp_o[s].r.id;
+        //  SC failure responses are locally generated, their RACK still
+        //  retires the dispatch entry but must not clear the monitor
+        assign r_id_hit = exclusive_entry_id_i[s] == subordinate_resp_o[s].r.id;
 
         assign rack_fifo_wdata = '{
             id:        subordinate_resp_o[s].r.id,
-            real_txn:  !r_spill_out.sc_fail,
-            exclusive: r_id_hit && exclusive_monitor_lock[s] && !r_spill_out.sc_fail
+            exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail
         };
 
         assign rack_fifo_pop = subordinate_rack_i[s];
@@ -184,9 +175,9 @@ module ccu_frontend
             .pop_i      (rack_fifo_pop)
         );
 
-        assign rack_valid_o[s]              = subordinate_rack_i[s] && rack_fifo_rdata.real_txn;
-        assign rack_id_o[s]                 = {ccuCfg.subordinateIndexWidth'(s), rack_fifo_rdata.id};
-        assign exclusive_monitor_dealloc[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
+        assign rack_valid_o[s]        = subordinate_rack_i[s];
+        assign rack_id_o[s]           = {ccuCfg.subordinateIndexWidth'(s), rack_fifo_rdata.id};
+        assign exclusive_dealloc_o[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
     end
     //  }}}
 
@@ -233,9 +224,9 @@ module ccu_frontend
         .valid_i (arbiter_req.ar_valid),
         .ready_o (arbiter_resp.ar_ready),
         .data_i  (arbiter_req.ar),
-        .valid_o (exclusive_monitor_ar_valid_in),
-        .ready_i (exclusive_monitor_ar_ready_in),
-        .data_o  (exclusive_monitor_ar_in)
+        .valid_o (manager_req_o.ar_valid),
+        .ready_i (manager_resp_i.ar_ready),
+        .data_o  (manager_req_o.ar)
     );
 
     spill_register #(
@@ -282,8 +273,8 @@ module ccu_frontend
 
     // R channel: wrap R data + sc_fail through the spill register
     assign r_spill_in = '{
-        r:       exclusive_monitor_r,
-        sc_fail: exclusive_monitor_sc_fail
+        r:       manager_resp_i.r,
+        sc_fail: manager_r_sc_fail_i
     };
 
     spill_register #(
@@ -292,8 +283,8 @@ module ccu_frontend
     ) u_r_spill (
         .clk_i,
         .rst_ni,
-        .valid_i (exclusive_monitor_r_valid),
-        .ready_o (exclusive_monitor_r_ready),
+        .valid_i (manager_resp_i.r_valid),
+        .ready_o (manager_req_o.r_ready),
         .data_i  (r_spill_in),
         .valid_o (r_spill_valid_out),
         .ready_i (r_spill_ready_out),
@@ -303,34 +294,6 @@ module ccu_frontend
     `ACE_ASSIGN_R_STRUCT(arbiter_resp.r, r_spill_out.r)
     assign arbiter_resp.r_valid = r_spill_valid_out;
     assign r_spill_ready_out    = arbiter_req.r_ready;
-    //  }}}
-
-    // ACE exclusive monitor
-    //  {{{
-    ccu_exclusive_monitor #(
-        .ccuCfg       (ccuCfg),
-        .ccu_ace_ar_t (ccu_ace_manager_ar_t),
-        .ccu_ace_r_t  (ccu_ace_manager_r_t)
-    ) u_ccu_exclusive_monitor (
-        .clk_i,
-        .rst_ni,
-        .dealloc_i  (exclusive_monitor_dealloc),
-        .lock_o     (exclusive_monitor_lock),
-        .entry_id_o (exclusive_monitor_entry_id),
-        .sc_fail_o  (exclusive_monitor_sc_fail),
-        .ar_i       (exclusive_monitor_ar_in),
-        .ar_valid_i (exclusive_monitor_ar_valid_in),
-        .ar_ready_o (exclusive_monitor_ar_ready_in),
-        .ar_o       (manager_req_o.ar),
-        .ar_valid_o (manager_req_o.ar_valid),
-        .ar_ready_i (manager_resp_i.ar_ready),
-        .r_i        (manager_resp_i.r),
-        .r_valid_i  (manager_resp_i.r_valid),
-        .r_ready_o  (manager_req_o.r_ready),
-        .r_o        (exclusive_monitor_r),
-        .r_valid_o  (exclusive_monitor_r_valid),
-        .r_ready_i  (exclusive_monitor_r_ready)
-    );
     //  }}}
 
 endmodule

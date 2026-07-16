@@ -37,10 +37,16 @@ module ccu_read_engine
     output logic                                snoop_pipeline_r_ready_o,
     input  ccu_ace_r_t                          snoop_pipeline_r_i,
 
+    //  SC fail responses from the exclusive monitor
+    input  logic                                sc_fail_r_valid_i,
+    output logic                                sc_fail_r_ready_o,
+    input  ccu_ace_r_t                          sc_fail_r_i,
+
     //  Initiator R towards the frontend
     output logic                                r_valid_o,
     input  logic                                r_ready_i,
     output ccu_ace_r_t                          r_o,
+    output logic                                r_sc_fail_o,
 
     //  Memory AR/R
     output logic                                ar_valid_o,
@@ -58,51 +64,28 @@ module ccu_read_engine
     `AXI_ASSIGN_AR_STRUCT(ar_o, ar_i)
 //  }}}
 
-//  R channel: arbitrate memory reads and snoop-pipeline responses
+//  R channel: arbitrate memory reads, snoop-pipeline responses and SC fails
 //  {{{
     ccu_ace_r_t r_mem;
-    logic [1:0] r_arbiter_valid;
-    logic [1:0] r_arbiter_ready;
-    logic [1:0] mask_d;
-    logic [1:0] mask_q;
+    logic [1:0] r_idx;
 
     `AXI_TO_ACE_ASSIGN_R_STRUCT(r_mem, r_i)
 
-    assign r_arbiter_valid = {r_valid_i, snoop_pipeline_r_valid_i} & ~mask_q;
-    assign {r_ready_o, snoop_pipeline_r_ready_o} = r_arbiter_ready & ~mask_q;
-
-    always_comb begin : mask_comb
-        mask_d = mask_q;
-        if (r_valid_o && r_ready_i && r_o.last)
-            mask_d = '0;
-        else if (r_valid_o && r_ready_i)
-            mask_d = ~(r_arbiter_valid & r_arbiter_ready);
-    end
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) mask_q <= '0;
-        else         mask_q <= mask_d;
-    end
-
-    rr_arb_tree #(
-        .NumIn     (2),
-        .DataType  (ccu_ace_r_t),
-        .ExtPrio   (1'b0),
-        .AxiVldRdy (1'b1),
-        .LockIn    (1'b1),
-        .FairArb   (1'b1)
+    ccu_r_arbiter #(
+        .numInputs (3),
+        .r_t       (ccu_ace_r_t)
     ) u_r_arbiter (
         .clk_i,
         .rst_ni,
-        .flush_i (1'b0),
-        .rr_i    ('0),
-        .req_i   (r_arbiter_valid),
-        .gnt_o   (r_arbiter_ready),
-        .data_i  ({r_mem, snoop_pipeline_r_i}),
-        .req_o   (r_valid_o),
-        .gnt_i   (r_ready_i),
-        .data_o  (r_o),
-        .idx_o   ()
+        .valid_i ({sc_fail_r_valid_i, r_valid_i, snoop_pipeline_r_valid_i}),
+        .ready_o ({sc_fail_r_ready_o, r_ready_o, snoop_pipeline_r_ready_o}),
+        .r_i     ({sc_fail_r_i,       r_mem,     snoop_pipeline_r_i}),
+        .valid_o (r_valid_o),
+        .ready_i (r_ready_i),
+        .r_o     (r_o),
+        .idx_o   (r_idx)
     );
+
+    assign r_sc_fail_o = r_idx == 2'd2;
 //  }}}
 endmodule
