@@ -418,6 +418,8 @@ module ccu_snoop_pipeline
     logic                                   cd_engine_data_ready;
     logic                                   cd_read_valid;
     logic                                   cd_read_ready;
+    logic                                   cd_read_ordered_valid;
+    logic                                   cd_read_ordered_ready;
 
     stream_fifo #(
         .FALL_THROUGH (1'b0),
@@ -442,15 +444,16 @@ module ccu_snoop_pipeline
     logic cd_fork_ready;
     logic ack_branch_valid;
     logic ack_branch_ready;
-    logic aw_committed_q;
-    logic aw_committed_set;
-    logic aw_committed_clear;
-    logic aw_committed_d;
+    logic wb_ordered_q;
+    logic wb_ordered_set;
+    logic wb_ordered_clear;
+    logic wb_ordered_d;
     logic aw_handshake;
-    logic aw_token_valid;
-    logic aw_token_ready;
-    logic ordered_ack_valid;
-    logic ordered_ack_ready;
+    logic wb_token_sel;
+    logic wb_token_ready;
+    logic r_last;
+    logic r_mux_valid;
+    logic r_mux_ready;
 
     always_comb begin : write_engine_aw_comb
         //  Derive the writeback AW from the AR. The id is irrelevant here:
@@ -575,27 +578,17 @@ module ccu_snoop_pipeline
     ccu_ace_r_t ack_r;
     ccu_ace_r_t cd_read_r;
 
-    //  AW-committed token, joined with the ack branch to order the ack
-    assign aw_handshake   = write_engine_aw_valid_o && write_engine_aw_ready_i;
-    assign aw_token_valid = !cd_engine_fifo_rdata.forward_to_write || aw_committed_q;
+    //  Writeback-ordered token: set on the writeback AW handshake, gates R.last
+    assign aw_handshake = write_engine_aw_valid_o && write_engine_aw_ready_i;
 
-    assign aw_committed_set   = aw_handshake;
-    assign aw_committed_clear = cd_engine_fifo_valid && cd_engine_fifo_ready;
-    assign aw_committed_d     = !aw_committed_clear && (aw_committed_q || aw_committed_set);
+    assign wb_ordered_set   = aw_handshake;
+    assign wb_ordered_clear = wb_token_ready && r_last;
+    assign wb_ordered_d     = !wb_ordered_clear && (wb_ordered_q || wb_ordered_set);
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) aw_committed_q <= 1'b0;
-        else         aw_committed_q <= aw_committed_d;
+        if (!rst_ni) wb_ordered_q <= 1'b0;
+        else         wb_ordered_q <= wb_ordered_d;
     end
-
-    stream_join #(
-        .N_INP (2)
-    ) u_ack_join (
-        .inp_valid_i ({aw_token_valid, ack_branch_valid}),
-        .inp_ready_o ({aw_token_ready, ack_branch_ready}),
-        .oup_valid_o (ordered_ack_valid),
-        .oup_ready_i (ordered_ack_ready)
-    );
 
     assign ack_r = '{
         id:   cd_engine_fifo_rdata.ar.id,
@@ -619,11 +612,25 @@ module ccu_snoop_pipeline
         .DATA_T (ccu_ace_r_t),
         .N_INP  (2)
     ) u_read_r_mux (
-        .inp_data_i  ({ack_r,             cd_read_r}),
-        .inp_valid_i ({ordered_ack_valid, cd_read_valid}),
-        .inp_ready_o ({ordered_ack_ready, cd_read_ready}),
+        .inp_data_i  ({ack_r,            cd_read_r}),
+        .inp_valid_i ({ack_branch_valid, cd_read_valid}),
+        .inp_ready_o ({ack_branch_ready, cd_read_ready}),
         .inp_sel_i   (cd_engine_fifo_rdata.ack_to_read),
         .oup_data_o  (read_engine_r_o),
+        .oup_valid_o (r_mux_valid),
+        .oup_ready_i (r_mux_ready)
+    );
+
+    //  Hold the R response until the writeback AW is ordered (IHI0022E C6.5.3)
+    assign r_last       = cd_engine_fifo_rdata.ack_to_read || cd.last;
+    assign wb_token_sel = cd_engine_fifo_rdata.forward_to_write;
+
+    stream_join_dynamic #(
+        .N_INP (2)
+    ) u_r_order_join (
+        .inp_valid_i ({wb_ordered_q,   r_mux_valid}),
+        .inp_ready_o ({wb_token_ready, r_mux_ready}),
+        .sel_i       ({wb_token_sel,   1'b1}),
         .oup_valid_o (read_engine_r_valid_o),
         .oup_ready_i (read_engine_r_ready_i)
     );
