@@ -33,10 +33,7 @@ module ccu_frontend
     parameter type ccu_ace_subordinate_r_t    = logic,
     parameter type ccu_ace_subordinate_b_t    = logic,
     parameter type ccu_ace_subordinate_req_t  = logic,
-    parameter type ccu_ace_subordinate_resp_t = logic,
-
-    localparam int unsigned scoreboardEntryIndexWidth = ccuCfg.transactionIndexWidth
-
+    parameter type ccu_ace_subordinate_resp_t = logic
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -50,6 +47,8 @@ module ccu_frontend
     input   ccu_ace_manager_resp_t                                        manager_resp_i,
     //  Locally-generated SC fail response marker, aligned with manager R
     input   logic                                                         manager_r_sc_fail_i,
+    //  Scoreboard index of the transaction owning the manager R
+    input   logic [ccuCfg.transactionIndexWidth-1:0]                      manager_r_tid_i,
 
     //  Exclusive monitor state and dealloc (monitor lives downstream)
     input  logic [ccuCfg.u.numSubordinates-1:0]                           exclusive_lock_i,
@@ -57,19 +56,27 @@ module ccu_frontend
                  [ccuCfg.u.axiSubordinateIdWidth-1:0]                     exclusive_entry_id_i,
     output logic [ccuCfg.u.numSubordinates-1:0]                           exclusive_dealloc_o,
 
-    output logic [ccuCfg.u.numSubordinates-1:0]                           rack_valid_o,
-    output logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0] rack_id_o
+    //  Transactions whose RACK arrived this cycle; several may retire together
+    output logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free_o,
+
+    output logic                                                          pos_aw_valid_o,
+    output logic [ccuCfg.addressCheckWidth-1:0]                           pos_aw_slice_o,
+    input  logic                                                          pos_aw_full_i
 );
 
     typedef struct packed {
-        logic [ccuCfg.u.axiSubordinateIdWidth-1:0] id;
-        logic                                      exclusive;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
+        logic                                    exclusive;
     } rack_fifo_entry_t;
 
     typedef struct packed {
-        ccu_ace_manager_r_t r;
-        logic               sc_fail;
+        ccu_ace_manager_r_t                      r;
+        logic                                    sc_fail;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
     } r_spill_entry_t;
+
+    logic [ccuCfg.u.numSubordinates-1:0]
+          [ccuCfg.u.numShareableTransactions-1:0] rack_free;
 
     ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0] subordinate_req;
     ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0] subordinate_resp;
@@ -86,10 +93,8 @@ module ccu_frontend
     //  {{{
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_subordinate
 
-        logic is_exclusive_sequence;
-        logic lock_stall;
-
         logic             rack_fifo_full;
+        logic             rack_fifo_empty;
         rack_fifo_entry_t rack_fifo_wdata;
         rack_fifo_entry_t rack_fifo_rdata;
         logic             rack_fifo_push;
@@ -97,26 +102,9 @@ module ccu_frontend
 
         logic             r_id_hit;
 
-        assign is_exclusive_sequence =
-            ace_ar_is_exclusive_load (
-                subordinate_req_i[s].ar.bar[0],
-                subordinate_req_i[s].ar.domain,
-                subordinate_req_i[s].ar.snoop,
-                subordinate_req_i[s].ar.lock
-            ) ||
-            ace_ar_is_exclusive_store(
-                subordinate_req_i[s].ar.bar[0],
-                subordinate_req_i[s].ar.domain,
-                subordinate_req_i[s].ar.snoop,
-                subordinate_req_i[s].ar.lock
-            );
-
-        assign lock_stall = is_exclusive_sequence &&
-                            |exclusive_lock_i && !exclusive_lock_i[s];
-
         `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
-        assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid && !lock_stall;
-        assign subordinate_resp_o[s].ar_ready = subordinate_resp[s].ar_ready  && !lock_stall;
+        assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid;
+        assign subordinate_resp_o[s].ar_ready = subordinate_resp[s].ar_ready;
 
         `ACE_ASSIGN_R_STRUCT(subordinate_resp_o[s].r, subordinate_resp[s].r)
         assign subordinate_resp_o[s].r_valid = subordinate_resp[s].r_valid && !rack_fifo_full;
@@ -151,7 +139,7 @@ module ccu_frontend
         assign r_id_hit = exclusive_entry_id_i[s] == subordinate_resp_o[s].r.id;
 
         assign rack_fifo_wdata = '{
-            id:        subordinate_resp_o[s].r.id,
+            tid:       r_spill_out.tid,
             exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail
         };
 
@@ -167,7 +155,7 @@ module ccu_frontend
             .flush_i    (1'b0),
             .testmode_i (1'b0),
             .usage_o    (),
-            .empty_o    (),
+            .empty_o    (rack_fifo_empty),
             .full_o     (rack_fifo_full),
             .data_i     (rack_fifo_wdata),
             .push_i     (rack_fifo_push),
@@ -175,10 +163,38 @@ module ccu_frontend
             .pop_i      (rack_fifo_pop)
         );
 
-        assign rack_valid_o[s]        = subordinate_rack_i[s];
-        assign rack_id_o[s]           = {ccuCfg.subordinateIndexWidth'(s), rack_fifo_rdata.id};
+        assign rack_free[s] = subordinate_rack_i[s] ?
+            (ccuCfg.u.numShareableTransactions'(1) << rack_fifo_rdata.tid) : '0;
         assign exclusive_dealloc_o[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
+
+        // pragma translate_off
+        `ifndef VERILATOR
+        //  a RACK must match an outstanding R
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            subordinate_rack_i[s] |-> !rack_fifo_empty)
+            else $error("RACK without an outstanding R");
+        `endif
+        // pragma translate_on
     end
+
+    always_comb begin : rack_free_comb
+        rack_free_o = '0;
+        for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++)
+            rack_free_o |= rack_free[s];
+    end
+
+    // pragma translate_off
+    `ifndef VERILATOR
+    //  a transaction belongs to one subordinate, so no two RACKs may retire it
+    for (genvar a = 0; a < ccuCfg.u.numSubordinates; a++) begin : gen_rack_disjoint_assert
+        for (genvar b = a + 1; b < ccuCfg.u.numSubordinates; b++) begin : gen_pair
+            assert property (@(posedge clk_i) disable iff (!rst_ni)
+                (rack_free[a] & rack_free[b]) == '0)
+                else $error("two RACKs retire the same transaction");
+        end
+    end
+    `endif
+    // pragma translate_on
     //  }}}
 
     //  Point of Serialization (PoS)
@@ -229,14 +245,24 @@ module ccu_frontend
         .data_o  (manager_req_o.ar)
     );
 
+    logic aw_spill_valid;
+    logic aw_spill_ready;
+
+    //  Stall PoS write acceptance while the engine pending filter is at the bound
+    assign aw_spill_valid        = arbiter_req.aw_valid && !pos_aw_full_i;
+    assign arbiter_resp.aw_ready = aw_spill_ready      && !pos_aw_full_i;
+
+    assign pos_aw_valid_o = arbiter_req.aw_valid && arbiter_resp.aw_ready;
+    assign pos_aw_slice_o = arbiter_req.aw.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+
     spill_register #(
         .T      (ccu_ace_manager_aw_t),
         .Bypass (!ccuCfg.u.frontendPipeAw)
     ) u_aw_spill (
         .clk_i,
         .rst_ni,
-        .valid_i (arbiter_req.aw_valid),
-        .ready_o (arbiter_resp.aw_ready),
+        .valid_i (aw_spill_valid),
+        .ready_o (aw_spill_ready),
         .data_i  (arbiter_req.aw),
         .valid_o (manager_req_o.aw_valid),
         .ready_i (manager_resp_i.aw_ready),
@@ -274,7 +300,8 @@ module ccu_frontend
     // R channel: wrap R data + sc_fail through the spill register
     assign r_spill_in = '{
         r:       manager_resp_i.r,
-        sc_fail: manager_r_sc_fail_i
+        sc_fail: manager_r_sc_fail_i,
+        tid:     manager_r_tid_i
     };
 
     spill_register #(

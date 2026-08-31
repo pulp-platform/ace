@@ -19,14 +19,12 @@ package ccu_pkg;
         int unsigned    numSubordinates;
         //  Number of shareable simultaneous inflight transactions
         int unsigned    numShareableTransactions;
+        //  ARs admitted but not yet dispatched
+        int unsigned    numDispatchQueue;
         //  Number of simultaneous write transactions
         int unsigned    numWriteTransactions;
         //  Number of simultaneous inflight snoop transactions
         int unsigned    numSnoopTransactions;
-        //  Number of AR dispatch FIFOs (colliding addresses share a FIFO)
-        int unsigned    numArFifos;
-        //  Depth of each AR dispatch FIFO
-        int unsigned    arFifoDepth;
         //  Address bits hashed to index the write-engine inflight FIFOs
         int unsigned    writeHashWidth;
         //  AXI/ACE parameters
@@ -74,8 +72,6 @@ package ccu_pkg;
         int unsigned cachelineAxiTransfers;
         //  Transaction index width
         int unsigned transactionIndexWidth;
-        //  AR dispatch FIFO index width
-        int unsigned arFifoIndexWidth;
         //  Number of write-engine inflight FIFOs (2**writeHashWidth)
         int unsigned numWriteFifos;
         //  AXI data size
@@ -98,12 +94,39 @@ package ccu_pkg;
         p.writeTransactionIndexWidth = u.numWriteTransactions > 1 ? $clog2(u.numWriteTransactions) : 1;
         p.cachelineAxiTransfers      = u.cachelineWidth / u.axiDataWidth;
         p.transactionIndexWidth      = u.numShareableTransactions > 1 ? $clog2(u.numShareableTransactions) : 1;
-        p.arFifoIndexWidth           = u.numArFifos > 1 ? $clog2(u.numArFifos) : 1;
         p.numWriteFifos              = 2 ** u.writeHashWidth;
         p.axiDataSize                = u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
 
         return p;
+    endfunction
+
+    //  Decoded once at admission and carried with the transaction, so no two
+    //  stages can disagree about what an AR is
+    typedef struct packed {
+        logic              is_no_snoop;
+        logic              accepts_dirty;
+        logic              accepts_dirty_shared;
+        logic              accepts_shared;
+        logic              is_clean_or_make;
+        logic              is_exclusive_load;
+        logic              is_exclusive_store;
+        ace_pkg::acsnoop_t acsnoop;
+    } ccu_ar_flags_t;
+
+    function automatic ccu_ar_flags_t ccu_ar_decode(logic arbar0, ace_pkg::axdomain_t ardomain,
+                                                    ace_pkg::arsnoop_t arsnoop, logic arlock);
+        return '{
+            is_no_snoop         : ace_pkg::ace_is_read_no_snoop(arbar0, ardomain, arsnoop),
+            accepts_dirty       : ace_pkg::ace_ar_accepts_dirty(arbar0, ardomain, arsnoop),
+            accepts_dirty_shared: ace_pkg::ace_ar_accepts_dirty_shared(arbar0, ardomain, arsnoop),
+            accepts_shared      : ace_pkg::ace_ar_accepts_shared(arbar0, ardomain, arsnoop),
+            is_clean_or_make    : ace_pkg::ace_ar_is_clean(arbar0, ardomain, arsnoop) ||
+                                  ace_pkg::ace_ar_is_make(arbar0, ardomain, arsnoop),
+            is_exclusive_load   : ace_pkg::ace_ar_is_exclusive_load(arbar0, ardomain, arsnoop, arlock),
+            is_exclusive_store  : ace_pkg::ace_ar_is_exclusive_store(arbar0, ardomain, arsnoop, arlock),
+            acsnoop             : ace_pkg::ace_ar_acsnoop_map(arbar0, ardomain, arsnoop)
+        };
     endfunction
 
     //  Performance events

@@ -77,12 +77,16 @@ module ccu_top
     `ACE_TYPEDEF_RESP_T(ccu_ace_resp_t, ccu_ace_b_t, ccu_ace_r_t)
 //  }}}
 
-logic [ccuCfg.u.numSubordinates-1:0]                            rack_valid;
-logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0]  rack_id;
+logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free;
+logic [ccuCfg.u.numShareableTransactions-1:0]
+      [ccuCfg.axiCcuIdWidth-1:0]                                sb_id;
 
-logic                                                           ar_dispatch_aw_check;
-logic [ccuCfg.addressCheckWidth-1:0]                            ar_dispatch_aw_slice;
-logic                                                           ar_dispatch_aw_hazard;
+logic                                                           pos_aw_valid;
+logic [ccuCfg.addressCheckWidth-1:0]                            pos_aw_slice;
+logic                                                           pos_aw_full;
+logic                                                           mem_ar_addr_check;
+logic [ccuCfg.addressCheckWidth-1:0]                            mem_ar_addr_slice;
+logic                                                           mem_ar_stall;
 
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_valid;
 logic          [ccuCfg.u.numSubordinates-1:0] snoop_ac_ready;
@@ -115,6 +119,15 @@ ccu_ace_ar_t                         ar;
 logic                                dispatch_ar_valid;
 logic                                dispatch_ar_ready;
 ccu_ace_ar_t                         dispatch_ar;
+ccu_ar_flags_t                       dispatch_ar_flags;
+ccu_ar_flags_t                       ar_flags;
+
+logic [ccuCfg.transactionIndexWidth-1:0] dispatch_ar_tid;
+logic [ccuCfg.transactionIndexWidth-1:0] ar_tid;
+logic [ccuCfg.transactionIndexWidth-1:0] snoop_read_engine_ar_tid;
+logic [ccuCfg.transactionIndexWidth-1:0] snoop_read_engine_r_tid;
+logic [ccuCfg.transactionIndexWidth-1:0] sc_fail_r_tid;
+logic [ccuCfg.transactionIndexWidth-1:0] manager_r_tid;
 
 logic [ccuCfg.u.numSubordinates-1:0] exclusive_lock;
 logic [ccuCfg.u.numSubordinates-1:0]
@@ -162,11 +175,14 @@ ccu_snoop_pipeline_events_t perf_events;
         .manager_req_o              (frontend_req),
         .manager_resp_i             (frontend_resp),
         .manager_r_sc_fail_i        (exclusive_sc_fail),
+        .manager_r_tid_i            (manager_r_tid),
         .exclusive_lock_i           (exclusive_lock),
         .exclusive_entry_id_i       (exclusive_entry_id),
         .exclusive_dealloc_o        (exclusive_dealloc),
-        .rack_valid_o               (rack_valid),
-        .rack_id_o                  (rack_id)
+        .rack_free_o                (rack_free),
+        .pos_aw_valid_o             (pos_aw_valid),
+        .pos_aw_slice_o             (pos_aw_slice),
+        .pos_aw_full_i              (pos_aw_full)
     );
 //  }}}
 
@@ -182,14 +198,12 @@ ccu_snoop_pipeline_events_t perf_events;
         .ar_valid_i       (frontend_req.ar_valid),
         .ar_ready_o       (frontend_resp.ar_ready),
         .ar_o             (dispatch_ar),
+        .ar_flags_o       (dispatch_ar_flags),
+        .ar_tid_o         (dispatch_ar_tid),
         .ar_valid_o       (dispatch_ar_valid),
         .ar_ready_i       (dispatch_ar_ready),
-        .aw_addr_check_o  (ar_dispatch_aw_check),
-        .aw_addr_slice_o  (ar_dispatch_aw_slice),
-        .aw_addr_hazard_i (ar_dispatch_aw_hazard),
-        .excl_lock_i      (exclusive_lock),
-        .rack_valid_i     (rack_valid),
-        .rack_id_i        (rack_id)
+        .free_mask_i      (rack_free),
+        .sb_id_o          (sb_id)
     );
 //  }}}
 
@@ -207,12 +221,17 @@ ccu_snoop_pipeline_events_t perf_events;
         .lock_o     (exclusive_lock),
         .entry_id_o (exclusive_entry_id),
         .ar_i       (dispatch_ar),
+        .ar_flags_i (dispatch_ar_flags),
+        .ar_tid_i   (dispatch_ar_tid),
         .ar_valid_i (dispatch_ar_valid),
         .ar_ready_o (dispatch_ar_ready),
         .ar_o       (ar),
+        .ar_flags_o (ar_flags),
+        .ar_tid_o   (ar_tid),
         .ar_valid_o (ar_valid),
         .ar_ready_i (ar_ready),
         .r_o        (sc_fail_r),
+        .r_tid_o    (sc_fail_r_tid),
         .r_valid_o  (sc_fail_r_valid),
         .r_ready_i  (sc_fail_r_ready)
     );
@@ -236,6 +255,8 @@ ccu_snoop_pipeline_events_t perf_events;
         .rst_ni,
         .domain_map_i             (domain_map_i),
         .ar_i                     (ar),
+        .ar_flags_i               (ar_flags),
+        .ar_tid_i                 (ar_tid),
         .ar_valid_i               (ar_valid),
         .ar_ready_o               (ar_ready),
         .ac_valid_o               (snoop_ac_valid),
@@ -256,9 +277,11 @@ ccu_snoop_pipeline_events_t perf_events;
         .read_engine_ar_valid_o   (snoop_read_engine_ar_valid),
         .read_engine_ar_ready_i   (snoop_read_engine_ar_ready),
         .read_engine_ar_o         (snoop_read_engine_ar),
+        .read_engine_ar_tid_o     (snoop_read_engine_ar_tid),
         .read_engine_r_valid_o    (snoop_read_engine_r_valid),
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
         .read_engine_r_o          (snoop_read_engine_r),
+        .read_engine_r_tid_o      (snoop_read_engine_r_tid),
         .events_o                 (perf_events)
     );
 
@@ -323,9 +346,12 @@ ccu_snoop_pipeline_events_t perf_events;
         .b_ready_o                (manager_cut_req.b_ready),
         .b_i                      (manager_cut_resp.b),
         .wack_i                   (subordinate_wack_i),
-        .read_engine_addr_check_i (ar_dispatch_aw_check),
-        .read_engine_addr_hit_o   (ar_dispatch_aw_hazard),
-        .read_engine_addr_slice_i (ar_dispatch_aw_slice)
+        .pos_aw_valid_i           (pos_aw_valid),
+        .pos_aw_slice_i           (pos_aw_slice),
+        .pos_aw_full_o            (pos_aw_full),
+        .mem_ar_addr_check_i      (mem_ar_addr_check),
+        .mem_ar_addr_slice_i      (mem_ar_addr_slice),
+        .mem_ar_stall_o           (mem_ar_stall)
     );
 //  }}}
 
@@ -342,22 +368,30 @@ ccu_snoop_pipeline_events_t perf_events;
         .ar_valid_i               (snoop_read_engine_ar_valid),
         .ar_ready_o               (snoop_read_engine_ar_ready),
         .ar_i                     (snoop_read_engine_ar),
+        .ar_tid_i                 (snoop_read_engine_ar_tid),
         .snoop_pipeline_r_valid_i (snoop_read_engine_r_valid),
         .snoop_pipeline_r_ready_o (snoop_read_engine_r_ready),
         .snoop_pipeline_r_i       (snoop_read_engine_r),
+        .snoop_pipeline_r_tid_i   (snoop_read_engine_r_tid),
         .sc_fail_r_valid_i        (sc_fail_r_valid),
         .sc_fail_r_ready_o        (sc_fail_r_ready),
         .sc_fail_r_i              (sc_fail_r),
+        .sc_fail_r_tid_i          (sc_fail_r_tid),
+        .sb_id_i                  (sb_id),
         .r_valid_o                (frontend_resp.r_valid),
         .r_ready_i                (frontend_req.r_ready),
         .r_o                      (frontend_resp.r),
+        .r_tid_o                  (manager_r_tid),
         .r_sc_fail_o              (exclusive_sc_fail),
         .ar_valid_o               (manager_cut_req.ar_valid),
         .ar_ready_i               (manager_cut_resp.ar_ready),
         .ar_o                     (manager_cut_req.ar),
         .r_valid_i                (manager_cut_resp.r_valid),
         .r_ready_o                (manager_cut_req.r_ready),
-        .r_i                      (manager_cut_resp.r)
+        .r_i                      (manager_cut_resp.r),
+        .mem_ar_addr_check_o      (mem_ar_addr_check),
+        .mem_ar_addr_slice_o      (mem_ar_addr_slice),
+        .mem_ar_stall_i           (mem_ar_stall)
     );
 //  }}}
 

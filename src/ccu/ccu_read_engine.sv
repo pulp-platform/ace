@@ -27,25 +27,33 @@ module ccu_read_engine
     input  logic                                clk_i,
     input  logic                                rst_ni,
 
-    //  Read request from the snoop pipeline (already hazard-free)
+    //  Read request from the snoop pipeline
     input  logic                                ar_valid_i,
     output logic                                ar_ready_o,
     input  ccu_axi_ar_t                         ar_i,
+    input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
 
     //  Initiator R sourced by the snoop pipeline (read data and acks)
     input  logic                                snoop_pipeline_r_valid_i,
     output logic                                snoop_pipeline_r_ready_o,
     input  ccu_ace_r_t                          snoop_pipeline_r_i,
+    input  logic [ccuCfg.transactionIndexWidth-1:0] snoop_pipeline_r_tid_i,
 
     //  SC fail responses from the exclusive monitor
     input  logic                                sc_fail_r_valid_i,
     output logic                                sc_fail_r_ready_o,
     input  ccu_ace_r_t                          sc_fail_r_i,
+    input  logic [ccuCfg.transactionIndexWidth-1:0] sc_fail_r_tid_i,
+
+    //  Scoreboard ids, indexed by tid to restore the id of a memory read
+    input  logic [ccuCfg.u.numShareableTransactions-1:0]
+                 [ccuCfg.axiCcuIdWidth-1:0]     sb_id_i,
 
     //  Initiator R towards the frontend
     output logic                                r_valid_o,
     input  logic                                r_ready_i,
     output ccu_ace_r_t                          r_o,
+    output logic [ccuCfg.transactionIndexWidth-1:0] r_tid_o,
     output logic                                r_sc_fail_o,
 
     //  Memory AR/R
@@ -54,22 +62,54 @@ module ccu_read_engine
     output ccu_axi_ar_t                         ar_o,
     input  logic                                r_valid_i,
     output logic                                r_ready_o,
-    input  ccu_axi_r_t                          r_i
+    input  ccu_axi_r_t                          r_i,
+
+    //  Memory AR gate: stalled while a same-line write is in PoS .. B
+    output logic                                mem_ar_addr_check_o,
+    output logic [ccuCfg.addressCheckWidth-1:0] mem_ar_addr_slice_o,
+    input  logic                                mem_ar_stall_i
 );
 
-//  AR channel: straight through to memory
+//  AR channel: to memory, held while a same-line write is pending (C6.5.1)
 //  {{{
-    assign ar_valid_o = ar_valid_i;
-    assign ar_ready_o = ar_ready_i;
-    `AXI_ASSIGN_AR_STRUCT(ar_o, ar_i)
+    logic ar_committed_q;
+    logic ar_allow;
+
+    assign mem_ar_addr_check_o = ar_valid_i;
+    assign mem_ar_addr_slice_o = ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+
+    //  Once asserted the stall is ignored: only a crossing writeback of a
+    //  manager answering its snoop without data (C5.2.3) could genuinely
+    //  rise here, which the managers are required not to do
+    assign ar_allow   = ar_committed_q || !mem_ar_stall_i;
+    assign ar_valid_o = ar_valid_i && ar_allow;
+    assign ar_ready_o = ar_ready_i && ar_allow;
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) ar_committed_q <= 1'b0;
+        else         ar_committed_q <= ar_valid_o && !ar_ready_i;
+    end
+
+    //  The tid is unique among inflight reads, so it serves as the memory ARID
+    //  and comes back on RID, which is what makes the R side lookup-free
+    always_comb begin : mem_ar_comb
+        `AXI_SET_AR_STRUCT(ar_o, ar_i)
+        ar_o.id = ar_tid_i;
+    end
 //  }}}
 
 //  R channel: arbitrate memory reads, snoop-pipeline responses and SC fails
 //  {{{
     ccu_ace_r_t r_mem;
+    logic [ccuCfg.transactionIndexWidth-1:0] r_mem_tid;
     logic [1:0] r_idx;
 
-    `AXI_TO_ACE_ASSIGN_R_STRUCT(r_mem, r_i)
+    assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
+
+    always_comb begin : mem_r_comb
+        `AXI_TO_ACE_SET_R_STRUCT(r_mem, r_i)
+        r_mem.id = sb_id_i[r_mem_tid];
+    end
 
     ccu_r_arbiter #(
         .numInputs (3),
@@ -86,6 +126,31 @@ module ccu_read_engine
         .idx_o   (r_idx)
     );
 
+    always_comb begin : r_tid_comb
+        case (r_idx)
+            2'd2:    r_tid_o = sc_fail_r_tid_i;
+            2'd1:    r_tid_o = r_mem_tid;
+            default: r_tid_o = snoop_pipeline_r_tid_i;
+        endcase
+    end
+
     assign r_sc_fail_o = r_idx == 2'd2;
+//  }}}
+
+//  Assertions
+//  {{{
+    // pragma translate_off
+    `ifndef VERILATOR
+    //  a pending write may never appear under a committed memory AR
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        ar_committed_q |-> !(mem_ar_stall_i && !$past(mem_ar_stall_i)))
+        else $error("same-line write became pending under a committed memory AR");
+
+    //  the memory AR is stable while stalled
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        ar_valid_o && !ar_ready_i |=> ar_valid_o && $stable(ar_o))
+        else $error("memory AR unstable while stalled");
+    `endif
+    // pragma translate_on
 //  }}}
 endmodule

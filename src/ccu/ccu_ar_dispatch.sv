@@ -15,13 +15,10 @@
 //! AR dispatch
 //
 //  A flat pool of at most `numEntries` inflight ARs. Same-address ARs are
-//  serialized by an age matrix (an entry may dispatch only when no older,
-//  still-live, same-hash entry exists), while different addresses dispatch in
-//  parallel. An entry retires on its RACK. The dispatched AR is held back
-//  while it collides with an inflight write (RAW hazard against the write
-//  engine) or, for registering exclusive ARs, while another core holds the
-//  exclusive lock (IHI0022E C9.3.1). Storage is bounded by the number of
-//  inflight transactions, not by the FIFO grid it replaces.
+//  serialized by predecessor chains (an entry links behind the current tail
+//  of its address chain and may dispatch once its predecessor retired),
+//  while different addresses dispatch in parallel. An entry retires on its
+//  RACK. Storage is bounded by the number of inflight transactions.
 module ccu_ar_dispatch
     import ace_pkg::*;
     import ccu_pkg::*;
@@ -29,7 +26,9 @@ module ccu_ar_dispatch
     parameter ccu_config_t  ccuCfg          = '{default: '0},
     parameter type          ccu_ace_ar_t    = logic,
     localparam int unsigned numEntries      = ccuCfg.u.numShareableTransactions,
-    localparam int unsigned entryIndexWidth = ccuCfg.transactionIndexWidth
+    localparam int unsigned sbIdxWidth      = ccuCfg.transactionIndexWidth,
+    localparam int unsigned numQueue        = ccuCfg.u.numDispatchQueue,
+    localparam int unsigned queueIdxWidth   = numQueue > 1 ? $clog2(numQueue) : 1
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -41,146 +40,170 @@ module ccu_ar_dispatch
 
     //  Dispatched AR (to the snoop pipeline)
     output ccu_ace_ar_t ar_o,
+    output ccu_ar_flags_t ar_flags_o,
+    output logic [sbIdxWidth-1:0] ar_tid_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
 
-    //  RAW hazard check against the write engine inflight addresses
-    output logic                                aw_addr_check_o,
-    output logic [ccuCfg.addressCheckWidth-1:0] aw_addr_slice_o,
-    input  logic                                aw_addr_hazard_i,
+    //  Entries whose RACK arrived this cycle, one bit per scoreboard entry
+    input  logic [numEntries-1:0] free_mask_i,
 
-    //  Exclusive monitor lock
-    input  logic [ccuCfg.u.numSubordinates-1:0] excl_lock_i,
-
-    //  RACK of the dispatched ARs, matched by id to retire the entry
-    input  logic [ccuCfg.u.numSubordinates-1:0]                          rack_valid_i,
-    input  logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.axiCcuIdWidth-1:0] rack_id_i
+    //  Scoreboard ids, indexed by tid to restore the id of a memory read
+    output logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0] sb_id_o
 );
 
-//  Pool storage
+//  Dispatch queue: holds the AR only until it is dispatched
 //  {{{
-    logic        [numEntries-1:0]      valid_q,    valid_d;
-    logic        [numEntries-1:0]      inflight_q, inflight_d;
-    ccu_ace_ar_t [numEntries-1:0]      entry_ar_q;
-    //  older_q[i][j] = entry i is older than entry j
-    logic        [numEntries-1:0][numEntries-1:0]  older_q,    older_d;
+    typedef struct packed {
+        ccu_ace_ar_t             ar;
+        logic [sbIdxWidth-1:0]   sb_idx;
+    } queue_entry_t;
 
-    logic [numEntries-1:0]             eligible;
-    logic [numEntries-1:0]             gnt;
-    logic [numEntries-1:0]             dispatch;
-    logic [numEntries-1:0]             retire;
-    logic [entryIndexWidth-1:0]        alloc_slot;
-    logic                              pool_full;
-    logic                              alloc;
-    logic                              arb_req;
-    logic                              arb_gnt;
-    logic                              committed_q;
-    logic                              hazard_drop;
-    logic                              excl_blocked;
-    logic [ccuCfg.subordinateIndexWidth-1:0] ar_sub_idx;
+    queue_entry_t [numQueue-1:0]      queue_q;
+    logic         [numQueue-1:0]      queue_valid_q, queue_valid_d;
+    logic         [queueIdxWidth-1:0] queue_alloc_idx;
+    logic                             queue_full;
+
+    logic [numQueue-1:0] eligible;
+    logic [numQueue-1:0] gnt;
+    logic [numQueue-1:0] dispatch;
+    queue_entry_t        issue_entry;
+
+    logic alloc;
+    logic arb_req;
+    logic arb_gnt;
+
+    lzc #(
+        .WIDTH (numQueue),
+        .MODE  (1'b0)
+    ) u_queue_lzc (
+        .in_i    (~queue_valid_q),
+        .cnt_o   (queue_alloc_idx),
+        .empty_o (queue_full)
+    );
 //  }}}
 
-//  Allocation: pick a free slot; ready when the pool is not full
+//  Scoreboard: one entry per inflight transaction, freed on its RACK
 //  {{{
-    lzc #(
-        .WIDTH (numEntries),
-        .MODE  (1'b0)
-    ) u_alloc_lzc (
-        .in_i    (~valid_q),
-        .cnt_o   (alloc_slot),
-        .empty_o (pool_full)
+    logic [numEntries-1:0]                             sb_valid;
+    logic [numEntries-1:0][ccuCfg.addressCheckWidth-1:0] sb_slice;
+    logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0]     sb_id;
+    logic [sbIdxWidth-1:0]                             sb_alloc_idx;
+    logic                                              sb_full;
+
+    ccu_scoreboard #(
+        .numEntries (numEntries),
+        .sliceWidth (ccuCfg.addressCheckWidth),
+        .idWidth    (ccuCfg.axiCcuIdWidth),
+        .numAlloc   (1),
+        .numQueries (0)
+    ) u_scoreboard (
+        .clk_i,
+        .rst_ni,
+        .alloc_valid_i (alloc),
+        .alloc_slice_i (ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb]),
+        .alloc_id_i    (ar_i.id),
+        .alloc_idx_o   (sb_alloc_idx),
+        .full_o        (sb_full),
+        .free_mask_i   (free_mask_i),
+        .query_slice_i ('0),
+        .query_hit_o   (),
+        .valid_o       (sb_valid),
+        .slice_o       (sb_slice),
+        .id_o          (sb_id)
     );
 
-    assign ar_ready_o = !pool_full;
+    assign sb_id_o = sb_id;
+
+    //  Both resources are reserved before the AR is accepted
+    assign ar_ready_o = !queue_full && !sb_full;
     assign alloc      = ar_valid_i && ar_ready_o;
 //  }}}
 
-//  Age matrix: on allocation the new slot is younger than every live entry
+//  Same-address chains: link behind the tail on allocation, become the tail
 //  {{{
-    always_comb begin : older_comb
-        older_d = older_q;
+    logic [numEntries-1:0]                    tail_q,       tail_d;
+    logic [numEntries-1:0]                    pred_valid_q, pred_valid_d;
+    logic [numEntries-1:0][sbIdxWidth-1:0]    pred_idx_q,   pred_idx_d;
+    logic [numEntries-1:0]                    tail_match;
+    logic [sbIdxWidth-1:0]                    tail_idx;
+
+    for (genvar e = 0; e < numEntries; e++) begin : gen_tail_match
+        assign tail_match[e] = sb_valid[e] && tail_q[e] && !free_mask_i[e] &&
+            sb_slice[e] == ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+    end
+
+    onehot_to_bin #(
+        .ONEHOT_WIDTH (numEntries)
+    ) u_tail_onehot_to_bin (
+        .onehot (tail_match),
+        .bin    (tail_idx)
+    );
+
+    always_comb begin : chain_comb
+        tail_d       = tail_q;
+        pred_valid_d = pred_valid_q;
+        pred_idx_d   = pred_idx_q;
+
+        //  A retiring predecessor releases its successor
+        for (int unsigned e = 0; e < numEntries; e++) begin
+            if (pred_valid_q[e] && free_mask_i[pred_idx_q[e]])
+                pred_valid_d[e] = 1'b0;
+        end
+
         if (alloc) begin
-            for (int unsigned i = 0; i < numEntries; i++) begin
-                older_d[alloc_slot][i] = 1'b0;         //  new slot is oldest of none
-                older_d[i][alloc_slot] = valid_q[i];   //  live entries are older
-            end
+            tail_d[sb_alloc_idx]       = 1'b1;
+            pred_valid_d[sb_alloc_idx] = |tail_match;
+            pred_idx_d[sb_alloc_idx]   = tail_idx;
+            if (|tail_match) tail_d[tail_idx] = 1'b0;
         end
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) older_q <= '0;
-        else         older_q <= older_d;
+        if (!rst_ni) begin
+            tail_q       <= '0;
+            pred_valid_q <= '0;
+            pred_idx_q   <= '0;
+        end else begin
+            tail_q       <= tail_d;
+            pred_valid_q <= pred_valid_d;
+            pred_idx_q   <= pred_idx_d;
+        end
     end
 //  }}}
 
-//  Per-entry logic
+//  Queue entry logic
 //  {{{
-    for (genvar e = 0; e < numEntries; e++) begin : gen_entry
-        logic [ccuCfg.addressCheckWidth-1:0] hash;
-        logic [numEntries-1:0]               blockers;
-        logic                                alloc_this;
-        logic                                rack_hit;
+    for (genvar e = 0; e < numQueue; e++) begin : gen_queue
+        logic alloc_this;
 
-        assign hash       = entry_ar_q[e].addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-        assign alloc_this = alloc && alloc_slot == entryIndexWidth'(e);
+        assign alloc_this  = alloc && queue_alloc_idx == queueIdxWidth'(e);
+        //  An entry may dispatch once nothing precedes it on its address
+        assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx];
 
-        //  Blocked by any older, still-live, same-hash entry
-        for (genvar j = 0; j < numEntries; j++) begin : gen_block
-            logic [ccuCfg.addressCheckWidth-1:0] hash_j;
-            assign hash_j      = entry_ar_q[j].addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-            assign blockers[j] = valid_q[j] && older_q[j][e] && hash_j == hash;
-        end
-
-        assign eligible[e] = valid_q[e] && !inflight_q[e] && ~|blockers;
-
-        //  RACK retirement (match by id)
-        always_comb begin : rack_comb
-            rack_hit = 1'b0;
-            for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++) begin
-                if (rack_valid_i[s] && rack_id_i[s] == entry_ar_q[e].id)
-                    rack_hit = 1'b1;
-            end
-        end
-        assign retire[e] = valid_q[e] && inflight_q[e] && rack_hit;
-
-        always_comb begin : entry_comb
-            valid_d[e]    = valid_q[e];
-            inflight_d[e] = inflight_q[e];
-            unique case (1'b1)
-                alloc_this: begin
-                    valid_d[e]    = 1'b1;
-                    inflight_d[e] = 1'b0;
-                end
-                retire[e]: begin
-                    valid_d[e]    = 1'b0;
-                    inflight_d[e] = 1'b0;
-                end
-                dispatch[e]: begin
-                    inflight_d[e] = 1'b1;
-                end
-                default: ;
-            endcase
+        always_comb begin : queue_entry_comb
+            queue_valid_d[e] = queue_valid_q[e];
+            if (dispatch[e])       queue_valid_d[e] = 1'b0;
+            else if (alloc_this)   queue_valid_d[e] = 1'b1;
         end
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
-                valid_q[e]    <= 1'b0;
-                inflight_q[e] <= 1'b0;
-                entry_ar_q[e] <= '0;
+                queue_valid_q[e] <= 1'b0;
+                queue_q[e]       <= '0;
             end else begin
-                valid_q[e]    <= valid_d[e];
-                inflight_q[e] <= inflight_d[e];
-                if (alloc_this) entry_ar_q[e] <= ar_i;
+                queue_valid_q[e] <= queue_valid_d[e];
+                if (alloc_this) queue_q[e] <= '{ar: ar_i, sb_idx: sb_alloc_idx};
             end
         end
     end
 //  }}}
 
-//  Dispatch arbitration and RAW hazard gating
+//  Dispatch arbitration
 //  {{{
     rr_arb_tree #(
-        .NumIn     (numEntries),
-        .DataType  (ccu_ace_ar_t),
+        .NumIn     (numQueue),
+        .DataType  (queue_entry_t),
         .ExtPrio   (1'b0),
         .AxiVldRdy (1'b1),
         .LockIn    (1'b1),
@@ -192,50 +215,66 @@ module ccu_ar_dispatch
         .rr_i    ('0),
         .req_i   (eligible),
         .gnt_o   (gnt),
-        .data_i  (entry_ar_q),
+        .data_i  (queue_q),
         .req_o   (arb_req),
         .gnt_i   (arb_gnt),
-        .data_o  (ar_o),
+        .data_o  (issue_entry),
         .idx_o   ()
     );
 
-    assign aw_addr_check_o = arb_req;
-    assign aw_addr_slice_o = ar_o.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+    assign ar_o = issue_entry.ar;
+    assign ar_tid_o = issue_entry.sb_idx;
+    assign ar_flags_o = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) committed_q <= 1'b0;
-        else         committed_q <= ar_valid_o && !ar_ready_i;
-    end
-
-    //  Registering exclusive AR while another core holds the lock
-    assign ar_sub_idx = ar_o.id[ccuCfg.axiCcuIdWidth-1 -: ccuCfg.subordinateIndexWidth];
-
-    assign excl_blocked =
-        (ace_ar_is_exclusive_load (ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock) ||
-         ace_ar_is_exclusive_store(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock)) &&
-        |excl_lock_i && !excl_lock_i[ar_sub_idx];
-
-    assign hazard_drop = (aw_addr_hazard_i && !committed_q) || excl_blocked;
-
-    stream_filter u_ar_hazard_drop (
-        .valid_i (arb_req),
-        .ready_o (arb_gnt),
-        .drop_i  (hazard_drop),
-        .valid_o (ar_valid_o),
-        .ready_i (ar_ready_i)
-    );
-
-    assign dispatch = hazard_drop ? '0 : gnt;
+    assign ar_valid_o = arb_req;
+    assign arb_gnt    = ar_ready_i;
+    assign dispatch   = gnt;
 //  }}}
 
 //  Assertions
 //  {{{
     // pragma translate_off
     `ifndef VERILATOR
-    //  lock can never rise under a committed AR
+    //  managers must not reuse an id across inflight transactions
+    for (genvar e = 0; e < numEntries; e++) begin : gen_unique_id_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            alloc |-> !(sb_valid[e] && sb_id[e] == ar_i.id))
+            else $error("allocating an AR with an id already inflight");
+    end
+
+    //  every address chain has a single tail
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        committed_q |-> !(excl_blocked && !$past(excl_blocked)))
-        else $error("excl_blocked rose under a committed AR");
+        alloc |-> $onehot0(tail_match))
+        else $error("multiple tails match one address chain");
+
+    //  a live waiter's predecessor is live
+    for (genvar e = 0; e < numEntries; e++) begin : gen_chain_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            (sb_valid[e] && pred_valid_q[e]) |-> sb_valid[pred_idx_q[e]])
+            else $error("chained entry waits on a dead predecessor");
+    end
+
+    //  a retiring entry must be live, and must not still sit in the queue
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        (free_mask_i & ~sb_valid) == '0)
+        else $error("RACK retires an entry that is not live");
+
+    for (genvar e = 0; e < numQueue; e++) begin : gen_queue_retire_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            queue_valid_q[e] |-> !free_mask_i[queue_q[e].sb_idx])
+            else $error("RACK retires an entry still awaiting dispatch");
+    end
+
+    //  an AR is accepted only with both a queue slot and a scoreboard entry
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        alloc |-> (!queue_full && !sb_full))
+        else $error("AR accepted without reserving both resources");
+
+    //  a dispatched entry leaves the queue
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        |dispatch |-> $onehot(dispatch))
+        else $error("more than one queue entry dispatched");
+
     `endif
     // pragma translate_on
 //  }}}

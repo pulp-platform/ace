@@ -21,11 +21,11 @@ sources:
   - src/snoop_intf.sv
   # CCU package
   - src/ccu/ccu_pkg.sv
+  - src/ccu/ccu_scoreboard.sv
     # CCU generated regs
   - src/ccu/regs/generated/ccu_csr_pkg.sv
   - src/ccu/regs/generated/ccu_csr.sv
   # CCU source files
-  - src/ccu/ccu_fifo.sv
   - src/ccu/ccu_csr_wrap.sv
   - src/ccu/ccu_exclusive_monitor.sv
   - src/ccu/ccu_frontend_arbiter.sv

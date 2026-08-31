@@ -35,6 +35,8 @@ module ccu_snoop_pipeline
     input domain_map_t  [ccuCfg.u.numSubordinates-1:0]       domain_map_i,
 
     input  ccu_ace_ar_t                                      ar_i,
+    input  ccu_ar_flags_t                                    ar_flags_i,
+    input  logic [ccuCfg.transactionIndexWidth-1:0]          ar_tid_i,
     input  logic                                             ar_valid_i,
     output logic                                             ar_ready_o,
 
@@ -60,9 +62,11 @@ module ccu_snoop_pipeline
     output logic                                             read_engine_ar_valid_o,
     input  logic                                             read_engine_ar_ready_i,
     output ccu_axi_ar_t                                      read_engine_ar_o,
+    output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_ar_tid_o,
     output logic                                             read_engine_r_valid_o,
     input  logic                                             read_engine_r_ready_i,
     output ccu_ace_r_t                                       read_engine_r_o,
+    output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_r_tid_o,
 
     output ccu_snoop_pipeline_events_t                       events_o
 );
@@ -186,26 +190,17 @@ module ccu_snoop_pipeline
     logic                                           stage0_valid;
     logic                                           stage0_ready;
 
-    assign ac_snoop = ace_ar_acsnoop_map(
-        ar_i.bar[0],
-        ar_i.domain,
-        ar_i.snoop
-    );
-
-    assign ar_is_read_no_snoop = ace_is_read_no_snoop(
-        ar_i.bar[0],
-        ar_i.domain,
-        ar_i.snoop
-    );
+    assign ac_snoop            = ar_flags_i.acsnoop;
+    assign ar_is_read_no_snoop = ar_flags_i.is_no_snoop;
 
     assign subordinate_ar_index = ar_i.id[ccuCfg.u.axiSubordinateIdWidth+:ccuCfg.subordinateIndexWidth];
 
+    //  System-domain lines cannot be cached (C3-163), so like NonShareable they snoop nobody
     always_comb begin : ace_sel_comb
         unique case (ar_i.domain)
-            NonShareable  : ac_sel = '0;
             InnerShareable: ac_sel = domain_map_i[subordinate_ar_index].inner;
             OuterShareable: ac_sel = domain_map_i[subordinate_ar_index].outer;
-            default:        ac_sel = ~domain_map_i[subordinate_ar_index].initiator;
+            default:        ac_sel = '0;
         endcase
     end
 
@@ -222,7 +217,7 @@ module ccu_snoop_pipeline
         .rst_ni,
         .valid_i     (ar_valid_i),
         .ready_o     (ar_ready_o),
-        .sel_i       ({!ar_is_read_no_snoop, 1'b1}),
+        .sel_i       ({|ac_sel, 1'b1}),
         .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     ({ac_valid, stage0_valid}),
@@ -234,6 +229,8 @@ module ccu_snoop_pipeline
 //  {{{
     typedef struct packed {
         ccu_ace_ar_t                                ar;
+        ccu_ar_flags_t                              flags;
+        logic [ccuCfg.transactionIndexWidth-1:0]    tid;
         logic        [ccuCfg.u.numSubordinates-1:0] sel;
     } stage1_fifo_entry_t;
 
@@ -242,10 +239,15 @@ module ccu_snoop_pipeline
     stage1_fifo_entry_t                  stage1_fifo_wdata;
     stage1_fifo_entry_t                  stage1_fifo_rdata;
     logic                                accepts_dirty;
+    logic                                accepts_dirty_shared;
     logic                                accepts_shared;
+    logic                                rresp_is_shared;
+    logic                                rresp_pass_dirty;
     logic                                is_clean_or_make;
     ccu_snoop_cr_t                       cr;
     logic [ccuCfg.u.numSubordinates-1:0] cd_data_transfer;
+    logic [ccuCfg.u.numSubordinates-1:0] cd_data_source;
+    logic [ccuCfg.u.numSubordinates-1:0] cd_data_discard;
     logic                                engine_fork_valid;
     logic                                engine_fork_ready;
     logic                                read_engine_sel;
@@ -259,7 +261,9 @@ module ccu_snoop_pipeline
     logic                                cd_engine_resp_dirty;
 
     assign stage1_fifo_wdata = '{
-        ar : ar_i,
+        ar   : ar_i,
+        flags: ar_flags_i,
+        tid  : ar_tid_i,
         sel: ac_sel
     };
 
@@ -302,27 +306,10 @@ module ccu_snoop_pipeline
         end
     end
 
-    assign accepts_dirty = ace_ar_accepts_dirty(
-        stage1_fifo_rdata.ar.bar[0],
-        stage1_fifo_rdata.ar.domain,
-        stage1_fifo_rdata.ar.snoop
-    );
-
-    assign accepts_shared = ace_ar_accepts_shared(
-        stage1_fifo_rdata.ar.bar[0],
-        stage1_fifo_rdata.ar.domain,
-        stage1_fifo_rdata.ar.snoop
-    );
-
-    assign is_clean_or_make = ace_ar_is_clean(
-        stage1_fifo_rdata.ar.bar[0],
-        stage1_fifo_rdata.ar.domain,
-        stage1_fifo_rdata.ar.snoop
-    ) || ace_ar_is_make(
-        stage1_fifo_rdata.ar.bar[0],
-        stage1_fifo_rdata.ar.domain,
-        stage1_fifo_rdata.ar.snoop
-    );
+    assign accepts_dirty        = stage1_fifo_rdata.flags.accepts_dirty;
+    assign accepts_dirty_shared = stage1_fifo_rdata.flags.accepts_dirty_shared;
+    assign accepts_shared       = stage1_fifo_rdata.flags.accepts_shared;
+    assign is_clean_or_make     = stage1_fifo_rdata.flags.is_clean_or_make;
 
     always_comb begin : engine_sel_comb
         read_engine_sel            = 1'b0;
@@ -345,7 +332,7 @@ module ccu_snoop_pipeline
                 cd_engine_sel             = 1'b1;
                 cd_engine_forward_to_read = !is_clean_or_make;
                 cd_engine_ack_to_read     = is_clean_or_make;
-                if (cr.resp.PassDirty && !accepts_dirty) begin
+                if (cr.resp.PassDirty && !rresp_pass_dirty) begin
                     //  The initiator cannot accept dirty data, writeback
                     cd_engine_forward_to_write = 1'b1;
                 end
@@ -372,23 +359,47 @@ module ccu_snoop_pipeline
         `AXI_SET_AR_STRUCT(read_engine_ar_o, stage1_fifo_rdata.ar)
     end
 
-    assign cd_engine_resp_shared = cr.resp.IsShared  && accepts_shared;
-    assign cd_engine_resp_dirty  = cr.resp.PassDirty && accepts_dirty;
+    assign read_engine_ar_tid_o = stage1_fifo_rdata.tid;
+
+    //  A peer keeping its copy narrows who may accept the dirty data (C4-199)
+    assign rresp_is_shared  = cr.resp.IsShared && accepts_shared;
+    assign rresp_pass_dirty = cr.resp.PassDirty &&
+                              (cr.resp.IsShared ? accepts_dirty_shared : accepts_dirty);
+
+    assign cd_engine_resp_shared = rresp_is_shared;
+    assign cd_engine_resp_dirty  = rresp_pass_dirty;
+
+    //  Responders hold the same line: the lowest-indexed one supplies it and
+    //  the others' beats are read off their CD fifos and dropped
+    always_comb begin : cd_data_role_comb
+        cd_data_source = '0;
+        if (cd_engine_forward_to_read || cd_engine_forward_to_write) begin
+            for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++) begin
+                if (cd_data_transfer[s]) begin
+                    cd_data_source[s] = 1'b1;
+                    break;
+                end
+            end
+        end
+    end
+
+    assign cd_data_discard = cd_data_transfer & ~cd_data_source;
 //  }}}
 
 //  CD engine
 //  {{{
-    localparam int unsigned cachelineTransferIndexWidth = ccuCfg.cachelineAxiTransfers > 1 ?
-                                                          $clog2(ccuCfg.cachelineAxiTransfers) : 1;
+    localparam int unsigned cachelineTransferIndexWidth = $clog2(ccuCfg.cachelineAxiTransfers + 1);
 
     typedef struct packed {
-        logic [ccuCfg.u.numSubordinates-1:0]     sel;
+        logic [ccuCfg.u.numSubordinates-1:0]     source;
+        logic [ccuCfg.u.numSubordinates-1:0]     discard;
         logic                                    forward_to_read;
         logic                                    forward_to_write;
         logic                                    ack_to_read;
         logic                                    resp_shared;
         logic                                    resp_dirty;
         ccu_ace_ar_t                             ar;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
     } cd_engine_fifo_entry_t;
 
     logic                  cd_engine_fifo_valid;
@@ -397,20 +408,25 @@ module ccu_snoop_pipeline
     cd_engine_fifo_entry_t cd_engine_fifo_rdata;
 
     assign cd_engine_fifo_wdata  = '{
-        sel:              cd_data_transfer,
+        source:           cd_data_source,
+        discard:          cd_data_discard,
         forward_to_read:  cd_engine_forward_to_read,
         forward_to_write: cd_engine_forward_to_write,
         ack_to_read:      cd_engine_ack_to_read,
         resp_shared:      cd_engine_resp_shared,
         resp_dirty:       cd_engine_resp_dirty,
-        ar:               stage1_fifo_rdata.ar
+        ar:               stage1_fifo_rdata.ar,
+        tid:              stage1_fifo_rdata.tid
     };
 
-    logic                                   cd_global_counter_en;
-    logic [cachelineTransferIndexWidth-1:0] cd_global_counter_q;
 
     rresp_t                                 cd_r_resp;
-    logic [ccuCfg.u.numSubordinates-1:0]    cd_up_to_date;
+    logic [ccuCfg.u.numSubordinates-1:0]    cd_head_source;
+    logic [ccuCfg.u.numSubordinates-1:0]    cd_head_discard;
+    logic [ccuCfg.u.numSubordinates-1:0]    cd_done;
+    logic [ccuCfg.u.numSubordinates-1:0]    cd_discard;
+    logic                                   cd_entry_pop;
+    logic                                   cd_all_done;
     logic [ccuCfg.u.numSubordinates-1:0]    cd_valid;
     logic [ccuCfg.u.numSubordinates-1:0]    cd_ready;
     ccu_snoop_cd_t                          cd;
@@ -472,56 +488,45 @@ module ccu_snoop_pipeline
         write_engine_aw_o.user   = cd_engine_fifo_rdata.ar.user;
     end
 
-    assign cd_valid      = cd_fifo_valid & cd_engine_fifo_rdata.sel;
-    assign cd_fifo_ready = cd_ready      & cd_engine_fifo_rdata.sel;
+    assign cd_head_source  = cd_engine_fifo_valid ? cd_engine_fifo_rdata.source  : '0;
+    assign cd_head_discard = cd_engine_fifo_valid ? cd_engine_fifo_rdata.discard : '0;
 
-    assign cd_engine_data_valid = |(cd_valid & cd_up_to_date);
-    assign cd_global_counter_en = cd_engine_data_valid && cd_engine_data_ready;
+    assign cd_entry_pop = cd_engine_fifo_valid && cd_engine_fifo_ready;
+    assign cd_all_done  = &(cd_done | ~(cd_head_source | cd_head_discard));
 
-    counter #(
-        .WIDTH (cachelineTransferIndexWidth)
-    ) u_cd_global_counter (
-        .clk_i,
-        .rst_ni,
-        .clear_i     (1'b0),
-        .en_i        (cd_global_counter_en),
-        .load_i      (1'b0),
-        .down_i      (1'b0),
-        .d_i         ('0),
-        .q_o         (cd_global_counter_q),
-        .overflow_o  ()
-    );
+    //  One beat counter per master, cleared with the entry
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_counter
 
-    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_local_counter
-
-        logic                                   cd_local_counter_en;
-        logic [cachelineTransferIndexWidth-1:0] cd_local_counter_q;
+        logic                                   cd_counter_en;
+        logic [cachelineTransferIndexWidth-1:0] cd_counter_q;
 
         counter #(
             .WIDTH (cachelineTransferIndexWidth)
-        ) u_cd_local_counter (
+        ) u_cd_counter (
             .clk_i,
             .rst_ni,
-            .clear_i     (1'b0),
-            .en_i        (cd_local_counter_en),
+            .clear_i     (cd_entry_pop),
+            .en_i        (cd_counter_en),
             .load_i      (1'b0),
             .down_i      (1'b0),
             .d_i         ('0),
-            .q_o         (cd_local_counter_q),
+            .q_o         (cd_counter_q),
             .overflow_o  ()
         );
-        assign cd_local_counter_en = cd_valid[s] && cd_ready[s];
-        assign cd_up_to_date[s]    = cd_local_counter_q == cd_global_counter_q;
-        assign cd_ready[s]         = !cd_up_to_date[s] || cd_engine_data_ready;
+        assign cd_done[s]    = cd_counter_q == ccuCfg.cachelineAxiTransfers;
+        assign cd_valid[s]   = cd_fifo_valid[s] && cd_head_source[s]  && !cd_done[s];
+        assign cd_discard[s] = cd_fifo_valid[s] && cd_head_discard[s] && !cd_done[s];
+        assign cd_ready[s]   = cd_discard[s] || (cd_valid[s] && cd_engine_data_ready);
+        assign cd_counter_en = cd_fifo_valid[s] && cd_ready[s];
     end
 
+    assign cd_fifo_ready        = cd_ready;
+    assign cd_engine_data_valid = |cd_valid;
+
     always_comb begin : cd_mux_comb
-        cd = cd_fifo_rdata[0];
+        cd = '0;
         for (int s = 0; s < ccuCfg.u.numSubordinates; s++) begin
-            if (cd_valid[s] && cd_up_to_date[s]) begin
-                cd = cd_fifo_rdata[s];
-                break;
-            end
+            if (cd_valid[s]) cd = cd_fifo_rdata[s];
         end
     end
 
@@ -536,11 +541,11 @@ module ccu_snoop_pipeline
         .ready_o     (cd_engine_fifo_ready),
         .sel_i       ({cd_engine_fifo_rdata.ack_to_read,
                        cd_engine_fifo_rdata.forward_to_write,
-                       |cd_engine_fifo_rdata.sel}),
+                       |cd_engine_fifo_rdata.source}),
         .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     ({ack_branch_valid, write_engine_aw_valid_o, cd_fork_valid}),
-        .ready_i     ({ack_branch_ready, write_engine_aw_ready_i, cd_fork_ready && cd.last})
+        .ready_i     ({ack_branch_ready, write_engine_aw_ready_i, cd_all_done})
     );
 
     //  Per-beat CD data fork to the initiator (read) and/or the writeback W,
@@ -620,6 +625,8 @@ module ccu_snoop_pipeline
         .oup_valid_o (r_mux_valid),
         .oup_ready_i (r_mux_ready)
     );
+
+    assign read_engine_r_tid_o = cd_engine_fifo_rdata.tid;
 
     //  Hold the R response until the writeback AW is ordered (IHI0022E C6.5.3)
     assign r_last       = cd_engine_fifo_rdata.ack_to_read || cd.last;
@@ -702,5 +709,68 @@ module ccu_snoop_pipeline
         if (!rst_ni) events_o <= '0;
         else         events_o <= events_d;
     end
+//  }}}
+
+//  Assertions
+//  {{{
+    // pragma translate_off
+    `ifndef VERILATOR
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        ar_valid_i && ar_i.domain inside {NonShareable, System} |-> ac_sel == '0)
+        else $error("non-shareable domain selected a snoop target");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_engine_valid |-> !(rresp_is_shared && rresp_pass_dirty && !accepts_dirty_shared))
+        else $error("IsShared and PassDirty returned to a transaction accepting only one");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        engine_fork_valid && cr.resp.DataTransfer && cr.resp.PassDirty && !rresp_pass_dirty
+        |-> cd_engine_forward_to_write)
+        else $error("dirty snoop data dropped without a writeback");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_engine_valid |-> $onehot0(cd_data_source))
+        else $error("more than one CD source");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_engine_valid |->
+        (cd_data_source | cd_data_discard) == cd_data_transfer &&
+        (cd_data_source & cd_data_discard) == '0)
+        else $error("CD responders not partitioned into source and discard");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_engine_data_valid |-> $onehot(cd_valid))
+        else $error("more than one CD source forwarded in one beat");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_entry_pop |=> cd_done == '0)
+        else $error("CD beat counters not cleared with the entry");
+
+    //  the carried flags still describe the AR they were decoded from
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        stage1_fifo_valid |-> stage1_fifo_rdata.flags ==
+            ccu_ar_decode(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain,
+                          stage1_fifo_rdata.ar.snoop,  stage1_fifo_rdata.ar.lock))
+        else $error("carried AR flags disagree with the AR");
+
+    //  a new writeback AW must never find a stale token
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        aw_handshake |-> !wb_ordered_q)
+        else $error("stale writeback-ordered token");
+
+    //  the initiator R is stable while stalled
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        read_engine_r_valid_o && !read_engine_r_ready_i |=>
+        read_engine_r_valid_o && $stable(read_engine_r_o))
+        else $error("R channel unstable while stalled");
+
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_ac_assert
+        //  the AC channel is stable while stalled
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            ac_valid_o[s] && !ac_ready_i[s] |=> ac_valid_o[s] && $stable(ac_o[s]))
+            else $error("AC channel unstable while stalled");
+    end
+    `endif
+    // pragma translate_on
 //  }}}
 endmodule

@@ -32,15 +32,20 @@ module ccu_exclusive_monitor
                  [ccuCfg.u.axiSubordinateIdWidth-1:0] entry_id_o,
 
     input  ccu_ace_ar_t ar_i,
+    input  ccu_ar_flags_t ar_flags_i,
+    input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
     input  logic        ar_valid_i,
     output logic        ar_ready_o,
 
     output ccu_ace_ar_t ar_o,
+    output ccu_ar_flags_t ar_flags_o,
+    output logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
 
     //  Locally-generated SC fail responses
     output ccu_ace_r_t  r_o,
+    output logic [ccuCfg.transactionIndexWidth-1:0] r_tid_o,
     output logic        r_valid_o,
     input  logic        r_ready_i
 );
@@ -50,8 +55,9 @@ typedef struct packed {
 } exclusive_monitor_entry_t;
 
 typedef struct packed {
-    logic [ccuCfg.axiCcuIdWidth-1:0]       id;
-    logic [ccuCfg.u.axiUserWidth-1:0]      user;
+    logic [ccuCfg.axiCcuIdWidth-1:0]          id;
+    logic [ccuCfg.u.axiUserWidth-1:0]         user;
+    logic [ccuCfg.transactionIndexWidth-1:0]  tid;
 } r_register_entry_t;
 
 exclusive_monitor_entry_t [ccuCfg.u.numSubordinates-1:0] entry_q, entry_d;
@@ -66,13 +72,8 @@ logic is_exclusive_store;
 logic is_exclusive_sequence;
 logic exclusive_store_will_fail;
 
-assign is_exclusive_load = ace_ar_is_exclusive_load(
-    ar_i.bar[0], ar_i.domain, ar_i.snoop, ar_i.lock
-);
-
-assign is_exclusive_store = ace_ar_is_exclusive_store(
-    ar_i.bar[0], ar_i.domain, ar_i.snoop, ar_i.lock
-);
+assign is_exclusive_load  = ar_flags_i.is_exclusive_load;
+assign is_exclusive_store = ar_flags_i.is_exclusive_store;
 
 assign is_exclusive_sequence     = is_exclusive_load || is_exclusive_store;
 assign exclusive_store_will_fail = is_exclusive_store && !valid_q[ar_sub_idx];
@@ -83,8 +84,14 @@ assign ar_handshake = ar_valid_i && ar_ready_o;
 logic exclusive_store_pass;
 assign exclusive_store_pass = ar_handshake && is_exclusive_store && valid_q[ar_sub_idx];
 
+//  C9.3.1: registration is deferred while another manager's passing
+//  Exclusive Store awaits its RACK; unregistered sequences fail their
+//  Exclusive Store and are re-issued by the manager (C9.3.4 false fail)
+logic registration_blocked;
+assign registration_blocked = |lock_q && !lock_q[ar_sub_idx];
+
 logic reservation_set;
-assign reservation_set = ar_handshake && is_exclusive_sequence;
+assign reservation_set = ar_handshake && is_exclusive_sequence && !registration_blocked;
 
 always_comb begin
     entry_d = entry_q;
@@ -139,12 +146,15 @@ stream_demux #(
 );
 
 `ACE_ASSIGN_AR_STRUCT(ar_o, ar_i)
+assign ar_flags_o = ar_flags_i;
+assign ar_tid_o   = ar_tid_i;
 
 r_register_entry_t r_register_wdata, r_register_rdata;
 
 assign r_register_wdata = '{
     id:   ar_i.id,
-    user: ar_i.user
+    user: ar_i.user,
+    tid:  ar_tid_i
 };
 
 stream_register #(
@@ -170,4 +180,22 @@ assign r_o = '{
     user: r_register_rdata.user
 };
 
+assign r_tid_o = r_register_rdata.tid;
+
+//  Assertions
+//  {{{
+// pragma translate_off
+`ifndef VERILATOR
+//  at most one manager holds the lock
+assert property (@(posedge clk_i) disable iff (!rst_ni)
+    $onehot0(lock_q))
+    else $error("multiple exclusive locks held");
+
+//  a dealloc must target a held lock
+assert property (@(posedge clk_i) disable iff (!rst_ni)
+    (dealloc_i & ~lock_q) == '0)
+    else $error("dealloc without a held lock");
+`endif
+// pragma translate_on
+//  }}}
 endmodule
