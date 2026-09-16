@@ -332,7 +332,10 @@ module ccu_frontend
 
     //  One AW sits at the demux at a time, so the two legs never overlap
     assign aw_remove_valid = wb_remove_valid || evict_aw_valid;
-    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx];
+    //  The mirror may only lose the token once the write is visible to the PoS
+    //  hazard check, or a peer's read both misses the snoop and misses the
+    //  stall. The fork drops a served leg's valid, so this orders the two
+    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx] && !write_pos_valid;
     assign evict_aw_ready  = aw_remove_ready && !evict_b_valid;
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_aw_remove

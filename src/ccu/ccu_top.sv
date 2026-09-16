@@ -176,6 +176,9 @@ logic           [ccuCfg.u.numSubordinates-1:0] sf_backinval_ready;
 backinval_req_t [ccuCfg.u.numSubordinates-1:0] backinval_req;
 backinval_req_t                                maint_req;
 logic                                          maint_valid, maint_ready;
+logic           [ccuCfg.u.numSubordinates-1:0] sf_backinval_pend;
+logic           [ccuCfg.u.numSubordinates-1:0] sf_backinval_hazard;
+logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
 
 //  Frontend
 //  {{{
@@ -250,6 +253,10 @@ logic                                          maint_valid, maint_ready;
         .sf_insert_valid_o (sf_insert_valid),
         .sf_insert_addr_o  (sf_insert_addr),
         .sf_insert_ready_i (sf_insert_ready),
+        .bi_addr_i         (sf_backinval_addr),
+        .bi_req_i          (sf_backinval_valid),
+        .bi_pend_i         (sf_backinval_pend),
+        .bi_hazard_o       (sf_backinval_hazard),
         .sb_id_o           (sb_id)
     );
 //  }}}
@@ -280,6 +287,7 @@ logic                                          maint_valid, maint_ready;
         .backinval_valid_o  (sf_backinval_valid),
         .backinval_addr_o   (sf_backinval_addr),
         .backinval_ready_i  (sf_backinval_ready),
+        .backinval_pend_o   (sf_backinval_pend),
         .remove_miss_o      (sf_remove_miss)
     );
 
@@ -299,12 +307,17 @@ logic                                          maint_valid, maint_ready;
         .clk_i,
         .rst_ni,
         .inp_data_i  (backinval_req),
-        .inp_valid_i (sf_backinval_valid),
-        .inp_ready_o (sf_backinval_ready),
+        .inp_valid_i (bi_arb_valid),
+        .inp_ready_o (bi_arb_ready),
         .oup_data_o  (maint_req),
         .oup_valid_o (maint_valid),
         .oup_ready_i (maint_ready)
     );
+
+    //  A hazarded attempt waits at the arbiter input, so being taken is what
+    //  commits it: nothing downstream can refuse it again
+    assign bi_arb_valid       = sf_backinval_valid & ~sf_backinval_hazard;
+    assign sf_backinval_ready = bi_arb_ready & bi_arb_valid;
 
     end else begin : gen_no_snoop_filter
 
@@ -314,6 +327,7 @@ logic                                          maint_valid, maint_ready;
         assign sf_cr_remove_ready  = 1'b1;
         assign sf_remove_miss      = '0;
         assign sf_backinval_ready  = '0;
+        assign sf_backinval_pend   = '0;
         assign maint_valid         = 1'b0;
         assign maint_req           = '0;
 

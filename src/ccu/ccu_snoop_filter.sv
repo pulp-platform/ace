@@ -62,6 +62,10 @@ module ccu_snoop_filter
     output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
     input  logic [numSub-1:0]               backinval_ready_i,
 
+    //  The attempt outlives the request: still valid means still at the
+    //  arbiter, pending without valid means the snoop is out
+    output logic [numSub-1:0]               backinval_pend_o,
+
     //  A removal that found nothing; legal, but worth observing
     output logic [numSub-1:0]               remove_miss_o
 );
@@ -147,8 +151,9 @@ module ccu_snoop_filter
         //  Rotating victim: the policy only has to not keep picking one way
         logic [wayW-1:0]      victim_q, victim_d;
         logic                 backinval_q, backinval_d;
-        logic [tagW-1:0]      backinval_tag_q, backinval_tag_d;
-        logic [setW-1:0]      backinval_set_q, backinval_set_d;
+        logic                 backinval_pend_q, backinval_pend_d;
+        logic                 backinval_done;
+        logic [addrW-1:0]     backinval_addr_q, backinval_addr_d;
 
         logic [setW-1:0]      lookup_set_q;
         logic [tagW-1:0]      lookup_tag_q;
@@ -320,45 +325,38 @@ module ccu_snoop_filter
             endcase
         end
 
-        //  A stuck insert retries rather than forcing a way, so the mirror
-        //  stays exact. It terminates: a full set implies a removal already on
-        //  its way, and stalled inserts back-pressure the AR path via `sb_free`
+        assign ins_gnt[s]      = (op_write &&  op_insert_q) || insert_hit;
+        assign rem_ready[s]    = (op_write && !op_insert_q) || remove_miss_o[s];
+        assign remove_miss_o[s] = state_q == READ && !op_insert_q && way_none;
+
         assign backinval_valid_o[s] = backinval_q;
-        assign backinval_addr_o[s]  =
-            addrW'({backinval_tag_q, backinval_set_q, {offW{1'b0}}});
+        assign backinval_pend_o[s]  = backinval_pend_q;
+        assign backinval_addr_o[s]  = backinval_addr_q;
 
-            assign ins_gnt[s]         = (op_write && op_insert_q) || insert_hit;
+        //  The arbiter taking the request says nothing about the way it was
+        //  meant to free, so one attempt stands until this set moves
+        assign backinval_done = ins_gnt[s] ||
+            (rem_ready[s] && op_set_q == backinval_addr_q[offW +: setW]);
 
-        //  A redundant insert retires without writing. If a removal for that
-        //  same line is waiting, it deletes the token afterwards and the master
-        //  is left holding a line the mirror does not know about
-        //  pragma translate_off
-        `ifndef VERILATOR
-        assert property (@(posedge clk_i) disable iff (!rst_ni)
-            !(insert_hit && rem_valid[s]
-              && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
-            else $error("insert retired as a hit with a removal pending for it");
-        `endif
-        //  pragma translate_on
-        assign rem_ready[s]           = (op_write && !op_insert_q) || remove_miss_o[s];
-        assign remove_miss_o[s]       = state_q == READ && !op_insert_q && way_none;
-
-        //  One request in flight per table, latched so it is stable under a
-        //  held valid and the victim cannot move
+        //  A stuck insert retries rather than forcing a way, so the mirror
+        //  stays exact. One request in flight per table, latched so it is
+        //  stable under a held valid and the victim cannot move
         always_comb begin : backinval_comb
-            victim_d        = victim_q;
+            victim_d          = victim_q;
+            backinval_d       = backinval_q;
+            backinval_pend_d  = backinval_pend_q;
+            backinval_addr_d  = backinval_addr_q;
 
-            backinval_d     = backinval_q;
-            backinval_tag_d = backinval_tag_q;
-            backinval_set_d = backinval_set_q;
+            if (backinval_q && backinval_ready_i[s]) backinval_d = 1'b0;
 
-            if (backinval_q && backinval_ready_i[s]) begin
-                backinval_d = 1'b0;
-                victim_d    = (victim_q == wayW'(numWays - 1)) ? '0 : victim_q + 1;
-            end else if (insert_stuck && !backinval_q) begin
-                backinval_d     = 1'b1;
-                backinval_tag_d = sram_rdata[victim_q].tag;
-                backinval_set_d = op_set_q;
+            if (backinval_pend_q) begin
+                backinval_pend_d = !backinval_done;
+            end else if (insert_stuck) begin
+                backinval_d      = 1'b1;
+                backinval_pend_d = 1'b1;
+                backinval_addr_d = addrW'({sram_rdata[victim_q].tag, op_set_q,
+                                           {offW{1'b0}}});
+                victim_d         = (victim_q == wayW'(numWays - 1)) ? '0 : victim_q + 1;
             end
         end
 
@@ -385,20 +383,20 @@ module ccu_snoop_filter
                 op_set_q        <= '0;
                 op_tag_q        <= '0;
                 op_way_q        <= '0;
-                victim_q        <= '0;
-                backinval_q     <= 1'b0;
-                backinval_tag_q <= '0;
-                backinval_set_q <= '0;
+                victim_q         <= '0;
+                backinval_q      <= 1'b0;
+                backinval_pend_q <= 1'b0;
+                backinval_addr_q <= '0;
             end else begin
                 state_q         <= state_d;
                 op_insert_q     <= op_insert_d;
                 op_set_q        <= op_set_d;
                 op_tag_q        <= op_tag_d;
                 op_way_q        <= op_way_d;
-                victim_q        <= victim_d;
-                backinval_q     <= backinval_d;
-                backinval_tag_q <= backinval_tag_d;
-                backinval_set_q <= backinval_set_d;
+                victim_q         <= victim_d;
+                backinval_q      <= backinval_d;
+                backinval_pend_q <= backinval_pend_d;
+                backinval_addr_q <= backinval_addr_d;
             end
         end
 
@@ -407,6 +405,19 @@ module ccu_snoop_filter
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             state_q == READ |-> $onehot0(way_match))
             else $error("a set holds the same line twice");
+
+        //  A redundant insert retires without writing. If a removal for that
+        //  same line is waiting, it deletes the token afterwards and the master
+        //  is left holding a line the mirror does not know about
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            !(insert_hit && rem_valid[s]
+              && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
+            else $error("insert retired as a hit with a removal pending for it");
+
+        //  One attempt at a time, or the arbiter sees a moving payload
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            backinval_q |-> backinval_pend_q)
+            else $error("a back-invalidation outlived its attempt");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             !init_done_q |=> table_present[s])

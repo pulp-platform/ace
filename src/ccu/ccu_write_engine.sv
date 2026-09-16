@@ -100,9 +100,11 @@ module ccu_write_engine
     logic writeback_aw_ready;
     logic wb_full;
 
-    //  Cap accepted writebacks to bound the pending filter occupancy
+    //  The arbiter has LockIn, so a request may not be retracted once made.
+    //  The writeback takes the high-priority allocation port, which leaves the
+    //  PoS port one entry short and makes `wb_full` unable to rise under it
     assign writeback_aw_valid   = writeback_aw_valid_i && !wb_full;
-    assign writeback_aw_ready_o = writeback_aw_ready   && !wb_full;
+    assign writeback_aw_ready_o = writeback_aw_ready;
 
     rr_arb_tree #(
         .NumIn     (2),
@@ -155,11 +157,11 @@ module ccu_write_engine
 
     //  The PoS accept and the writeback issue are independent, so each needs
     //  its own free index in the same cycle
-    assign pend_alloc_valid = {wb_push, pos_aw_valid_i};
+    assign pend_alloc_valid = {pos_aw_valid_i, wb_push};
     assign pend_free_mask   = b_free ? (numPending'(1) << b_entry.sb_idx) : '0;
 
-    assign pos_aw_full_o = pend_full[0];
-    assign wb_full       = pend_full[1];
+    assign pos_aw_full_o = pend_full[1];
+    assign wb_full       = pend_full[0];
 
     ccu_scoreboard #(
         .numEntries (numPending),
@@ -214,7 +216,7 @@ module ccu_write_engine
         .full_o     (pos_idx_full),
         .empty_o    (pos_idx_empty),
         .usage_o    (),
-        .data_i     (pend_alloc_idx[0]),
+        .data_i     (pend_alloc_idx[1]),
         .push_i     (pos_aw_valid_i),
         .data_o     (pos_idx_head),
         .pop_i      (pos_idx_pop)
@@ -233,7 +235,7 @@ module ccu_write_engine
     assign fifo_wdata = '{
         id:     aw_arb.id[ccuCfg.axiCcuIdWidth-1:0],
         is_wb:  aw_is_writeback,
-        sb_idx: aw_is_writeback ? pend_alloc_idx[1] : pos_idx_head
+        sb_idx: aw_is_writeback ? pend_alloc_idx[0] : pos_idx_head
     };
 
     assign b_hash = b_i.id[hashWidth-1:0];
@@ -356,11 +358,11 @@ module ccu_write_engine
     `ifndef VERILATOR
     //  an allocation is gated by its own full, so neither port may overrun
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        pos_aw_valid_i |-> !pend_full[0])
+        pos_aw_valid_i |-> !pend_full[1])
         else $error("PoS AW accepted with no pending entry");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        wb_push |-> !pend_full[1])
+        wb_push |-> !pend_full[0])
         else $error("writeback issued with no pending entry");
 
     //  the index queue mirrors the PoS accepts, so it never drops or starves
