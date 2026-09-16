@@ -78,6 +78,7 @@ module ccu_top
 //  }}}
 
 logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free;
+logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_error;
 logic [ccuCfg.u.numShareableTransactions-1:0]
       [ccuCfg.axiCcuIdWidth-1:0]                                sb_id;
 
@@ -144,6 +145,24 @@ ccu_axi_manager_resp_t  manager_cut_resp;
 
 ccu_snoop_pipeline_events_t perf_events;
 
+logic                                sf_lookup_valid;
+ccu_address_t                        sf_lookup_addr;
+logic [ccuCfg.u.numSubordinates-1:0] sf_present;
+logic [ccuCfg.u.numSubordinates-1:0] dispatch_ar_present;
+logic [ccuCfg.u.numSubordinates-1:0] ar_present;
+logic [ccuCfg.u.numSubordinates-1:0] sf_insert_valid;
+logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiAddressWidth-1:0] sf_insert_addr;
+logic [ccuCfg.u.numSubordinates-1:0] sf_insert_ready;
+logic [ccuCfg.u.numSubordinates-1:0] sf_aw_remove_valid;
+logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiAddressWidth-1:0] sf_aw_remove_addr;
+logic [ccuCfg.u.numSubordinates-1:0] sf_aw_remove_ready;
+logic                                sf_cr_remove_valid;
+logic [ccuCfg.u.numSubordinates-1:0] sf_cr_remove_sel;
+ccu_address_t                        sf_cr_remove_addr;
+logic                                sf_cr_remove_ready;
+logic [ccuCfg.u.numSubordinates-1:0] sf_diverge_stuck;
+logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
+
 //  Frontend
 //  {{{
     //  The frontend acts as the Point of Serialization (PoS)
@@ -180,9 +199,13 @@ ccu_snoop_pipeline_events_t perf_events;
         .exclusive_entry_id_i       (exclusive_entry_id),
         .exclusive_dealloc_o        (exclusive_dealloc),
         .rack_free_o                (rack_free),
+        .rack_error_o               (rack_error),
         .pos_aw_valid_o             (pos_aw_valid),
         .pos_aw_slice_o             (pos_aw_slice),
-        .pos_aw_full_i              (pos_aw_full)
+        .pos_aw_full_i              (pos_aw_full),
+        .sf_aw_remove_valid_o       (sf_aw_remove_valid),
+        .sf_aw_remove_addr_o        (sf_aw_remove_addr),
+        .sf_aw_remove_ready_i       (sf_aw_remove_ready)
     );
 //  }}}
 
@@ -194,17 +217,66 @@ ccu_snoop_pipeline_events_t perf_events;
     ) u_ccu_ar_dispatch (
         .clk_i,
         .rst_ni,
-        .ar_i             (frontend_req.ar),
-        .ar_valid_i       (frontend_req.ar_valid),
-        .ar_ready_o       (frontend_resp.ar_ready),
-        .ar_o             (dispatch_ar),
-        .ar_flags_o       (dispatch_ar_flags),
-        .ar_tid_o         (dispatch_ar_tid),
-        .ar_valid_o       (dispatch_ar_valid),
-        .ar_ready_i       (dispatch_ar_ready),
-        .free_mask_i      (rack_free),
-        .sb_id_o          (sb_id)
+        .ar_i              (frontend_req.ar),
+        .ar_valid_i        (frontend_req.ar_valid),
+        .ar_ready_o        (frontend_resp.ar_ready),
+        .ar_o              (dispatch_ar),
+        .ar_flags_o        (dispatch_ar_flags),
+        .ar_tid_o          (dispatch_ar_tid),
+        .ar_present_o      (dispatch_ar_present),
+        .sf_lookup_valid_o (sf_lookup_valid),
+        .sf_lookup_addr_o  (sf_lookup_addr),
+        .sf_present_i      (sf_present),
+        .ar_valid_o        (dispatch_ar_valid),
+        .ar_ready_i        (dispatch_ar_ready),
+        .rack_mask_i       (rack_free),
+        .rack_error_i      (rack_error),
+        .drop_valid_i      (sc_fail_r_valid),
+        .drop_tid_i        (sc_fail_r_tid),
+        .sf_insert_valid_o (sf_insert_valid),
+        .sf_insert_addr_o  (sf_insert_addr),
+        .sf_insert_ready_i (sf_insert_ready),
+        .sb_id_o           (sb_id)
     );
+//  }}}
+
+//  Snoop filter
+//  {{{
+    //  When off the CCU broadcasts every snoop, so the arrays are not built
+    if (ccuCfg.u.enableSnoopFilter) begin : gen_snoop_filter
+
+    ccu_snoop_filter #(
+        .ccuCfg (ccuCfg)
+    ) u_ccu_snoop_filter (
+        .clk_i,
+        .rst_ni,
+        .lookup_valid_i     (sf_lookup_valid),
+        .lookup_addr_i      (sf_lookup_addr),
+        .lookup_present_o   (sf_present),
+        .insert_valid_i     (sf_insert_valid),
+        .insert_addr_i      (sf_insert_addr),
+        .insert_ready_o     (sf_insert_ready),
+        .aw_remove_valid_i  (sf_aw_remove_valid),
+        .aw_remove_addr_i   (sf_aw_remove_addr),
+        .aw_remove_ready_o  (sf_aw_remove_ready),
+        .cr_remove_valid_i  (sf_cr_remove_valid),
+        .cr_remove_sel_i    (sf_cr_remove_sel),
+        .cr_remove_addr_i   (sf_cr_remove_addr),
+        .cr_remove_ready_o  (sf_cr_remove_ready),
+        .diverge_stuck_o    (sf_diverge_stuck),
+        .remove_miss_o      (sf_remove_miss)
+    );
+
+    end else begin : gen_no_snoop_filter
+
+        assign sf_present          = '1;
+        assign sf_insert_ready     = '1;
+        assign sf_aw_remove_ready  = '1;
+        assign sf_cr_remove_ready  = 1'b1;
+        assign sf_diverge_stuck    = '0;
+        assign sf_remove_miss      = '0;
+
+    end
 //  }}}
 
 //  Exclusive monitor (PoS): filters failing exclusive stores on the
@@ -217,23 +289,25 @@ ccu_snoop_pipeline_events_t perf_events;
     ) u_ccu_exclusive_monitor (
         .clk_i,
         .rst_ni,
-        .dealloc_i  (exclusive_dealloc),
-        .lock_o     (exclusive_lock),
-        .entry_id_o (exclusive_entry_id),
-        .ar_i       (dispatch_ar),
-        .ar_flags_i (dispatch_ar_flags),
-        .ar_tid_i   (dispatch_ar_tid),
-        .ar_valid_i (dispatch_ar_valid),
-        .ar_ready_o (dispatch_ar_ready),
-        .ar_o       (ar),
-        .ar_flags_o (ar_flags),
-        .ar_tid_o   (ar_tid),
-        .ar_valid_o (ar_valid),
-        .ar_ready_i (ar_ready),
-        .r_o        (sc_fail_r),
-        .r_tid_o    (sc_fail_r_tid),
-        .r_valid_o  (sc_fail_r_valid),
-        .r_ready_i  (sc_fail_r_ready)
+        .dealloc_i    (exclusive_dealloc),
+        .lock_o       (exclusive_lock),
+        .entry_id_o   (exclusive_entry_id),
+        .ar_i         (dispatch_ar),
+        .ar_flags_i   (dispatch_ar_flags),
+        .ar_tid_i     (dispatch_ar_tid),
+        .ar_present_i (dispatch_ar_present),
+        .ar_valid_i   (dispatch_ar_valid),
+        .ar_ready_o   (dispatch_ar_ready),
+        .ar_o         (ar),
+        .ar_flags_o   (ar_flags),
+        .ar_tid_o     (ar_tid),
+        .ar_present_o (ar_present),
+        .ar_valid_o   (ar_valid),
+        .ar_ready_i   (ar_ready),
+        .r_o          (sc_fail_r),
+        .r_tid_o      (sc_fail_r_tid),
+        .r_valid_o    (sc_fail_r_valid),
+        .r_ready_i    (sc_fail_r_ready)
     );
 //  }}}
 
@@ -282,6 +356,11 @@ ccu_snoop_pipeline_events_t perf_events;
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
         .read_engine_r_o          (snoop_read_engine_r),
         .read_engine_r_tid_o      (snoop_read_engine_r_tid),
+        .ar_present_i             (ar_present),
+        .sf_cr_remove_valid_o     (sf_cr_remove_valid),
+        .sf_cr_remove_sel_o       (sf_cr_remove_sel),
+        .sf_cr_remove_addr_o      (sf_cr_remove_addr),
+        .sf_cr_remove_ready_i     (sf_cr_remove_ready),
         .events_o                 (perf_events)
     );
 

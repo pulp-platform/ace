@@ -10,6 +10,7 @@ dependencies:
   common_cells:      { git: "https://github.com/pulp-platform/common_cells.git",      version: 1.39.0 }
 #  axi_riscv_atomics: { git: "https://github.com/pulp-platform/axi_riscv_atomics.git", rev: 6d3c8b4    } # branch: master
   apb:               { git: "https://github.com/pulp-platform/apb.git",               version: 0.2.4  }
+  tech_cells_generic: { git: "https://github.com/pulp-platform/tech_cells_generic.git",       version: 0.2.2  }
 
 export_include_dirs:
   - include
@@ -33,6 +34,7 @@ sources:
   - src/ccu/ccu_ar_dispatch.sv
   - src/ccu/ccu_r_arbiter.sv
   - src/ccu/ccu_read_engine.sv
+  - src/ccu/ccu_snoop_filter.sv
   - src/ccu/ccu_snoop_pipeline.sv
   - src/ccu/ccu_top.sv
   - src/ccu/ccu_write_engine.sv

@@ -36,7 +36,8 @@ module ccu_snoop_pipeline
 
     input  ccu_ace_ar_t                                      ar_i,
     input  ccu_ar_flags_t                                    ar_flags_i,
-    input  logic [ccuCfg.transactionIndexWidth-1:0]          ar_tid_i,
+    input  logic          [ccuCfg.u.numSubordinates-1:0]     ar_present_i,
+    input  logic          [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
     input  logic                                             ar_valid_i,
     output logic                                             ar_ready_o,
 
@@ -67,6 +68,11 @@ module ccu_snoop_pipeline
     input  logic                                             read_engine_r_ready_i,
     output ccu_ace_r_t                                       read_engine_r_o,
     output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_r_tid_o,
+
+    output logic                                             sf_cr_remove_valid_o,
+    input  logic                                             sf_cr_remove_ready_i,
+    output logic          [ccuCfg.u.numSubordinates-1:0]     sf_cr_remove_sel_o,
+    output logic [ccuCfg.u.axiAddressWidth-1:0]              sf_cr_remove_addr_o,
 
     output ccu_snoop_pipeline_events_t                       events_o
 );
@@ -202,6 +208,7 @@ module ccu_snoop_pipeline
             OuterShareable: ac_sel = domain_map_i[subordinate_ar_index].outer;
             default:        ac_sel = '0;
         endcase
+        ac_sel &= ar_present_i;
     end
 
     assign ac = '{
@@ -295,6 +302,20 @@ module ccu_snoop_pipeline
         .oup_ready_i (engine_fork_ready)
     );
 
+    always_comb begin : sf_cr_remove_comb
+        unique case (stage1_fifo_rdata.flags.acsnoop)
+            ReadUnique, CleanInvalid, MakeInvalid:
+                sf_cr_remove_sel_o = stage1_fifo_rdata.sel;
+            ReadClean, ReadNotSharedDirty, ReadShared:
+                for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++)
+                    sf_cr_remove_sel_o[s] = stage1_fifo_rdata.sel[s] &&
+                                            !cr_fifo_rdata[s].resp.IsShared;
+            default: sf_cr_remove_sel_o = '0;
+        endcase
+    end
+
+    assign sf_cr_remove_addr_o = stage1_fifo_rdata.ar.addr;
+
     always_comb begin : cr_comb
         cr = '0;
         cd_data_transfer = '0;
@@ -341,17 +362,17 @@ module ccu_snoop_pipeline
     end
 
     stream_fork_dynamic #(
-        .N_OUP(2)
+        .N_OUP(3)
     ) u_engine_fork (
         .clk_i,
         .rst_ni,
         .valid_i    (engine_fork_valid),
         .ready_o    (engine_fork_ready),
-        .sel_i      ({read_engine_sel, cd_engine_sel}),
+        .sel_i      ({read_engine_sel, cd_engine_sel, |sf_cr_remove_sel_o}),
         .sel_valid_i(1'b1),
         .sel_ready_o(),
-        .valid_o    ({read_engine_ar_valid_o, cd_engine_valid}),
-        .ready_i    ({read_engine_ar_ready_i, cd_engine_ready})
+        .valid_o    ({read_engine_ar_valid_o, cd_engine_valid, sf_cr_remove_valid_o}),
+        .ready_i    ({read_engine_ar_ready_i, cd_engine_ready, sf_cr_remove_ready_i})
     );
 
     always_comb begin : read_engine_ar_comb

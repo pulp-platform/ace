@@ -40,7 +40,9 @@ module ccu_scoreboard #(
     //  full_o[a] means port a has no free entry once ports below it have taken theirs
     output logic [numAlloc-1:0]                 full_o,
 
+    input  logic [numEntries-1:0]               retire_mask_i,
     input  logic [numEntries-1:0]               free_mask_i,
+    output logic [numEntries-1:0]               retired_o,
 
     input  logic [nQuery-1:0][sliceWidth-1:0]     query_slice_i,
     output logic [nQuery-1:0]                     query_hit_o,
@@ -50,9 +52,10 @@ module ccu_scoreboard #(
     output logic [numEntries-1:0][idWidth-1:0]    id_o
 );
 
-    logic [numEntries-1:0]                 valid_q, valid_d;
-    logic [numEntries-1:0][sliceWidth-1:0] slice_q, slice_d;
-    logic [numEntries-1:0][idWidth-1:0]    id_q,    id_d;
+    logic [numEntries-1:0]                 valid_q,   valid_d;
+    logic [numEntries-1:0]                 retired_q, retired_d;
+    logic [numEntries-1:0][sliceWidth-1:0] slice_q,   slice_d;
+    logic [numEntries-1:0][idWidth-1:0]    id_q,      id_d;
 
     //  Port 0 takes the lowest free entry, port 1 the highest. They can only
     //  coincide when a single entry is free, which is exactly what closes port 1
@@ -101,6 +104,8 @@ module ccu_scoreboard #(
         assign query_hit_o = '0;
     end
 
+    assign retired_d = (retired_q | retire_mask_i) & ~free_mask_i;
+
     always_comb begin : entry_comb
         valid_d = valid_q & ~free_mask_i;
         slice_d = slice_q;
@@ -117,17 +122,20 @@ module ccu_scoreboard #(
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            valid_q <= '0;
-            slice_q <= '0;
-            id_q    <= '0;
+            valid_q   <= '0;
+            retired_q <= '0;
+            slice_q   <= '0;
+            id_q      <= '0;
         end else begin
-            valid_q <= valid_d;
-            slice_q <= slice_d;
-            id_q    <= id_d;
+            valid_q   <= valid_d;
+            retired_q <= retired_d;
+            slice_q   <= slice_d;
+            id_q      <= id_d;
         end
     end
 
-    assign valid_o = valid_q;
+    assign valid_o   = valid_q;
+    assign retired_o = retired_q;
     assign slice_o = slice_q;
     assign id_o    = id_q;
 
@@ -154,6 +162,10 @@ module ccu_scoreboard #(
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         (free_mask_i & ~valid_q) == '0)
         else $error("freeing an entry that is not live");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        (free_mask_i & ~(retire_mask_i | retired_q)) == '0)
+        else $error("freeing an entry that has not retired");
     `endif
     // pragma translate_on
 //  }}}

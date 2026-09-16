@@ -58,15 +58,23 @@ module ccu_frontend
 
     //  Transactions whose RACK arrived this cycle; several may retire together
     output logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free_o,
+    //  Subset of those whose read errored, so no line was cached
+    output logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_error_o,
 
     output logic                                                          pos_aw_valid_o,
     output logic [ccuCfg.addressCheckWidth-1:0]                           pos_aw_slice_o,
-    input  logic                                                          pos_aw_full_i
+    input  logic                                                          pos_aw_full_i,
+    //  Snoop filter de-allocation from the write channel
+    output logic [ccuCfg.u.numSubordinates-1:0]                           sf_aw_remove_valid_o,
+    input  logic [ccuCfg.u.numSubordinates-1:0]                           sf_aw_remove_ready_i,
+    output logic [ccuCfg.u.numSubordinates-1:0]
+                 [ccuCfg.u.axiAddressWidth-1:0]                           sf_aw_remove_addr_o
 );
 
     typedef struct packed {
         logic [ccuCfg.transactionIndexWidth-1:0] tid;
         logic                                    exclusive;
+        logic                                    error;
     } rack_fifo_entry_t;
 
     typedef struct packed {
@@ -77,6 +85,8 @@ module ccu_frontend
 
     logic [ccuCfg.u.numSubordinates-1:0]
           [ccuCfg.u.numShareableTransactions-1:0] rack_free;
+    logic [ccuCfg.u.numSubordinates-1:0]
+          [ccuCfg.u.numShareableTransactions-1:0] rack_error;
 
     ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0] subordinate_req;
     ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0] subordinate_resp;
@@ -101,6 +111,9 @@ module ccu_frontend
         logic             rack_fifo_pop;
 
         logic             r_id_hit;
+        logic             r_beat;
+        logic             r_error;
+        logic             r_error_q;
 
         `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
         assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid;
@@ -128,8 +141,17 @@ module ccu_frontend
         //  and xACK signals enforce FIFO ordering, a plain FIFO
         //  can be used to push and pop relevant metadata between
         //  a channel response and the associated xACK
-        assign rack_fifo_push =
-            subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready && subordinate_resp_o[s].r.last;
+        assign r_beat = subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready;
+
+        assign rack_fifo_push = r_beat && subordinate_resp_o[s].r.last;
+
+        //  Any beat may carry the error, and AXI4 forbids read interleaving
+        assign r_error = r_error_q | subordinate_resp_o[s].r.resp[1];
+
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni)     r_error_q <= 1'b0;
+            else if (r_beat) r_error_q <= subordinate_resp_o[s].r.last ? 1'b0 : r_error;
+        end
 
         //  RACK-related metadata are used to:
         //  - retire the AR dispatch entry (by id)
@@ -140,7 +162,8 @@ module ccu_frontend
 
         assign rack_fifo_wdata = '{
             tid:       r_spill_out.tid,
-            exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail
+            exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail,
+            error:     r_error
         };
 
         assign rack_fifo_pop = subordinate_rack_i[s];
@@ -165,6 +188,7 @@ module ccu_frontend
 
         assign rack_free[s] = subordinate_rack_i[s] ?
             (ccuCfg.u.numShareableTransactions'(1) << rack_fifo_rdata.tid) : '0;
+        assign rack_error[s] = rack_fifo_rdata.error ? rack_free[s] : '0;
         assign exclusive_dealloc_o[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
 
         // pragma translate_off
@@ -178,9 +202,12 @@ module ccu_frontend
     end
 
     always_comb begin : rack_free_comb
-        rack_free_o = '0;
-        for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++)
-            rack_free_o |= rack_free[s];
+        rack_free_o  = '0;
+        rack_error_o = '0;
+        for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++) begin
+            rack_free_o  |= rack_free[s];
+            rack_error_o |= rack_error[s];
+        end
     end
 
     // pragma translate_off
@@ -245,14 +272,99 @@ module ccu_frontend
         .data_o  (manager_req_o.ar)
     );
 
+    //  Write-channel de-allocation, taken downstream of arbitration so the
+    //  subordinate index comes from the id the arbiter already prefixed
+    localparam int unsigned subIdxW = ccuCfg.subordinateIndexWidth;
+    localparam int unsigned subIdW  = ccuCfg.u.axiSubordinateIdWidth;
+
+    logic [subIdxW-1:0]  aw_sub_idx;
+    logic                aw_is_evict, aw_deallocates;
+    logic                write_aw_valid, write_aw_ready;
+    logic                evict_aw_valid, evict_aw_ready;
+    logic                aw_remove_valid, aw_remove_ready;
+    logic                evict_b_valid,   evict_b_gnt;
+    ccu_ace_manager_b_t  evict_b, evict_b_q;
+    logic                mem_b_valid, mem_b_ready;
+    ccu_ace_manager_b_t  mem_b;
+
+    assign aw_sub_idx  = arbiter_req.aw.id[subIdW +: subIdxW];
+    assign aw_is_evict = ace_is_evict(arbiter_req.aw.bar[0], arbiter_req.aw.domain,
+                                      arbiter_req.aw.snoop);
+    //  Non-shareable lines are never tracked (C3-13), and WriteBack and
+    //  WriteEvict are legal in that domain, so they are excluded here
+    assign aw_deallocates =
+        arbiter_req.aw.domain inside {InnerShareable, OuterShareable} &&
+       (ace_is_write_back (arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop) ||
+        ace_is_write_evict(arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop));
+
+    //  An Evict carries no data and updates no memory (C4.9.1): the removal is
+    //  its only destination, so the AW retires on it and the response it makes
+    //  leaves a cycle later, never ahead of the request
+    stream_demux #(
+        .N_OUP (2)
+    ) u_aw_evict_demux (
+        .inp_valid_i (arbiter_req.aw_valid),
+        .inp_ready_o (arbiter_resp.aw_ready),
+        .oup_sel_i   (aw_is_evict),
+        .oup_valid_o ({evict_aw_valid, write_aw_valid}),
+        .oup_ready_i ({evict_aw_ready, write_aw_ready})
+    );
+
     logic aw_spill_valid;
     logic aw_spill_ready;
+    logic write_pos_valid, write_pos_ready;
+    logic wb_remove_valid;
+
+    //  A writeback carries data, so it de-allocates alongside the write
+    stream_fork_dynamic #(
+        .N_OUP (2)
+    ) u_aw_remove_fork (
+        .clk_i,
+        .rst_ni,
+        .valid_i     (write_aw_valid),
+        .ready_o     (write_aw_ready),
+        .sel_i       ({aw_deallocates, 1'b1}),
+        .sel_valid_i (1'b1),
+        .sel_ready_o (),
+        .valid_o     ({wb_remove_valid, write_pos_valid}),
+        .ready_i     ({aw_remove_ready, write_pos_ready})
+    );
+
+    //  One AW sits at the demux at a time, so the two legs never overlap
+    assign aw_remove_valid = wb_remove_valid || evict_aw_valid;
+    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx];
+    assign evict_aw_ready  = aw_remove_ready && !evict_b_valid;
+
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_aw_remove
+        assign sf_aw_remove_valid_o[s] = aw_remove_valid && aw_sub_idx == subIdxW'(s);
+        assign sf_aw_remove_addr_o[s]  = arbiter_req.aw.addr;
+    end
+
+    always_comb begin : evict_b_comb
+        evict_b      = '0;
+        evict_b.id   = arbiter_req.aw.id;
+        evict_b.resp = axi_pkg::RESP_OKAY;
+        evict_b.user = arbiter_req.aw.user;
+    end
+
+    //  Made from the handshake that retires the AW, so it cannot overtake it
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            evict_b_valid <= 1'b0;
+            evict_b_q     <= '0;
+        end else if (evict_aw_valid && evict_aw_ready) begin
+            evict_b_valid <= 1'b1;
+            evict_b_q     <= evict_b;
+        end else if (evict_b_gnt) begin
+            evict_b_valid <= 1'b0;
+        end
+    end
 
     //  Stall PoS write acceptance while the engine pending filter is at the bound
-    assign aw_spill_valid        = arbiter_req.aw_valid && !pos_aw_full_i;
-    assign arbiter_resp.aw_ready = aw_spill_ready      && !pos_aw_full_i;
+    assign aw_spill_valid  = write_pos_valid && !pos_aw_full_i;
+    assign write_pos_ready = aw_spill_ready  && !pos_aw_full_i;
 
-    assign pos_aw_valid_o = arbiter_req.aw_valid && arbiter_resp.aw_ready;
+    assign pos_aw_valid_o = write_pos_valid && write_pos_ready;
     assign pos_aw_slice_o = arbiter_req.aw.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 
     spill_register #(
@@ -292,9 +404,32 @@ module ccu_frontend
         .valid_i (manager_resp_i.b_valid),
         .ready_o (manager_req_o.b_ready),
         .data_i  (manager_resp_i.b),
-        .valid_o (arbiter_resp.b_valid),
-        .ready_i (arbiter_req.b_ready),
-        .data_o  (arbiter_resp.b)
+        .valid_o (mem_b_valid),
+        .ready_i (mem_b_ready),
+        .data_o  (mem_b)
+    );
+
+    //  An Evict response carries the id the arbiter prefixed, so it demuxes
+    //  back to its subordinate like any other
+    rr_arb_tree #(
+        .NumIn     (2),
+        .DataType  (ccu_ace_manager_b_t),
+        .ExtPrio   (1'b0),
+        .AxiVldRdy (1'b1),
+        .LockIn    (1'b1),
+        .FairArb   (1'b1)
+    ) u_b_merge (
+        .clk_i,
+        .rst_ni,
+        .flush_i (1'b0),
+        .rr_i    ('0),
+        .req_i   ({evict_b_valid, mem_b_valid}),
+        .gnt_o   ({evict_b_gnt,   mem_b_ready}),
+        .data_i  ({evict_b_q,     mem_b}),
+        .req_o   (arbiter_resp.b_valid),
+        .gnt_i   (arbiter_req.b_ready),
+        .data_o  (arbiter_resp.b),
+        .idx_o   ()
     );
 
     // R channel: wrap R data + sc_fail through the spill register

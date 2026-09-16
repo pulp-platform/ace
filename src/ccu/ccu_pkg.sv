@@ -34,6 +34,17 @@ package ccu_pkg;
         int unsigned    axiSubordinateIdWidth;
         //  Cache parameters
         int unsigned    cachelineWidth;
+        //  Snoop filter; when off the CCU broadcasts every snoop
+        bit             enableSnoopFilter;
+        //  Cache geometry the filter mirrors
+        int unsigned    subordinateCacheSets;
+        int unsigned    subordinateCacheWays;
+        //  Address bits the filter tracks; the rest always report present
+        int unsigned    snoopFilterAddrWidth;
+        //  Subordinate ARID of a manager port holding no snoopable copy, so the
+        //  filter never tracks the lines it reads and its ids may repeat
+        bit             hasUntrackedArId;
+        int unsigned    untrackedArId;
         //  LSB address bit used for hazard checks (inclusive)
         int unsigned    addressCheckLsb;
         //  MSB address bit used for hazard checks (inclusive)
@@ -78,6 +89,12 @@ package ccu_pkg;
         int unsigned axiDataSize;
         //  Address slice width used for hazard checks
         int unsigned addressCheckWidth;
+        //  Snoop filter set index width
+        int unsigned snoopFilterSetWidth;
+        //  Every tracked address bit above the set index
+        int unsigned snoopFilterTagWidth;
+        //  Snoop filter entry: tag plus a valid bit
+        int unsigned snoopFilterEntryWidth;
     } ccu_config_t;
 
     function automatic ccu_config_t ccu_build_cfg(ccu_user_config_t u);
@@ -85,7 +102,7 @@ package ccu_pkg;
 
         p.u                          = u;
 
-        p.subordinateIndexWidth      = $clog2(u.numSubordinates);
+        p.subordinateIndexWidth      = u.numSubordinates > 1 ? $clog2(u.numSubordinates) : 1;
         p.axiCcuIdWidth              = u.axiSubordinateIdWidth + p.subordinateIndexWidth;
         p.axiManagerIdWidth          = p.axiCcuIdWidth > u.writeHashWidth ?
                                        p.axiCcuIdWidth : u.writeHashWidth;
@@ -97,6 +114,15 @@ package ccu_pkg;
         p.numWriteFifos              = 2 ** u.writeHashWidth;
         p.axiDataSize                = u.axiDataWidth > 8 ? $clog2(u.axiDataWidth / 8) : 1;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
+        p.snoopFilterSetWidth        = u.subordinateCacheSets > 1 ?
+                                       $clog2(u.subordinateCacheSets) : 1;
+        //  The tag spans every tracked bit above the set, so it identifies the
+        //  line and two lines never share a way
+        p.snoopFilterTagWidth        = u.snoopFilterAddrWidth >
+                                       p.cachelineByteIndexWidth + p.snoopFilterSetWidth ?
+                                       u.snoopFilterAddrWidth - p.cachelineByteIndexWidth -
+                                       p.snoopFilterSetWidth : 1;
+        p.snoopFilterEntryWidth      = p.snoopFilterTagWidth + 1;
 
         return p;
     endfunction
@@ -104,6 +130,7 @@ package ccu_pkg;
     //  Decoded once at admission and carried with the transaction, so no two
     //  stages can disagree about what an AR is
     typedef struct packed {
+        logic              allocates;
         logic              is_no_snoop;
         logic              accepts_dirty;
         logic              accepts_dirty_shared;
@@ -117,6 +144,13 @@ package ccu_pkg;
     function automatic ccu_ar_flags_t ccu_ar_decode(logic arbar0, ace_pkg::axdomain_t ardomain,
                                                     ace_pkg::arsnoop_t arsnoop, logic arlock);
         return '{
+            //  C10-1 p.C10-280
+            allocates           : ace_pkg::ace_is_read_clean(arbar0, ardomain, arsnoop)            ||
+                                  ace_pkg::ace_is_read_not_shared_dirty(arbar0, ardomain, arsnoop) ||
+                                  ace_pkg::ace_is_read_shared(arbar0, ardomain, arsnoop)           ||
+                                  ace_pkg::ace_is_read_unique(arbar0, ardomain, arsnoop)           ||
+                                  ace_pkg::ace_is_clean_unique(arbar0, ardomain, arsnoop)          ||
+                                  ace_pkg::ace_is_make_unique(arbar0, ardomain, arsnoop),
             is_no_snoop         : ace_pkg::ace_is_read_no_snoop(arbar0, ardomain, arsnoop),
             accepts_dirty       : ace_pkg::ace_ar_accepts_dirty(arbar0, ardomain, arsnoop),
             accepts_dirty_shared: ace_pkg::ace_ar_accepts_dirty_shared(arbar0, ardomain, arsnoop),

@@ -34,12 +34,14 @@ module ccu_exclusive_monitor
     input  ccu_ace_ar_t ar_i,
     input  ccu_ar_flags_t ar_flags_i,
     input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
+    input  logic [ccuCfg.u.numSubordinates-1:0]     ar_present_i,
     input  logic        ar_valid_i,
     output logic        ar_ready_o,
 
     output ccu_ace_ar_t ar_o,
     output ccu_ar_flags_t ar_flags_o,
     output logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_o,
+    output logic [ccuCfg.u.numSubordinates-1:0]     ar_present_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
 
@@ -146,8 +148,9 @@ stream_demux #(
 );
 
 `ACE_ASSIGN_AR_STRUCT(ar_o, ar_i)
-assign ar_flags_o = ar_flags_i;
-assign ar_tid_o   = ar_tid_i;
+assign ar_flags_o   = ar_flags_i;
+assign ar_tid_o     = ar_tid_i;
+assign ar_present_o = ar_present_i;
 
 r_register_entry_t r_register_wdata, r_register_rdata;
 
