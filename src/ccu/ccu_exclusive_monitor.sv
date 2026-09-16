@@ -95,10 +95,8 @@ assign registration_blocked = |lock_q && !lock_q[ar_sub_idx];
 logic reservation_set;
 assign reservation_set = ar_handshake && is_exclusive_sequence && !registration_blocked;
 
-always_comb begin
-    entry_d = entry_q;
-    valid_d = valid_q;
-    lock_d  = lock_q;
+always_comb begin : lock_comb
+    lock_d = lock_q;
 
     for (int s = 0; s < ccuCfg.u.numSubordinates; s++) begin
         if (dealloc_i[s]) begin
@@ -106,8 +104,17 @@ always_comb begin
         end else if (exclusive_store_pass &&
                      ccuCfg.subordinateIndexWidth'(s) == ar_sub_idx) begin
             lock_d[s] = 1'b1;
-        end else if (exclusive_store_pass &&
-                     ccuCfg.subordinateIndexWidth'(s) != ar_sub_idx) begin
+        end
+    end
+end
+
+always_comb begin : entry_comb
+    entry_d = entry_q;
+    valid_d = valid_q;
+
+    for (int s = 0; s < ccuCfg.u.numSubordinates; s++) begin
+        if (exclusive_store_pass &&
+            ccuCfg.subordinateIndexWidth'(s) != ar_sub_idx) begin
             valid_d[s] = 1'b0;
         end else if (reservation_set &&
                      ccuCfg.subordinateIndexWidth'(s) == ar_sub_idx) begin

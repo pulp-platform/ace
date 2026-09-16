@@ -141,7 +141,9 @@ module ccu_snoop_filter
         logic [numWays-1:0]   way_sel, way_free, way_match;
         entry_t               op_entry;
 
-        logic                 insert_hit, insert_stuck;
+        logic                 insert_hit;
+        logic                 insert_stuck;
+
         //  Rotating victim: the policy only has to not keep picking one way
         logic [wayW-1:0]      victim_q, victim_d;
         logic                 backinval_q, backinval_d;

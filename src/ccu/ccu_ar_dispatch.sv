@@ -54,9 +54,9 @@ module ccu_ar_dispatch
     input  logic        ar_ready_i,
 
     //  Snoop filter lookup; the mask answers one cycle later
-    output logic                  sf_lookup_valid_o,
-    output logic [addrWidth-1:0]  sf_lookup_addr_o,
-    input  logic [numSub-1:0]     sf_present_i,
+    output logic                 sf_lookup_valid_o,
+    output logic [addrWidth-1:0] sf_lookup_addr_o,
+    input  logic [numSub-1:0]    sf_present_i,
 
     //  Entries whose RACK arrived this cycle, one bit per scoreboard entry
     input  logic [numEntries-1:0] rack_mask_i,
@@ -65,13 +65,13 @@ module ccu_ar_dispatch
     input  logic [numEntries-1:0] rack_error_i,
 
     //  Transaction dropped downstream, so it allocates nothing
-    input  logic                  drop_valid_i,
+    input  logic                 drop_valid_i,
     input  logic [sbIdxWidth-1:0] drop_tid_i,
 
     //  Snoop filter allocation, raised at RACK and held until it retires
-    output logic [numSub-1:0]                  sf_insert_valid_o,
-    output logic [numSub-1:0][addrWidth-1:0]   sf_insert_addr_o,
-    input  logic [numSub-1:0]                  sf_insert_ready_i,
+    output logic [numSub-1:0]                 sf_insert_valid_o,
+    output logic [numSub-1:0][addrWidth-1:0]  sf_insert_addr_o,
+    input  logic [numSub-1:0]                 sf_insert_ready_i,
 
     //  Scoreboard ids, indexed by tid to restore the id of a memory read
     output logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0] sb_id_o
@@ -98,6 +98,7 @@ module ccu_ar_dispatch
     logic          alloc;
     logic          arb_req;
     logic          arb_gnt;
+    ccu_ar_flags_t ar_flags;
     logic          ar_flags_alloc;
     logic          ar_untracked;
 
@@ -113,15 +114,15 @@ module ccu_ar_dispatch
 
 //  Scoreboard: one entry per inflight transaction, freed on its RACK
 //  {{{
-    logic [numEntries-1:0]                           sb_valid;
-    logic [numEntries-1:0][lineWidth-1:0]            sb_line;
-    logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0] sb_id;
-    logic [sbIdxWidth-1:0]                           sb_alloc_idx;
-    logic                                            sb_full;
-    logic [numEntries-1:0]                           sb_free;
-    logic [numEntries-1:0]                           alloc_q, alloc_d;
-    logic [numEntries-1:0]                           sb_retired;
-    logic [numEntries-1:0]                           ins_req_set, ins_req_clear;
+    logic [numEntries-1:0]                               sb_valid;
+    logic [numEntries-1:0][lineWidth-1:0]                sb_line;
+    logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0]     sb_id;
+    logic [sbIdxWidth-1:0]                               sb_alloc_idx;
+    logic                                                sb_full;
+    logic [numEntries-1:0]                               sb_free;
+    logic [numEntries-1:0]                               alloc_q, alloc_d;
+    logic [numEntries-1:0]                               sb_retired;
+    logic [numEntries-1:0]                               ins_req_set, ins_req_clear;
 
     //  The scoreboard holds the whole line address for the filter, while the
     //  chain still matches on the narrower hazard slice
@@ -162,19 +163,20 @@ module ccu_ar_dispatch
     assign ar_untracked   = ccuCfg.u.hasUntrackedArId &&
                             ar_i.id[subIdWidth-1:0] == untrackedId;
 
-    assign ar_flags_alloc = !ar_untracked &&
-                            ccu_ar_decode(ar_i.bar[0], ar_i.domain,
-                                          ar_i.snoop,  ar_i.lock).allocates;
+    assign ar_flags = ccu_ar_decode(ar_i.bar[0], ar_i.domain,
+                                    ar_i.snoop,  ar_i.lock);
+    assign ar_flags_alloc = !ar_untracked && ar_flags.allocates;
+
 //  }}}
 
 //  Same-address chains: link behind the tail on allocation, become the tail
 //  {{{
-    logic [numEntries-1:0]                    tail_q,        tail_d;
-    logic [numEntries-1:0]                    pred_valid_q,  pred_valid_d;
-    logic [numEntries-1:0][sbIdxWidth-1:0]    pred_idx_q,    pred_idx_d;
-    logic [numEntries-1:0]                    chain_alloc_q, chain_alloc_d;
-    logic [numEntries-1:0]                    tail_match;
-    logic [sbIdxWidth-1:0]                    tail_idx;
+    logic [numEntries-1:0]                 tail_q,        tail_d;
+    logic [numEntries-1:0]                 pred_valid_q,  pred_valid_d;
+    logic [numEntries-1:0][sbIdxWidth-1:0] pred_idx_q,    pred_idx_d;
+    logic [numEntries-1:0]                 chain_alloc_q, chain_alloc_d;
+    logic [numEntries-1:0]                 tail_match;
+    logic [sbIdxWidth-1:0]                 tail_idx;
 
     for (genvar e = 0; e < numEntries; e++) begin : gen_tail_match
         assign tail_match[e] = sb_valid[e] && tail_q[e] && !sb_free[e] &&
@@ -309,6 +311,8 @@ module ccu_ar_dispatch
     logic [queueIdxWidth-1:0]        relookup_idx, lookup_target_q, lookup_target_d;
     logic                            relookup_none, lookup_pend_q;
 
+    logic [numSub-1:0]               sf_bypass_mask_q, sf_bypass_mask_d;
+
     lzc #(
         .WIDTH (numQueue),
         .MODE  (1'b0)
@@ -324,13 +328,25 @@ module ccu_ar_dispatch
                                      : {sb_line[queue_q[relookup_idx].sb_idx], {offWidth{1'b0}}};
     assign lookup_target_d   = alloc ? queue_alloc_idx : relookup_idx;
 
+    always_comb begin : sf_bypass_comb
+        sf_bypass_mask_d = '0;
+        if (sf_lookup_valid_o) begin
+            for (int unsigned s = 0; s < numSub; s++) begin
+                if (sf_insert_valid_o[s] && sf_insert_ready_i[s] &&
+                    sf_lookup_addr_o[addrWidth-1:offWidth] == sf_insert_addr_o[s][addrWidth-1:offWidth]) begin
+                    sf_bypass_mask_d[s] = 1'b1;
+                end
+            end
+        end
+    end
+
     always_comb begin : lookup_state_comb
         present_d  = present_q;
         have_d     = have_q;
         relookup_d = relookup_q;
 
         if (lookup_pend_q) begin
-            present_d[lookup_target_q] = sf_present_i;
+            present_d[lookup_target_q] = sf_present_i | sf_bypass_mask_q;
             have_d[lookup_target_q]    = 1'b1;
         end
         if (sf_lookup_valid_o) relookup_d[lookup_target_d] = 1'b0;
@@ -346,16 +362,18 @@ module ccu_ar_dispatch
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            present_q       <= '0;
-            have_q          <= '0;
-            relookup_q      <= '0;
-            lookup_pend_q   <= 1'b0;
-            lookup_target_q <= '0;
+            present_q        <= '0;
+            have_q           <= '0;
+            relookup_q       <= '0;
+            lookup_pend_q    <= 1'b0;
+            lookup_target_q  <= '0;
+            sf_bypass_mask_q <= '0;
         end else begin
-            present_q       <= present_d;
-            have_q          <= have_d;
-            relookup_q      <= relookup_d;
-            lookup_pend_q   <= sf_lookup_valid_o;
+            present_q        <= present_d;
+            have_q           <= have_d;
+            relookup_q       <= relookup_d;
+            lookup_pend_q    <= sf_lookup_valid_o;
+            sf_bypass_mask_q <= sf_bypass_mask_d;
             if (sf_lookup_valid_o) lookup_target_q <= lookup_target_d;
         end
     end

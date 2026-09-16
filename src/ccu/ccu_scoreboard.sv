@@ -44,10 +44,10 @@ module ccu_scoreboard #(
     input  logic [numEntries-1:0]               free_mask_i,
     output logic [numEntries-1:0]               retired_o,
 
-    input  logic [nQuery-1:0][sliceWidth-1:0]     query_slice_i,
-    output logic [nQuery-1:0]                     query_hit_o,
+    input  logic [nQuery-1:0][sliceWidth-1:0]   query_slice_i,
+    output logic [nQuery-1:0]                   query_hit_o,
 
-    output logic [numEntries-1:0]                 valid_o,
+    output logic [numEntries-1:0]               valid_o,
     output logic [numEntries-1:0][sliceWidth-1:0] slice_o,
     output logic [numEntries-1:0][idWidth-1:0]    id_o
 );
