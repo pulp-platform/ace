@@ -426,7 +426,10 @@ module ccu_ar_dispatch
     assign ar_flags_o = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
 
     assign ar_valid_o = arb_req;
-    assign arb_gnt    = ar_ready_i;
+    //  The arbiter is instantiated with AxiVldRdy, which drops the request
+    //  qualification from its grant, so a bare ready would grant with nothing
+    //  requesting and `dispatch` would retire a queue entry that never went out
+    assign arb_gnt    = ar_valid_o && ar_ready_i;
     assign dispatch   = gnt;
 //  }}}
 
