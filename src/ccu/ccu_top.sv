@@ -161,8 +161,21 @@ logic                                sf_cr_remove_valid;
 logic [ccuCfg.u.numSubordinates-1:0] sf_cr_remove_sel;
 ccu_address_t                        sf_cr_remove_addr;
 logic                                sf_cr_remove_ready;
-logic [ccuCfg.u.numSubordinates-1:0] sf_diverge_stuck;
 logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
+
+//  Back-invalidation requests, one per table, merged into the one the snoop
+//  pipeline accepts
+typedef struct packed {
+    logic [ccuCfg.u.axiAddressWidth-1:0]  addr;
+    logic [ccuCfg.u.numSubordinates-1:0]  sel;
+} backinval_req_t;
+
+logic           [ccuCfg.u.numSubordinates-1:0] sf_backinval_valid;
+logic           [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiAddressWidth-1:0] sf_backinval_addr;
+logic           [ccuCfg.u.numSubordinates-1:0] sf_backinval_ready;
+backinval_req_t [ccuCfg.u.numSubordinates-1:0] backinval_req;
+backinval_req_t                                maint_req;
+logic                                          maint_valid, maint_ready;
 
 //  Frontend
 //  {{{
@@ -264,8 +277,33 @@ logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
         .cr_remove_sel_i    (sf_cr_remove_sel),
         .cr_remove_addr_i   (sf_cr_remove_addr),
         .cr_remove_ready_o  (sf_cr_remove_ready),
-        .diverge_stuck_o    (sf_diverge_stuck),
+        .backinval_valid_o  (sf_backinval_valid),
+        .backinval_addr_o   (sf_backinval_addr),
+        .backinval_ready_i  (sf_backinval_ready),
         .remove_miss_o      (sf_remove_miss)
+    );
+
+    //  Round-robin so a busy set cannot keep another table's insert waiting
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_backinval_req
+        assign backinval_req[s] = '{
+            addr: sf_backinval_addr[s],
+            sel : ccuCfg.u.numSubordinates'(1) << s
+        };
+    end
+
+    stream_arbiter #(
+        .DATA_T  (backinval_req_t),
+        .N_INP   (ccuCfg.u.numSubordinates),
+        .ARBITER ("rr")
+    ) u_backinval_arb (
+        .clk_i,
+        .rst_ni,
+        .inp_data_i  (backinval_req),
+        .inp_valid_i (sf_backinval_valid),
+        .inp_ready_o (sf_backinval_ready),
+        .oup_data_o  (maint_req),
+        .oup_valid_o (maint_valid),
+        .oup_ready_i (maint_ready)
     );
 
     end else begin : gen_no_snoop_filter
@@ -274,8 +312,10 @@ logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
         assign sf_insert_ready     = '1;
         assign sf_aw_remove_ready  = '1;
         assign sf_cr_remove_ready  = 1'b1;
-        assign sf_diverge_stuck    = '0;
         assign sf_remove_miss      = '0;
+        assign sf_backinval_ready  = '0;
+        assign maint_valid         = 1'b0;
+        assign maint_req           = '0;
 
     end
 //  }}}
@@ -334,6 +374,10 @@ logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
         .ar_tid_i                 (ar_tid),
         .ar_valid_i               (ar_valid),
         .ar_ready_o               (ar_ready),
+        .maint_valid_i            (maint_valid),
+        .maint_addr_i             (maint_req.addr),
+        .maint_sel_i              (maint_req.sel),
+        .maint_ready_o            (maint_ready),
         .ac_valid_o               (snoop_ac_valid),
         .ac_ready_i               (snoop_ac_ready),
         .ac_o                     (snoop_ac),

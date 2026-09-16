@@ -56,7 +56,12 @@ module ccu_snoop_filter
     input  logic [addrW-1:0]                cr_remove_addr_i,
     output logic                            cr_remove_ready_o,
 
-    output logic [numSub-1:0]               diverge_stuck_o,
+    //  An insert with no free way snoops a line this subordinate is recorded
+    //  as holding; answering frees the way whether the line is there or not
+    output logic [numSub-1:0]               backinval_valid_o,
+    output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
+    input  logic [numSub-1:0]               backinval_ready_i,
+
     //  A removal that found nothing; legal, but worth observing
     output logic [numSub-1:0]               remove_miss_o
 );
@@ -66,17 +71,12 @@ module ccu_snoop_filter
     localparam int unsigned entryW     = ccuCfg.snoopFilterEntryWidth;
     localparam int unsigned wayW       = numWays > 1 ? $clog2(numWays) : 1;
 
-    //  Reads an insert may burn looking for a way before the set is declared
-    //  imprecise, so a diverged mirror degrades instead of stalling the AR path
-    localparam int unsigned stuckLimit = 64;
-    localparam int unsigned stuckW     = $clog2(stuckLimit + 1);
-
     typedef struct packed {
         logic            valid;
         logic [tagW-1:0] tag;
     } entry_t;
 
-    typedef enum logic [1:0] { Idle, Read, Write } state_e;
+    typedef enum logic [1:0] { IDLE, READ, WRITE } state_e;
 
     //  A shift, not a part-select: the guard is evaluated at run time, but a
     //  reversed range would still have to elaborate when trackW reaches addrW
@@ -86,7 +86,7 @@ module ccu_snoop_filter
 
     logic [setW-1:0]             lookup_set, cr_set;
     logic [tagW-1:0]             lookup_tag, cr_tag;
-    logic                        lookup_track, cr_track;
+    logic                        lookup_track, cr_track, cr_port_ready;
     logic                        lookup_track_q;
     logic [numSub-1:0]           table_present;
     logic [numSub-1:0]           cr_fork_valid, cr_fork_ready;
@@ -110,13 +110,18 @@ module ccu_snoop_filter
         .clk_i,
         .rst_ni,
         .valid_i     (cr_remove_valid_i && cr_track),
-        .ready_o     (cr_remove_ready_o),
+        .ready_o     (cr_port_ready),
         .sel_i       (cr_remove_sel_i),
         .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     (cr_fork_valid),
         .ready_i     (cr_fork_ready)
     );
+
+    //  An untracked address has no token, so take the removal and drop it. The
+    //  fork holds its ready low while its valid is gated, which would stall the
+    //  snoop pipeline for good - the insert and AW-removal ports both bypass
+    assign cr_remove_ready_o = cr_track ? cr_port_ready : 1'b1;
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table
         entry_t [numWays-1:0] sram_rdata, sram_wdata;
@@ -127,23 +132,27 @@ module ccu_snoop_filter
         state_e               state_q, state_d;
         logic                 lookup_grant, op_start, op_write, start_remove;
 
-        logic                 op_insert_q;
-        logic [setW-1:0]      op_set_q;
-        logic [tagW-1:0]      op_tag_q;
-        logic [wayW-1:0]      op_way_q, way_idx;
+        logic                 op_insert_q, op_insert_d;
+        logic [setW-1:0]      op_set_q, op_set_d;
+        logic [tagW-1:0]      op_tag_q, op_tag_d;
+        logic [wayW-1:0]      op_way_q, op_way_d;
+        logic [wayW-1:0]      way_idx;
         logic                 way_none;
         logic [numWays-1:0]   way_sel, way_free, way_match;
         entry_t               op_entry;
 
-        logic                 insert_hit, insert_stuck, insert_forced;
-        logic [stuckW-1:0]    stuck_q;
+        logic                 insert_hit, insert_stuck;
+        //  Rotating victim: the policy only has to not keep picking one way
+        logic [wayW-1:0]      victim_q, victim_d;
+        logic                 backinval_q, backinval_d;
+        logic [tagW-1:0]      backinval_tag_q, backinval_tag_d;
+        logic [setW-1:0]      backinval_set_q, backinval_set_d;
 
         logic [setW-1:0]      lookup_set_q;
         logic [tagW-1:0]      lookup_tag_q;
         logic                 lookup_forced_q;
         logic [numWays-1:0]   lookup_match;
 
-        logic [numSets-1:0]   imprecise_q;
         logic                 init_done_q;
         logic [setW:0]        init_cnt_q;
 
@@ -222,7 +231,7 @@ module ccu_snoop_filter
 
         assign lookup_grant = init_done_q && lookup_valid;
         assign op_entry     = '{valid: op_insert_q, tag: op_insert_q ? op_tag_q : '0};
-        assign op_write     = state_q == Write && !lookup_grant;
+        assign op_write     = state_q == WRITE && !lookup_grant;
 
         always_comb begin : sram_port_comb
             sram_req   = 1'b0;
@@ -255,7 +264,7 @@ module ccu_snoop_filter
             assign lookup_match[w] = sram_rdata[w].valid && sram_rdata[w].tag == lookup_tag_q;
         end
 
-        assign table_present[s] = lookup_forced_q || |lookup_match || imprecise_q[lookup_set_q];
+        assign table_present[s] = lookup_forced_q || |lookup_match;
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
@@ -271,7 +280,7 @@ module ccu_snoop_filter
 
         //  Update
         assign start_remove = rem_valid[s];
-        assign op_start     = init_done_q && !lookup_grant && state_q == Idle &&
+        assign op_start     = init_done_q && !lookup_grant && state_q == IDLE &&
                               (rem_valid[s] || insert_valid);
 
         for (genvar w = 0; w < numWays; w++) begin : gen_way_match
@@ -291,57 +300,110 @@ module ccu_snoop_filter
             .empty_o (way_none)
         );
 
-        assign insert_hit    = state_q == Read &&  op_insert_q && |way_match;
-        assign insert_stuck  = state_q == Read &&  op_insert_q && way_none && !insert_hit;
-        assign insert_forced = insert_stuck && stuck_q == stuckW'(stuckLimit);
+        assign insert_hit    = state_q == READ &&  op_insert_q && |way_match;
+        assign insert_stuck  = state_q == READ &&  op_insert_q && way_none && !insert_hit;
 
         always_comb begin : state_comb
             state_d = state_q;
             unique case (state_q)
-                Idle:    if (op_start) state_d = Read;
+                IDLE:    if (op_start) state_d = READ;
                 //  A hit or a stuck insert retires without writing, as does a
                 //  remove that found nothing: an eviction and a snoop of the
                 //  same line put two removals on one token
-                Read:    state_d = insert_hit ? Idle :
-                                   (insert_stuck && !insert_forced) ? Idle :
-                                   (way_none    && !insert_forced) ? Idle : Write;
-                Write:   if (!lookup_grant) state_d = Idle;
-                default: state_d = Idle;
+                READ:    state_d = insert_hit   ? IDLE :
+                                   insert_stuck ? IDLE :
+                                   way_none     ? IDLE : WRITE;
+                WRITE:   if (!lookup_grant) state_d = IDLE;
+                default: state_d = IDLE;
             endcase
         end
 
-        assign ins_gnt[s]             = (op_write && op_insert_q) || insert_hit;
+        //  A stuck insert retries rather than forcing a way, so the mirror
+        //  stays exact. It terminates: a full set implies a removal already on
+        //  its way, and stalled inserts back-pressure the AR path via `sb_free`
+        assign backinval_valid_o[s] = backinval_q;
+        assign backinval_addr_o[s]  =
+            addrW'({backinval_tag_q, backinval_set_q, {offW{1'b0}}});
+
+            assign ins_gnt[s]         = (op_write && op_insert_q) || insert_hit;
+
+        //  A redundant insert retires without writing. If a removal for that
+        //  same line is waiting, it deletes the token afterwards and the master
+        //  is left holding a line the mirror does not know about
+        //  pragma translate_off
+        `ifndef VERILATOR
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            !(insert_hit && rem_valid[s]
+              && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
+            else $error("insert retired as a hit with a removal pending for it");
+        `endif
+        //  pragma translate_on
         assign rem_ready[s]           = (op_write && !op_insert_q) || remove_miss_o[s];
-        assign diverge_stuck_o[s]     = insert_forced;
-        assign remove_miss_o[s]       = state_q == Read && !op_insert_q && way_none;
+        assign remove_miss_o[s]       = state_q == READ && !op_insert_q && way_none;
+
+        //  One request in flight per table, latched so it is stable under a
+        //  held valid and the victim cannot move
+        always_comb begin : backinval_comb
+            victim_d        = victim_q;
+
+            backinval_d     = backinval_q;
+            backinval_tag_d = backinval_tag_q;
+            backinval_set_d = backinval_set_q;
+
+            if (backinval_q && backinval_ready_i[s]) begin
+                backinval_d = 1'b0;
+                victim_d    = (victim_q == wayW'(numWays - 1)) ? '0 : victim_q + 1;
+            end else if (insert_stuck && !backinval_q) begin
+                backinval_d     = 1'b1;
+                backinval_tag_d = sram_rdata[victim_q].tag;
+                backinval_set_d = op_set_q;
+            end
+        end
+
+        always_comb begin : op_comb
+            op_insert_d = op_insert_q;
+            op_set_d    = op_set_q;
+            op_tag_d    = op_tag_q;
+            op_way_d    = op_way_q;
+
+            //  Removals go first: they gate the AR path
+            if (op_start) begin
+                op_insert_d = !start_remove;
+                op_set_d    = start_remove ? rem_set[s] : ins_set[s];
+                op_tag_d    = start_remove ? rem_tag[s] : ins_tag[s];
+            end
+
+            if (state_q == READ) op_way_d = way_idx;
+        end
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
-                state_q     <= Idle;
-                op_insert_q <= 1'b0;
-                op_set_q    <= '0;
-                op_tag_q    <= '0;
-                op_way_q    <= '0;
-                stuck_q     <= '0;
-                imprecise_q <= '0;
+                state_q         <= IDLE;
+                op_insert_q     <= 1'b0;
+                op_set_q        <= '0;
+                op_tag_q        <= '0;
+                op_way_q        <= '0;
+                victim_q        <= '0;
+                backinval_q     <= 1'b0;
+                backinval_tag_q <= '0;
+                backinval_set_q <= '0;
             end else begin
-                state_q <= state_d;
-                if (op_start) begin
-                    op_insert_q <= !start_remove;
-                    op_set_q    <= start_remove ? rem_set[s] : ins_set[s];
-                    op_tag_q    <= start_remove ? rem_tag[s] : ins_tag[s];
-                end
-                if (state_q == Read) op_way_q <= insert_forced ? '0 : way_idx;
-                if (ins_gnt[s])                          stuck_q <= '0;
-                else if (insert_stuck && !insert_forced) stuck_q <= stuck_q + 1;
-                if (insert_forced) imprecise_q[op_set_q] <= 1'b1;
+                state_q         <= state_d;
+                op_insert_q     <= op_insert_d;
+                op_set_q        <= op_set_d;
+                op_tag_q        <= op_tag_d;
+                op_way_q        <= op_way_d;
+                victim_q        <= victim_d;
+                backinval_q     <= backinval_d;
+                backinval_tag_q <= backinval_tag_d;
+                backinval_set_q <= backinval_set_d;
             end
         end
 
         // pragma translate_off
         `ifndef VERILATOR
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            state_q == Read |-> $onehot0(way_match))
+            state_q == READ |-> $onehot0(way_match))
             else $error("a set holds the same line twice");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
@@ -367,17 +429,22 @@ module ccu_snoop_filter
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni)              op_rdata_q <= 1'b0;
             else if (lookup_grant)    op_rdata_q <= 1'b0;
-            else if (state_q == Read) op_rdata_q <= 1'b1;
+            else if (state_q == READ) op_rdata_q <= 1'b1;
         end
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            op_write && op_insert_q && !insert_forced && op_rdata_q |->
+            op_write && op_insert_q && op_rdata_q |->
                 !sram_rdata[op_way_q].valid)
             else $error("insert targeted a live way");
 
+        //  Liveness of the unbounded retry, checked here rather than bounded in
+        //  the design. Generous: a stall lasts until a removal reaches the port
+        localparam int unsigned stuckAssertLimit = 4096;
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            !diverge_stuck_o[s])
-            else $error("insert found no way: the mirror diverged");
+            insert_stuck |-> ##[1:stuckAssertLimit] !insert_stuck)
+            else $error("insert stuck for %0d cycles: no way was ever freed",
+                        stuckAssertLimit);
+
         `endif
         // pragma translate_on
     end
