@@ -64,6 +64,8 @@ module ccu_snoop_pipeline
     input  logic                                             read_engine_ar_ready_i,
     output ccu_axi_ar_t                                      read_engine_ar_o,
     output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_ar_tid_o,
+    //  A peer keeps a copy but supplies no data, so only this AR carries the fact
+    output logic                                             read_engine_ar_is_shared_o,
     output logic                                             read_engine_r_valid_o,
     input  logic                                             read_engine_r_ready_i,
     output ccu_ace_r_t                                       read_engine_r_o,
@@ -381,6 +383,7 @@ module ccu_snoop_pipeline
     end
 
     assign read_engine_ar_tid_o = stage1_fifo_rdata.tid;
+    assign read_engine_ar_is_shared_o = rresp_is_shared;
 
     //  A peer keeping its copy narrows who may accept the dirty data (C4-199)
     assign rresp_is_shared  = cr.resp.IsShared && accepts_shared;
@@ -743,6 +746,12 @@ module ccu_snoop_pipeline
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         cd_engine_valid |-> !(rresp_is_shared && rresp_pass_dirty && !accepts_dirty_shared))
         else $error("IsShared and PassDirty returned to a transaction accepting only one");
+
+    //  Dirty cannot be handed over without the data, which is why only IsShared
+    //  has to survive a read served from memory
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        engine_fork_valid |-> !(cr.resp.PassDirty && !cr.resp.DataTransfer))
+        else $error("PassDirty without DataTransfer");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         engine_fork_valid && cr.resp.DataTransfer && cr.resp.PassDirty && !rresp_pass_dirty

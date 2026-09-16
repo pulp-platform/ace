@@ -32,6 +32,9 @@ module ccu_read_engine
     output logic                                ar_ready_o,
     input  ccu_axi_ar_t                         ar_i,
     input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
+    //  A peer kept a copy but supplied no data, so memory serves this read
+    //  and only this bit carries the fact back to the initiator
+    input  logic                                ar_is_shared_i,
 
     //  Initiator R sourced by the snoop pipeline (read data and acks)
     input  logic                                snoop_pipeline_r_valid_i,
@@ -106,9 +109,19 @@ module ccu_read_engine
 
     assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
 
+    //  The tid is unique among inflight reads and outlives the last R beat, so
+    //  each AR simply overwrites its own bit and none has to be cleared
+    logic [ccuCfg.u.numShareableTransactions-1:0] ar_is_shared_q;
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni)                       ar_is_shared_q <= '0;
+        else if (ar_valid_i && ar_ready_o) ar_is_shared_q[ar_tid_i] <= ar_is_shared_i;
+    end
+
     always_comb begin : mem_r_comb
         `AXI_TO_ACE_SET_R_STRUCT(r_mem, r_i)
-        r_mem.id = sb_id_i[r_mem_tid];
+        r_mem.id                            = sb_id_i[r_mem_tid];
+        r_mem.resp[ace_pkg::RESP_IS_SHARED] = ar_is_shared_q[r_mem_tid];
     end
 
     ccu_r_arbiter #(
