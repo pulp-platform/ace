@@ -28,7 +28,7 @@ addrmap ccu_csr #(
             hw = r;
             counter;
             fieldwidth = 32;
-        } val = 0;
+        } cnt = 0;
     };
 
     reg perf_countinhibit_r {
@@ -44,6 +44,19 @@ addrmap ccu_csr #(
         } inh = (1 << numPerfCounters) - 1;
     };
 
+    reg ctrl_r {
+        name = "Static Configuration";
+        desc = "Static configuration bits for the CCU features.";
+        regwidth = 32;
+
+        field {
+            name = "Snoop Filter Enable";
+            sw = rw;
+            hw = r;
+            fieldwidth = 1;
+        } snoop_filter_en = 1;
+    };
+
     // --- Memory Map Instantiation ---
 
     // Global Control @ 0x00
@@ -54,4 +67,7 @@ addrmap ccu_csr #(
 
     // Array of 32-bit Counters @ 0xC0
     perf_counter_r perf_counter[numPerfCounters] @ 0xC0;
+
+    // Control register
+    ctrl_r ctrl;
 };

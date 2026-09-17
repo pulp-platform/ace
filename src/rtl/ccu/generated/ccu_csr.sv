@@ -90,6 +90,7 @@ module ccu_csr (
         logic perf_countinhibit;
         logic perf_eventsel[32];
         logic perf_counter[32];
+        logic ctrl;
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_err;
@@ -111,6 +112,7 @@ module ccu_csr (
         for(int i0=0; i0<32; i0++) begin
             decoded_reg_strb.perf_counter[i0] = cpuif_req_masked & (cpuif_addr == 9'hc0 + (9)'(i0) * 9'h4);
         end
+        decoded_reg_strb.ctrl = cpuif_req_masked & (cpuif_addr == 9'h140);
         decoded_err = '0;
     end
 
@@ -143,8 +145,14 @@ module ccu_csr (
                 logic load_next;
                 logic incrthreshold;
                 logic overflow;
-            } val;
+            } cnt;
         } perf_counter[32];
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } snoop_filter_en;
+        } ctrl;
     } field_combo_t;
     field_combo_t field_combo;
 
@@ -162,8 +170,13 @@ module ccu_csr (
         struct {
             struct {
                 logic [31:0] value;
-            } val;
+            } cnt;
         } perf_counter[32];
+        struct {
+            struct {
+                logic value;
+            } snoop_filter_en;
+        } ctrl;
     } field_storage_t;
     field_storage_t field_storage;
 
@@ -216,38 +229,61 @@ module ccu_csr (
         assign hwif_out.perf_eventsel[i0].event_id.value = field_storage.perf_eventsel[i0].event_id.value;
     end
     for(genvar i0=0; i0<32; i0++) begin
-        // Field: ccu_csr.perf_counter[].val
+        // Field: ccu_csr.perf_counter[].cnt
         always_comb begin
             automatic logic [31:0] next_c;
             automatic logic load_next_c;
-            next_c = field_storage.perf_counter[i0].val.value;
+            next_c = field_storage.perf_counter[i0].cnt.value;
             load_next_c = '0;
             if(decoded_reg_strb.perf_counter[i0] && decoded_req_is_wr) begin // SW write
-                next_c = (field_storage.perf_counter[i0].val.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+                next_c = (field_storage.perf_counter[i0].cnt.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
                 load_next_c = '1;
             end
-            if(hwif_in.perf_counter[i0].val.incr) begin // increment
-                field_combo.perf_counter[i0].val.overflow = (((33)'(next_c) + 32'h1) > 33'hffffffff);
+            if(hwif_in.perf_counter[i0].cnt.incr) begin // increment
+                field_combo.perf_counter[i0].cnt.overflow = (((33)'(next_c) + 32'h1) > 33'hffffffff);
                 next_c = next_c + 32'h1;
                 load_next_c = '1;
             end else begin
-                field_combo.perf_counter[i0].val.overflow = '0;
+                field_combo.perf_counter[i0].cnt.overflow = '0;
             end
-            field_combo.perf_counter[i0].val.incrthreshold = (field_storage.perf_counter[i0].val.value >= 32'hffffffff);
-            field_combo.perf_counter[i0].val.next = next_c;
-            field_combo.perf_counter[i0].val.load_next = load_next_c;
+            field_combo.perf_counter[i0].cnt.incrthreshold = (field_storage.perf_counter[i0].cnt.value >= 32'hffffffff);
+            field_combo.perf_counter[i0].cnt.next = next_c;
+            field_combo.perf_counter[i0].cnt.load_next = load_next_c;
         end
         always_ff @(posedge clk or negedge arst_n) begin
             if(~arst_n) begin
-                field_storage.perf_counter[i0].val.value <= 32'h0;
+                field_storage.perf_counter[i0].cnt.value <= 32'h0;
             end else begin
-                if(field_combo.perf_counter[i0].val.load_next) begin
-                    field_storage.perf_counter[i0].val.value <= field_combo.perf_counter[i0].val.next;
+                if(field_combo.perf_counter[i0].cnt.load_next) begin
+                    field_storage.perf_counter[i0].cnt.value <= field_combo.perf_counter[i0].cnt.next;
                 end
             end
         end
-        assign hwif_out.perf_counter[i0].val.value = field_storage.perf_counter[i0].val.value;
+        assign hwif_out.perf_counter[i0].cnt.value = field_storage.perf_counter[i0].cnt.value;
     end
+    // Field: ccu_csr.ctrl.snoop_filter_en
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ctrl.snoop_filter_en.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.ctrl && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.ctrl.snoop_filter_en.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end
+        field_combo.ctrl.snoop_filter_en.next = next_c;
+        field_combo.ctrl.snoop_filter_en.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ctrl.snoop_filter_en.value <= 1'h1;
+        end else begin
+            if(field_combo.ctrl.snoop_filter_en.load_next) begin
+                field_storage.ctrl.snoop_filter_en.value <= field_combo.ctrl.snoop_filter_en.next;
+            end
+        end
+    end
+    assign hwif_out.ctrl.snoop_filter_en.value = field_storage.ctrl.snoop_filter_en.value;
 
     //--------------------------------------------------------------------------
     // Write response
@@ -279,8 +315,11 @@ module ccu_csr (
         end
         for(int i0=0; i0<32; i0++) begin
             if(rd_mux_addr == 9'hc0 + (9)'(i0) * 9'h4) begin
-                readback_data_var[31:0] = field_storage.perf_counter[i0].val.value;
+                readback_data_var[31:0] = field_storage.perf_counter[i0].cnt.value;
             end
+        end
+        if(rd_mux_addr == 9'h140) begin
+            readback_data_var[0] = field_storage.ctrl.snoop_filter_en.value;
         end
         readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;
