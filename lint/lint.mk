@@ -9,7 +9,7 @@
 # CONDITIONS OF ANY KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations under the License.
 
-.PHONY: lint format
+.PHONY: lint
 
 #  Filter out RDL generated sources
 LINT_SRCS = $$($(BENDER) script --no-deps -d $(ROOT) flist | grep -v '/generated/')
@@ -19,8 +19,3 @@ lint:
 	  --rules_config $(LINT_DIR)/verible_rules.cfg \
 	  $(LINT_SRCS)
 
-format:
-	$(VERIBLE_FORMAT) \
-	  --flagfile $(LINT_DIR)/verible_format.cfg \
-	  --inplace \
-	  $(LINT_SRCS)

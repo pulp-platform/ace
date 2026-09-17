@@ -19,7 +19,6 @@ UV     ?= uv
 
 PEAKRDL        ?= $(UV) run --frozen peakrdl
 VERIBLE_LINT   ?= $(UV) run --frozen verible-cli verible-verilog-lint
-VERIBLE_FORMAT ?= $(UV) run --frozen verible-cli verible-verilog-format
 
 .PHONY: help
 
@@ -27,7 +26,6 @@ help:
 	@echo ""
 	@echo "regs:    regenerate the CCU register file from its SystemRDL source"
 	@echo "lint:    check the RTL against the Verible style rules"
-	@echo "format:  reformat the RTL in place with Verible"
 	@echo ""
 
 include $(RDL_DIR)/rdl.mk
