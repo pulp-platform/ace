@@ -9,31 +9,26 @@
 # CONDITIONS OF ANY KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations under the License.
 
-UV      ?= uv
-PEAKRDL ?= $(UV) run --frozen peakrdl
+ROOT     := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+RDL_DIR  := $(ROOT)/src/rdl
+RTL_DIR  := $(ROOT)/src/rtl
+LINT_DIR := $(ROOT)/lint
 
-.PHONY: help regs
+BENDER ?= bender
+UV     ?= uv
+
+PEAKRDL        ?= $(UV) run --frozen peakrdl
+VERIBLE_LINT   ?= $(UV) run --frozen verible-cli verible-verilog-lint
+VERIBLE_FORMAT ?= $(UV) run --frozen verible-cli verible-verilog-format
+
+.PHONY: help
 
 help:
 	@echo ""
-	@echo "regs:   regenerate the CCU register file from its SystemRDL source"
+	@echo "regs:    regenerate the CCU register file from its SystemRDL source"
+	@echo "lint:    check the RTL against the Verible style rules"
+	@echo "format:  reformat the RTL in place with Verible"
 	@echo ""
 
-# CCU control and status registers
-# {{{
-CCU_CSR_RDL    := src/rdl/ccu/ccu_csr.rdl
-CCU_CSR_DIR    := src/rtl/ccu/generated
-CCU_CSR_SV     := $(CCU_CSR_DIR)/ccu_csr.sv
-CCU_CSR_PKG_SV := $(CCU_CSR_DIR)/ccu_csr_pkg.sv
-
-regs: $(CCU_CSR_SV) $(CCU_CSR_PKG_SV)
-
-$(CCU_CSR_SV): $(CCU_CSR_RDL)
-	$(PEAKRDL) regblock $< \
-	  -o $(CCU_CSR_DIR) \
-	  --cpuif apb4-flat \
-	  --default-reset arst_n
-
-#  One peakrdl run emits both files.
-$(CCU_CSR_PKG_SV): $(CCU_CSR_SV);
-# }}}
+include $(RDL_DIR)/rdl.mk
+include $(LINT_DIR)/lint.mk

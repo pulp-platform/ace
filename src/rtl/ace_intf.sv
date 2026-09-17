@@ -11,12 +11,16 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+// verilog_lint: waive-start interface-name-style
+// verilog_lint: waive-start line-length
+
 interface CLK_IF (
     input clk_i
 );
 endinterface
 
 // ACE bus interafces
+
 interface ACE_BUS #(
     parameter int unsigned AXI_ADDR_WIDTH = 0,
     parameter int unsigned AXI_DATA_WIDTH = 0,
