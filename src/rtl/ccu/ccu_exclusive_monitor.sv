@@ -86,9 +86,7 @@ assign ar_handshake = ar_valid_i && ar_ready_o;
 logic exclusive_store_pass;
 assign exclusive_store_pass = ar_handshake && is_exclusive_store && valid_q[ar_sub_idx];
 
-//  C9.3.1: registration is deferred while another manager's passing
-//  Exclusive Store awaits its RACK; unregistered sequences fail their
-//  Exclusive Store and are re-issued by the manager (C9.3.4 false fail)
+//  Defer registration while another manager holds the lock (C9.3.1)
 logic registration_blocked;
 assign registration_blocked = |lock_q && !lock_q[ar_sub_idx];
 

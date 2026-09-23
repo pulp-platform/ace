@@ -14,8 +14,7 @@
 
 //! R channel arbiter with burst locking
 //
-//  Round-robin arbiter locking onto a burst: once a beat wins, the other
-//  inputs are masked until the last beat. `r_t` must have a `last` field.
+//  Round-robin, locked until the last beat.
 module ccu_r_arbiter #(
     parameter  int unsigned numInputs = 0,
     parameter  type         r_t       = logic,

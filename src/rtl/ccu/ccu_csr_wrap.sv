@@ -34,7 +34,7 @@ module ccu_csr_wrap
   ccu_csr__out_t hwif_out;
 
   for (genvar i = 0; i < numPerfCounters; i++) begin : gen_hwif
-    assign hwif_in.perf_counter[i].val.incr = &{
+    assign hwif_in.perf_counter[i].cnt.incr = &{
       hwif_out.perf_eventsel[i].event_id.value < numEvents,
       !hwif_out.perf_countinhibit.inh.value[i],
       events_i[hwif_out.perf_eventsel[i].event_id.value]

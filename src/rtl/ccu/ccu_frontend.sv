@@ -135,12 +135,7 @@ module ccu_frontend
         assign subordinate_resp_o[s].b_valid = subordinate_resp[s].b_valid;
         assign subordinate_req[s].b_ready    = subordinate_req_i[s].b_ready;
 
-        //  The xACK signal is used to extend the lifetime of
-        //  a transaction beyond the last R handshake.
-        //  Since ACE uses xACK signals to trigger many events
-        //  and xACK signals enforce FIFO ordering, a plain FIFO
-        //  can be used to push and pop relevant metadata between
-        //  a channel response and the associated xACK
+        //  RACKs arrive in R.last order, so a FIFO carries the metadata
         assign r_beat = subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready;
 
         assign rack_fifo_push = r_beat && subordinate_resp_o[s].r.last;
@@ -153,11 +148,7 @@ module ccu_frontend
             else if (r_beat) r_error_q <= subordinate_resp_o[s].r.last ? 1'b0 : r_error;
         end
 
-        //  RACK-related metadata are used to:
-        //  - retire the AR dispatch entry (by id)
-        //  - clear the corresponding exclusive monitor entry
-        //  SC failure responses are locally generated, their RACK still
-        //  retires the dispatch entry but must not clear the monitor
+        //  RACK retires the dispatch entry and clears the monitor (not on SC fail)
         assign r_id_hit = exclusive_entry_id_i[s] == subordinate_resp_o[s].r.id;
 
         assign rack_fifo_wdata = '{
@@ -272,8 +263,7 @@ module ccu_frontend
         .data_o  (manager_req_o.ar)
     );
 
-    //  Write-channel de-allocation, taken downstream of arbitration so the
-    //  subordinate index comes from the id the arbiter already prefixed
+    //  Write-channel de-allocation, after arbitration for the prefixed id
     localparam int unsigned subIdxW = ccuCfg.subordinateIndexWidth;
     localparam int unsigned subIdW  = ccuCfg.u.axiSubordinateIdWidth;
 
@@ -290,16 +280,13 @@ module ccu_frontend
     assign aw_sub_idx  = arbiter_req.aw.id[subIdW +: subIdxW];
     assign aw_is_evict = ace_is_evict(arbiter_req.aw.bar[0], arbiter_req.aw.domain,
                                       arbiter_req.aw.snoop);
-    //  Non-shareable lines are never tracked (C3-13), and WriteBack and
-    //  WriteEvict are legal in that domain, so they are excluded here
+    //  Non-shareable lines are never tracked
     assign aw_deallocates =
         arbiter_req.aw.domain inside {InnerShareable, OuterShareable} &&
        (ace_is_write_back (arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop) ||
         ace_is_write_evict(arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop));
 
-    //  An Evict carries no data and updates no memory (C4.9.1): the removal is
-    //  its only destination, so the AW retires on it and the response it makes
-    //  leaves a cycle later, never ahead of the request
+    //  Evicts terminate here: the removal retires the AW, B follows
     stream_demux #(
         .N_OUP (2)
     ) u_aw_evict_demux (
@@ -332,9 +319,7 @@ module ccu_frontend
 
     //  One AW sits at the demux at a time, so the two legs never overlap
     assign aw_remove_valid = wb_remove_valid || evict_aw_valid;
-    //  The mirror may only lose the token once the write is visible to the PoS
-    //  hazard check, or a peer's read both misses the snoop and misses the
-    //  stall. The fork drops a served leg's valid, so this orders the two
+    //  Remove the token only once the write is visible to the hazard check
     assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx] && !write_pos_valid;
     assign evict_aw_ready  = aw_remove_ready && !evict_b_valid;
 
@@ -412,8 +397,7 @@ module ccu_frontend
         .data_o  (mem_b)
     );
 
-    //  An Evict response carries the id the arbiter prefixed, so it demuxes
-    //  back to its subordinate like any other
+    //  Evict B carries the prefixed id and demuxes like any other
     rr_arb_tree #(
         .NumIn     (2),
         .DataType  (ccu_ace_manager_b_t),

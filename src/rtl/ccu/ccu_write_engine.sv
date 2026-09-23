@@ -53,9 +53,7 @@ module ccu_write_engine
     output logic                                b_ready_o,
     input  ccu_axi_b_t                          b_i,
 
-    //  WACK of frontend writes; accepted but unused: without Coherent
-    //  writes (WriteUnique) the C6.2 write-side rules are void, snoop vs
-    //  writeback races are resolved by the managers (C5.2.3)
+    //  WACK of frontend writes (unused)
     input  logic [ccuCfg.u.numSubordinates-1:0] wack_i,
 
     //  PoS-accepted frontend AW (pre-spill), allocates a pending-write entry
@@ -74,8 +72,7 @@ module ccu_write_engine
     localparam int unsigned hashWidth  = ccuCfg.u.writeHashWidth;
     localparam int unsigned hashLsb    = ccuCfg.u.addressCheckLsb;
 
-    //  Frontend writes and writebacks share one pending pool: each is bounded
-    //  by its own allocation port, so neither can starve the other of entries
+    //  Frontend writes and writebacks share one pending pool
     localparam int unsigned numPending   = ccuCfg.u.numWriteTransactions +
                                            ccuCfg.u.numSnoopTransactions;
     localparam int unsigned pendIdxWidth = numPending > 1 ? $clog2(numPending) : 1;
@@ -100,9 +97,7 @@ module ccu_write_engine
     logic writeback_aw_ready;
     logic wb_full;
 
-    //  The arbiter has LockIn, so a request may not be retracted once made.
-    //  The writeback takes the high-priority allocation port, which leaves the
-    //  PoS port one entry short and makes `wb_full` unable to rise under it
+    //  Gate on `wb_full` before requesting: the arbiter has LockIn
     assign writeback_aw_valid   = writeback_aw_valid_i && !wb_full;
     assign writeback_aw_ready_o = writeback_aw_ready;
 
@@ -155,8 +150,7 @@ module ccu_write_engine
     assign wb_push      = aw_valid_o && aw_ready_i && aw_is_writeback;
     assign b_free       = b_valid_i  && b_ready_o;
 
-    //  The PoS accept and the writeback issue are independent, so each needs
-    //  its own free index in the same cycle
+    //  One allocation port each for PoS accepts and writebacks
     assign pend_alloc_valid = {pos_aw_valid_i, wb_push};
     assign pend_free_mask   = b_free ? (numPending'(1) << b_entry.sb_idx) : '0;
 
@@ -194,8 +188,7 @@ module ccu_write_engine
                              (wb_push && aw_arb_slice == mem_ar_addr_slice_i));
 //  }}}
 
-//  PoS index queue: the AW reaches the memory port after its PoS accept,
-//  and the frontend accepts in AW order, so a plain fifo carries the index
+//  PoS index queue, in AW order
 //  {{{
     logic [pendIdxWidth-1:0] pos_idx_head;
     logic                    pos_idx_full;
@@ -267,8 +260,7 @@ module ccu_write_engine
 
 //  AW fork
 //  {{{
-    //  Fork the arbitrated AW into the manager AW and the W-steering fifo.
-    //  Stall on a full hash FIFO so the inflight bookkeeping never overflows.
+    //  Fork to the manager AW and the W-steering fifo; stall on a full hash FIFO
     stream_fork_dynamic #(
         .N_OUP (2)
     ) u_aw_fork (

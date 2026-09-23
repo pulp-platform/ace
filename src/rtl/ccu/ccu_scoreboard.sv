@@ -14,11 +14,8 @@
 
 //! Transaction scoreboard
 //
-//  Tracks one address slice and id per live transaction. Up to two allocation
-//  ports each get a distinct free index in the same cycle, so callers whose
-//  allocation events are independent never collide. Entries are freed by a
-//  bitvector, so any number may retire together. Matching by slice answers
-//  same-line queries. The array is exposed so a caller can layer ordering on it.
+//  Address slice and id per live transaction, up to two allocations per cycle,
+//  freed by bitmask.
 module ccu_scoreboard #(
     parameter  int unsigned numEntries = 8,
     parameter  int unsigned sliceWidth = 16,
@@ -26,8 +23,7 @@ module ccu_scoreboard #(
     parameter  int unsigned numAlloc   = 1,
     parameter  int unsigned numQueries = 0,
     localparam int unsigned idxWidth   = numEntries > 1 ? $clog2(numEntries) : 1,
-    //  A port count of zero would give a reversed [-1:0] range, so the
-    //  array keeps one element and the unused generate loop emits nothing
+    //  Avoid a [-1:0] range when numQueries is 0
     localparam int unsigned nQuery     = numQueries > 0 ? numQueries : 1
 ) (
     input  logic clk_i,
@@ -57,8 +53,7 @@ module ccu_scoreboard #(
     logic [numEntries-1:0][sliceWidth-1:0] slice_q,   slice_d;
     logic [numEntries-1:0][idWidth-1:0]    id_q,      id_d;
 
-    //  Port 0 takes the lowest free entry, port 1 the highest. They can only
-    //  coincide when a single entry is free, which is exactly what closes port 1
+    //  Port 0 takes the lowest free entry, port 1 the highest
     logic [numEntries-1:0] free_set;
 
     assign free_set = ~valid_q;

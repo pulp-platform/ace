@@ -41,8 +41,7 @@ package ccu_pkg;
         int unsigned    subordinateCacheWays;
         //  Address bits the filter tracks; the rest always report present
         int unsigned    snoopFilterAddrWidth;
-        //  Subordinate ARID of a manager port holding no snoopable copy, so the
-        //  filter never tracks the lines it reads and its ids may repeat
+        //  ARID of a port without a snoopable cache; its reads are not tracked
         bit             hasUntrackedArId;
         int unsigned    untrackedArId;
         //  LSB address bit used for hazard checks (inclusive)
@@ -116,8 +115,7 @@ package ccu_pkg;
         p.addressCheckWidth          = u.addressCheckMsb - u.addressCheckLsb + 1;
         p.snoopFilterSetWidth        = u.subordinateCacheSets > 1 ?
                                        $clog2(u.subordinateCacheSets) : 1;
-        //  The tag spans every tracked bit above the set, so it identifies the
-        //  line and two lines never share a way
+        //  Full tag: every tracked bit above the set index
         p.snoopFilterTagWidth        = u.snoopFilterAddrWidth >
                                        p.cachelineByteIndexWidth + p.snoopFilterSetWidth ?
                                        u.snoopFilterAddrWidth - p.cachelineByteIndexWidth -
@@ -127,8 +125,7 @@ package ccu_pkg;
         return p;
     endfunction
 
-    //  Decoded once at admission and carried with the transaction, so no two
-    //  stages can disagree about what an AR is
+    //  AR decode, done once at admission
     typedef struct packed {
         logic              allocates;
         logic              is_no_snoop;

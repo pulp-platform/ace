@@ -14,11 +14,8 @@
 
 //! AR dispatch
 //
-//  A flat pool of at most `numEntries` inflight ARs. Same-address ARs are
-//  serialized by predecessor chains (an entry links behind the current tail
-//  of its address chain and may dispatch once its predecessor retired),
-//  while different addresses dispatch in parallel. An entry retires on its
-//  RACK. Storage is bounded by the number of inflight transactions.
+//  Serializes same-address ARs via predecessor chains; different addresses
+//  dispatch in parallel. Entries retire on RACK.
 module ccu_ar_dispatch
     import ace_pkg::*;
     import ccu_pkg::*;
@@ -130,8 +127,7 @@ module ccu_ar_dispatch
     logic [numEntries-1:0]                               sb_retired;
     logic [numEntries-1:0]                               ins_req_set, ins_req_clear;
 
-    //  The scoreboard holds the whole line address for the filter, while the
-    //  chain still matches on the narrower hazard slice
+    //  Full line address for the filter; chains match on the hazard slice
     ccu_scoreboard #(
         .numEntries (numEntries),
         .sliceWidth (lineWidth),
@@ -162,8 +158,7 @@ module ccu_ar_dispatch
     assign ar_ready_o = !queue_full && !sb_full;
     assign alloc      = ar_valid_i && ar_ready_o;
 
-    //  Such a port answers no snoop and issues no Evict, so a tracked line of
-    //  its would hold a way the mirror can never reclaim
+    //  Untracked port: no snoops, no Evicts, so its lines are never tracked
     localparam logic [subIdWidth-1:0] untrackedId = subIdWidth'(ccuCfg.u.untrackedArId);
 
     assign ar_untracked   = ccuCfg.u.hasUntrackedArId &&
@@ -201,8 +196,7 @@ module ccu_ar_dispatch
         pred_valid_d = pred_valid_q;
         pred_idx_d   = pred_idx_q;
 
-        //  A predecessor releases its successor only once its line is in the
-        //  filter, so the successor's lookup cannot miss it
+        //  Release the successor only once our line is in the filter
         for (int unsigned e = 0; e < numEntries; e++) begin
             if (pred_valid_q[e] && sb_free[pred_idx_q[e]])
                 pred_valid_d[e] = 1'b0;
@@ -216,8 +210,7 @@ module ccu_ar_dispatch
         end
     end
 
-    //  Inherited down the chain: any allocator ahead of us inserts before we
-    //  dispatch, which would leave an early lookup stale
+    //  Set if any predecessor allocates, which makes our lookup stale
     always_comb begin : chain_alloc_comb
         chain_alloc_d = chain_alloc_q;
         if (alloc)
@@ -274,8 +267,7 @@ module ccu_ar_dispatch
             .empty_o (ins_sub_none)
         );
 
-        //  A pending entry below the selected one would re-steer the lzc, so the
-        //  selection is held until the handshake it belongs to retires
+        //  Hold the selection until its handshake completes
         assign ins_idx              = ins_held_q ? ins_held_idx_q : ins_sub_idx;
         assign sf_insert_valid_o[s] = ins_held_q || !ins_sub_none;
         assign sf_insert_addr_o[s]  = {sb_line[ins_idx], {offWidth{1'b0}}};
@@ -306,8 +298,7 @@ module ccu_ar_dispatch
     end
 //  }}}
 
-//  Snoop filter lookup: issued at admission, and again when a chain that
-//  contains an allocator releases us, since that insert postdates the first
+//  Snoop filter lookup: at admission, and again after an allocating chain
 //  {{{
     logic [numQueue-1:0][numSub-1:0] present_q, present_d;
     logic [numQueue-1:0]             have_q, have_d;
@@ -386,18 +377,12 @@ module ccu_ar_dispatch
     end
 //  }}}
 
-//  Back-invalidation hazards, C6.2 p.C6-235 both ways: a snoop may not reach a
-//  master before its own RACK for the line, and a response may not reach it
-//  before the CR that snoop is owed. The filter holds one attempt per table,
-//  so `bi_req_i` is the half still at the arbiter and `bi_pend_i & ~bi_req_i`
-//  the half already sent. Refusing the first is what stops the second from
-//  blocking an entry that was already eligible
+//  Back-invalidation hazards (C6.2): no snoop before the RACK, no R before the CR
 //  {{{
     for (genvar s = 0; s < numSub; s++) begin : gen_bi_hazard
         logic [numEntries-1:0] hit;
 
-        //  An entry past its RACK is not a hazard, which is also what keeps
-        //  this from waiting on the stuck insert that raised the request
+        //  Entries past their RACK are not hazards
         for (genvar e = 0; e < numEntries; e++) begin : gen_hit
             assign hit[e] = sb_valid[e] && !sb_retired[e] && !rack_mask_i[e] &&
                 sb_id[e][ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s) &&
@@ -417,8 +402,7 @@ module ccu_ar_dispatch
 
         assign alloc_this = alloc && queue_alloc_idx == queueIdxWidth'(e);
         assign queue_sub  = queue_q[e].ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth];
-        //  Its own subordinate still owes a CR for this line. Same comparand
-        //  as the hazard above, or the two could disagree
+        //  Own subordinate still owes a CR for this line
         assign bi_blocked[e] = bi_pend_i[queue_sub] && !bi_req_i[queue_sub] &&
             bi_addr_i[queue_sub][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
                 queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
@@ -427,8 +411,7 @@ module ccu_ar_dispatch
                                 pred_valid_q[queue_q[e].sb_idx] &&
                                 sb_free[pred_idx_q[queue_q[e].sb_idx]] &&
                                 chain_alloc_q[queue_q[e].sb_idx];
-        //  The mask lands the cycle the entry first becomes eligible, so it is
-        //  read straight off the filter rather than a cycle later
+        //  Take the mask straight off the filter on its lookup cycle
         assign bypass[e]   = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
         //  An entry may dispatch once nothing precedes it and its mask is known
         assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
@@ -482,9 +465,7 @@ module ccu_ar_dispatch
     assign ar_flags_o = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
 
     assign ar_valid_o = arb_req;
-    //  The arbiter is instantiated with AxiVldRdy, which drops the request
-    //  qualification from its grant, so a bare ready would grant with nothing
-    //  requesting and `dispatch` would retire a queue entry that never went out
+    //  AxiVldRdy grants are unqualified, so qualify with valid
     assign arb_gnt    = ar_valid_o && ar_ready_i;
     assign dispatch   = gnt;
 //  }}}
@@ -493,17 +474,14 @@ module ccu_ar_dispatch
 //  {{{
     // pragma translate_off
     `ifndef VERILATOR
-    //  managers must not reuse an id across inflight transactions
-    //  One RACK per entry, so an entry can never already owe an insert
+    //  one RACK per entry
     for (genvar e = 0; e < numEntries; e++) begin : gen_single_rack_assert
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             rack_mask_i[e] |-> !sb_retired[e])
             else $error("a RACK arrived for an entry that still owes an insert");
     end
 
-    //  An untracked port reuses one id for every read, so it is exempt
-    //  An entry outlives its RACK to reach the filter; the manager owns the id
-    //  again from the RACK on, so only a pre-RACK entry still holds it
+    //  ids are unique among pre-RACK entries; untracked ports are exempt
     for (genvar e = 0; e < numEntries; e++) begin : gen_unique_id_assert
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             alloc && !ar_untracked |->
@@ -512,16 +490,13 @@ module ccu_ar_dispatch
             else $error("allocating an AR with an id already inflight");
     end
 
-    //  a dispatch that reads the filter combinationally must be the entry
-    //  whose lookup is in flight, or it takes another entry's mask
+    //  a bypassed mask belongs to the dispatched entry
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         ar_valid_o && !have_q[issue_idx] |->
             lookup_pend_q && lookup_target_q == issue_idx)
         else $error("dispatch bypassed a lookup issued for another entry");
 
-    //  A queued entry is in the scoreboard and pre-RACK, so `maint_hazard_o`
-    //  already refuses a send that would block it. Without that, `eligible`
-    //  could fall under a held `ar_valid_o`
+    //  an eligible entry never becomes blocked
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         $rose(|(bi_blocked & queue_valid_q)) |->
             !$past(|(~bi_blocked & queue_valid_q & eligible)))

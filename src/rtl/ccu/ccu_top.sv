@@ -163,8 +163,7 @@ ccu_address_t                        sf_cr_remove_addr;
 logic                                sf_cr_remove_ready;
 logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
 
-//  Back-invalidation requests, one per table, merged into the one the snoop
-//  pipeline accepts
+//  Back-invalidation requests, arbitrated into the snoop pipeline
 typedef struct packed {
     logic [ccuCfg.u.axiAddressWidth-1:0]  addr;
     logic [ccuCfg.u.numSubordinates-1:0]  sel;
@@ -263,7 +262,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
 
 //  Snoop filter
 //  {{{
-    //  When off the CCU broadcasts every snoop, so the arrays are not built
+    //  When off, every snoop is broadcast
     if (ccuCfg.u.enableSnoopFilter) begin : gen_snoop_filter
 
     ccu_snoop_filter #(
@@ -314,8 +313,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
         .oup_ready_i (maint_ready)
     );
 
-    //  A hazarded attempt waits at the arbiter input, so being taken is what
-    //  commits it: nothing downstream can refuse it again
+    //  Hazarded attempts wait at the arbiter input
     assign bi_arb_valid       = sf_backinval_valid & ~sf_backinval_hazard;
     assign sf_backinval_ready = bi_arb_ready & bi_arb_valid;
 
@@ -334,8 +332,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
     end
 //  }}}
 
-//  Exclusive monitor (PoS): filters failing exclusive stores on the
-//  dispatched stream, their SC fail responses are merged in the read engine
+//  Exclusive monitor
 //  {{{
     ccu_exclusive_monitor #(
         .ccuCfg       (ccuCfg),
@@ -439,13 +436,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
 
 //  Write engine
 //  {{{
-    /*
-        NOTE: AW/W/B pipelining happens in the frontend
-              by adding spill registers on these channels
-    */
-
-    // Intermediate signals to zero-pad the ID
-    // and drop the coherence fields
+    //  Zero-pad the ID and drop the coherence fields
     ccu_axi_manager_aw_t frontend_req_aw;
     ccu_axi_manager_b_t  frontend_resp_b;
 

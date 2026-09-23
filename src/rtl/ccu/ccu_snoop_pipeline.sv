@@ -41,8 +41,7 @@ module ccu_snoop_pipeline
     input  logic                                             ar_valid_i,
     output logic                                             ar_ready_o,
 
-    //  Back-invalidation from the snoop filter, riding the ordinary pipeline as
-    //  a transaction with no initiator
+    //  Back-invalidation from the snoop filter (no initiator)
     input  logic                                             maint_valid_i,
     input  logic          [ccuCfg.u.axiAddressWidth-1:0]     maint_addr_i,
     input  logic          [ccuCfg.u.numSubordinates-1:0]     maint_sel_i,
@@ -71,7 +70,7 @@ module ccu_snoop_pipeline
     input  logic                                             read_engine_ar_ready_i,
     output ccu_axi_ar_t                                      read_engine_ar_o,
     output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_ar_tid_o,
-    //  A peer keeps a copy but supplies no data, so only this AR carries the fact
+    //  A peer keeps a copy but supplies no data
     output logic                                             read_engine_ar_is_shared_o,
     output logic                                             read_engine_r_valid_o,
     input  logic                                             read_engine_r_ready_i,
@@ -212,7 +211,7 @@ module ccu_snoop_pipeline
 
     assign subordinate_ar_index = ar_i.id[ccuCfg.u.axiSubordinateIdWidth+:ccuCfg.subordinateIndexWidth];
 
-    //  System-domain lines cannot be cached (C3-163), so like NonShareable they snoop nobody
+    //  NonShareable and System lines snoop nobody
     always_comb begin : ace_sel_comb
         unique case (ar_i.domain)
             InnerShareable: ar_ac_sel = domain_map_i[subordinate_ar_index].inner;
@@ -222,8 +221,7 @@ module ccu_snoop_pipeline
         ar_ac_sel &= ar_present_i;
     end
 
-    //  Both producers present the same thing, so everything past the arbiter
-    //  is unchanged: an ordinary AR, or a back-invalidation with no initiator
+    //  Common request for ARs and back-invalidations
     typedef struct packed {
         ccu_ace_ar_t                                ar;
         ccu_ar_flags_t                              flags;
@@ -240,8 +238,7 @@ module ccu_snoop_pipeline
         maintenance: 1'b0
     };
 
-    //  CleanInvalid takes the line away whether or not it is really held, and
-    //  `sf_cr_remove_comb` removes the token unconditionally on that encoding
+    //  Back-invalidation as CleanInvalid
     always_comb begin : maint_req_comb
         maint_req             = '0;
         maint_req.ar.addr     = maint_addr_i;
@@ -250,8 +247,7 @@ module ccu_snoop_pipeline
         maint_req.maintenance = 1'b1;
     end
 
-    //  "rr" for its `LockIn`: the decision must hold until the AC fork drains.
-    //  Back-invalidation needs progress, not priority
+    //  "rr" for LockIn
     stream_arbiter #(
         .DATA_T  (stage0_req_t),
         .N_INP   (2),
@@ -297,8 +293,7 @@ module ccu_snoop_pipeline
         ccu_ar_flags_t                              flags;
         logic [ccuCfg.transactionIndexWidth-1:0]    tid;
         logic        [ccuCfg.u.numSubordinates-1:0] sel;
-        //  No initiator: nothing is owed an R beat and no scoreboard entry
-        //  belongs to it
+        //  Back-invalidation: no initiator
         logic                                       maintenance;
     } stage1_fifo_entry_t;
 
@@ -401,8 +396,7 @@ module ccu_snoop_pipeline
         cd_engine_forward_to_write = 1'b0;
         cd_engine_ack_to_read      = 1'b0;
 
-        //  No initiator: nothing forwarded, nothing acknowledged. Dirty data
-        //  still goes back through the writeback path
+        //  No initiator: only write back dirty data
         if (stage1_fifo_rdata.maintenance) begin
             cd_engine_sel              = cr.resp.DataTransfer;
             cd_engine_forward_to_write = cr.resp.DataTransfer && cr.resp.PassDirty;
@@ -415,8 +409,7 @@ module ccu_snoop_pipeline
                 cd_engine_sel         = 1'b1;
                 cd_engine_ack_to_read = 1'b1;
             end
-            //  At least one snooped manager is providing data: forward it to
-            //  the initiator (normal read) or acknowledge (clean/make)
+            //  Snoop data: forward (read) or acknowledge (clean/make)
             default: begin
                 cd_engine_sel             = 1'b1;
                 cd_engine_forward_to_read = !is_clean_or_make;
@@ -459,8 +452,7 @@ module ccu_snoop_pipeline
     assign cd_engine_resp_shared = rresp_is_shared;
     assign cd_engine_resp_dirty  = rresp_pass_dirty;
 
-    //  Responders hold the same line: the lowest-indexed one supplies it and
-    //  the others' beats are read off their CD fifos and dropped
+    //  Lowest-indexed responder supplies the data, others are drained
     always_comb begin : cd_data_role_comb
         cd_data_source = '0;
         if (cd_engine_forward_to_read || cd_engine_forward_to_write) begin
@@ -524,8 +516,6 @@ module ccu_snoop_pipeline
     logic                                   cd_engine_data_ready;
     logic                                   cd_read_valid;
     logic                                   cd_read_ready;
-    logic                                   cd_read_ordered_valid;
-    logic                                   cd_read_ordered_ready;
 
     stream_fifo #(
         .FALL_THROUGH (1'b0),
@@ -562,8 +552,7 @@ module ccu_snoop_pipeline
     logic r_mux_ready;
 
     always_comb begin : write_engine_aw_comb
-        //  Derive the writeback AW from the AR. The id is irrelevant here:
-        //  the write engine swaps it for the address hash.
+        //  Writeback AW from the AR; the write engine replaces the id
         write_engine_aw_o.id     = '0;
         write_engine_aw_o.addr   = axi_pkg::aligned_addr(cd_engine_fifo_rdata.ar.addr, ccuCfg.cachelineByteIndexWidth);
         write_engine_aw_o.len    = ccuCfg.cachelineAxiTransfers - 1;
@@ -620,8 +609,7 @@ module ccu_snoop_pipeline
         end
     end
 
-    //  {ACK, AW, DATA}: pops the entry only when every selected branch has
-    //  handshaked; DATA completes on the last CD beat
+    //  {ACK, AW, DATA}; DATA completes on the last CD beat
     stream_fork_dynamic #(
         .N_OUP (3)
     ) u_cd_engine_fork (
@@ -638,8 +626,7 @@ module ccu_snoop_pipeline
         .ready_i     ({ack_branch_ready, write_engine_aw_ready_i, cd_all_done})
     );
 
-    //  Per-beat CD data fork to the initiator (read) and/or the writeback W,
-    //  driven while the entry's DATA branch is active
+    //  Per-beat CD data fork to the initiator and/or the writeback W
     stream_fork_dynamic #(
         .N_OUP (2)
     ) u_cd_data_fork (
@@ -676,8 +663,7 @@ module ccu_snoop_pipeline
     //  Writeback-ordered token: set on the writeback AW handshake, gates R.last
     assign aw_handshake = write_engine_aw_valid_o && write_engine_aw_ready_i;
 
-    //  Only when an R will follow to consume it: a back-invalidation writes
-    //  back with no read to order against
+    //  Only when an R follows
     assign wb_ordered_set   = aw_handshake && (cd_engine_fifo_rdata.forward_to_read
                                             || cd_engine_fifo_rdata.ack_to_read);
     assign wb_ordered_clear = wb_token_ready && r_last;
@@ -704,8 +690,7 @@ module ccu_snoop_pipeline
         user: cd_engine_fifo_rdata.ar.user
     };
 
-    //  One initiator R source is active per head entry (read data XOR ack),
-    //  so a mux selected by ack_to_read suffices
+    //  Read data XOR ack per entry
     stream_mux #(
         .DATA_T (ccu_ace_r_t),
         .N_INP  (2)
@@ -721,7 +706,7 @@ module ccu_snoop_pipeline
 
     assign read_engine_r_tid_o = cd_engine_fifo_rdata.tid;
 
-    //  Hold the R response until the writeback AW is ordered (IHI0022E C6.5.3)
+    //  Hold R until the writeback AW is ordered (C6.5.3)
     assign r_last       = cd_engine_fifo_rdata.ack_to_read || cd.last;
     assign wb_token_sel = cd_engine_fifo_rdata.forward_to_write;
 
@@ -768,7 +753,7 @@ module ccu_snoop_pipeline
             events_d.stage1_make_invalid          =
                 ace_is_make_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
         end
-        // Stage 0 stalls (address hazards now handled by the AR dispatch unit)
+        // Stage 0 stalls
         if (ar_valid_i && !ar_ready_o) begin
             events_d.stage0_stall_ac_fifo_full     = ac_valid && !ac_ready;
             events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
@@ -818,8 +803,7 @@ module ccu_snoop_pipeline
         cd_engine_valid |-> !(rresp_is_shared && rresp_pass_dirty && !accepts_dirty_shared))
         else $error("IsShared and PassDirty returned to a transaction accepting only one");
 
-    //  Dirty cannot be handed over without the data, which is why only IsShared
-    //  has to survive a read served from memory
+    //  no PassDirty without data
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         engine_fork_valid |-> !(cr.resp.PassDirty && !cr.resp.DataTransfer))
         else $error("PassDirty without DataTransfer");
@@ -847,8 +831,7 @@ module ccu_snoop_pipeline
         cd_entry_pop |=> cd_done == '0)
         else $error("CD beat counters not cleared with the entry");
 
-    //  the carried flags still describe the AR they were decoded from;
-    //  a back-invalidation's are built, not decoded
+    //  carried flags match the AR
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         stage1_fifo_valid && !stage1_fifo_rdata.maintenance |->
         stage1_fifo_rdata.flags ==

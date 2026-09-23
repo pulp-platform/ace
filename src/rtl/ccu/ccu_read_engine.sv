@@ -32,8 +32,7 @@ module ccu_read_engine
     output logic                                ar_ready_o,
     input  ccu_axi_ar_t                         ar_i,
     input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
-    //  A peer kept a copy but supplied no data, so memory serves this read
-    //  and only this bit carries the fact back to the initiator
+    //  A peer kept a copy but supplied no data; sets IsShared on memory R
     input  logic                                ar_is_shared_i,
 
     //  Initiator R sourced by the snoop pipeline (read data and acks)
@@ -81,9 +80,7 @@ module ccu_read_engine
     assign mem_ar_addr_check_o = ar_valid_i;
     assign mem_ar_addr_slice_o = ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 
-    //  Once asserted the stall is ignored: only a crossing writeback of a
-    //  manager answering its snoop without data (C5.2.3) could genuinely
-    //  rise here, which the managers are required not to do
+    //  Ignore the stall once the AR is presented (C5.2.3)
     assign ar_allow   = ar_committed_q || !mem_ar_stall_i;
     assign ar_valid_o = ar_valid_i && ar_allow;
     assign ar_ready_o = ar_ready_i && ar_allow;
@@ -93,8 +90,7 @@ module ccu_read_engine
         else         ar_committed_q <= ar_valid_o && !ar_ready_i;
     end
 
-    //  The tid is unique among inflight reads, so it serves as the memory ARID
-    //  and comes back on RID, which is what makes the R side lookup-free
+    //  The tid is the memory ARID
     always_comb begin : mem_ar_comb
         `AXI_SET_AR_STRUCT(ar_o, ar_i)
         ar_o.id = ar_tid_i;
@@ -109,8 +105,7 @@ module ccu_read_engine
 
     assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
 
-    //  The tid is unique among inflight reads and outlives the last R beat, so
-    //  each AR simply overwrites its own bit and none has to be cleared
+    //  Indexed by tid, overwritten per AR, never cleared
     logic [ccuCfg.u.numShareableTransactions-1:0] ar_is_shared_q;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin

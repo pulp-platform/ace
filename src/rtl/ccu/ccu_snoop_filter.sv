@@ -14,13 +14,8 @@
 
 //! Snoop filter
 //
-//  One tag array per subordinate, each mirroring that subordinate's cache. The
-//  tag is the address above the set index, so it identifies the line and two
-//  lines never share a way.
-//
-//  Addresses outside the tracked range report present and are never tracked,
-//  which keeps Non-shareable lines out of the arrays (C3-160).
-//  `lookup_present_o` is valid the cycle after `lookup_valid_i`.
+//  One tag array per subordinate mirroring its cache. Untracked addresses
+//  always report present. Lookup has one cycle of latency.
 module ccu_snoop_filter
     import ccu_pkg::*;
 #(
@@ -49,21 +44,18 @@ module ccu_snoop_filter
     input  logic [numSub-1:0][addrW-1:0]    aw_remove_addr_i,
     output logic [numSub-1:0]               aw_remove_ready_o,
 
-    //  De-allocation from snoop responses: one line, several responders. The
-    //  select is held apart from the qualifier so ready does not depend on valid
+    //  De-allocation from snoop responses: one line, several responders
     input  logic                            cr_remove_valid_i,
     input  logic [numSub-1:0]               cr_remove_sel_i,
     input  logic [addrW-1:0]                cr_remove_addr_i,
     output logic                            cr_remove_ready_o,
 
-    //  An insert with no free way snoops a line this subordinate is recorded
-    //  as holding; answering frees the way whether the line is there or not
+    //  Back-invalidation of a victim when an insert finds no free way
     output logic [numSub-1:0]               backinval_valid_o,
     output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
     input  logic [numSub-1:0]               backinval_ready_i,
 
-    //  The attempt outlives the request: still valid means still at the
-    //  arbiter, pending without valid means the snoop is out
+    //  Attempt in flight; pending without valid means the snoop was sent
     output logic [numSub-1:0]               backinval_pend_o,
 
     //  A removal that found nothing; legal, but worth observing
@@ -82,8 +74,7 @@ module ccu_snoop_filter
 
     typedef enum logic [1:0] { IDLE, READ, WRITE } state_e;
 
-    //  A shift, not a part-select: the guard is evaluated at run time, but a
-    //  reversed range would still have to elaborate when trackW reaches addrW
+    //  Shift, since a part-select would not elaborate when trackW == addrW
     function automatic logic in_range(logic [addrW-1:0] addr);
         return (addr >> trackW) == '0;
     endfunction
@@ -122,9 +113,7 @@ module ccu_snoop_filter
         .ready_i     (cr_fork_ready)
     );
 
-    //  An untracked address has no token, so take the removal and drop it. The
-    //  fork holds its ready low while its valid is gated, which would stall the
-    //  snoop pipeline for good - the insert and AW-removal ports both bypass
+    //  Drop removals of untracked addresses
     assign cr_remove_ready_o = cr_track ? cr_port_ready : 1'b1;
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table
@@ -177,9 +166,7 @@ module ccu_snoop_filter
         //  An untracked line is dropped rather than stalling its transaction
         assign insert_ready_o[s] = ins_track[s] ? ins_gnt[s] : 1'b1;
 
-        //  Snoop-response removals go first: they gate the AR path. The choice
-        //  is locked once presented, or a CR arriving behind an unaccepted AW
-        //  would change the payload under a held valid
+        //  Snoop-response removals first; the choice is locked once presented
         logic rem_hold_q, rem_is_cr_q;
 
         assign rem_is_cr[s] = rem_hold_q ? rem_is_cr_q : cr_fork_valid[s];
@@ -314,9 +301,7 @@ module ccu_snoop_filter
             state_d = state_q;
             unique case (state_q)
                 IDLE:    if (op_start) state_d = READ;
-                //  A hit or a stuck insert retires without writing, as does a
-                //  remove that found nothing: an eviction and a snoop of the
-                //  same line put two removals on one token
+                //  Hits, stuck inserts and removal misses retire without writing
                 READ:    state_d = insert_hit   ? IDLE :
                                    insert_stuck ? IDLE :
                                    way_none     ? IDLE : WRITE;
@@ -333,14 +318,11 @@ module ccu_snoop_filter
         assign backinval_pend_o[s]  = backinval_pend_q;
         assign backinval_addr_o[s]  = backinval_addr_q;
 
-        //  The arbiter taking the request says nothing about the way it was
-        //  meant to free, so one attempt stands until this set moves
+        //  An attempt stands until this set is updated
         assign backinval_done = ins_gnt[s] ||
             (rem_ready[s] && op_set_q == backinval_addr_q[offW +: setW]);
 
-        //  A stuck insert retries rather than forcing a way, so the mirror
-        //  stays exact. One request in flight per table, latched so it is
-        //  stable under a held valid and the victim cannot move
+        //  One latched back-invalidation per table; the insert retries
         always_comb begin : backinval_comb
             victim_d          = victim_q;
             backinval_d       = backinval_q;
@@ -406,9 +388,7 @@ module ccu_snoop_filter
             state_q == READ |-> $onehot0(way_match))
             else $error("a set holds the same line twice");
 
-        //  A redundant insert retires without writing. If a removal for that
-        //  same line is waiting, it deletes the token afterwards and the master
-        //  is left holding a line the mirror does not know about
+        //  a redundant insert never races a removal of the same line
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             !(insert_hit && rem_valid[s]
               && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
@@ -450,8 +430,7 @@ module ccu_snoop_filter
                 !sram_rdata[op_way_q].valid)
             else $error("insert targeted a live way");
 
-        //  Liveness of the unbounded retry, checked here rather than bounded in
-        //  the design. Generous: a stall lasts until a removal reaches the port
+        //  a stuck insert eventually makes progress
         localparam int unsigned stuckAssertLimit = 4096;
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             insert_stuck |-> ##[1:stuckAssertLimit] !insert_stuck)
