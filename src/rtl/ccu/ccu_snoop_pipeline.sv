@@ -619,7 +619,8 @@ module ccu_snoop_pipeline
         .ready_o     (cd_engine_fifo_ready),
         .sel_i       ({cd_engine_fifo_rdata.ack_to_read,
                        cd_engine_fifo_rdata.forward_to_write,
-                       |cd_engine_fifo_rdata.source}),
+                       |(cd_engine_fifo_rdata.source
+                       | cd_engine_fifo_rdata.discard)}),
         .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     ({ack_branch_valid, write_engine_aw_valid_o, cd_fork_valid}),
