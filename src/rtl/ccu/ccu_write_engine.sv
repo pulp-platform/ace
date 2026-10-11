@@ -96,10 +96,17 @@ module ccu_write_engine
     logic writeback_aw_valid;
     logic writeback_aw_ready;
     logic wb_full;
+    logic wb_held_q;
 
-    //  Gate on `wb_full` before requesting: the arbiter has LockIn
-    assign writeback_aw_valid   = writeback_aw_valid_i && !wb_full;
+    //  Gate on `wb_full` before requesting: the arbiter has LockIn. A held request
+    //  keeps its valid, since only its own allocation can fill the scoreboard
+    assign writeback_aw_valid   = writeback_aw_valid_i && (!wb_full || wb_held_q);
     assign writeback_aw_ready_o = writeback_aw_ready;
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) wb_held_q <= 1'b0;
+        else         wb_held_q <= writeback_aw_valid && !writeback_aw_ready;
+    end
 
     rr_arb_tree #(
         .NumIn     (2),
@@ -142,9 +149,11 @@ module ccu_write_engine
     inflight_entry_t                     b_entry;
 
     logic [1:0]                    pend_alloc_valid;
+    logic [1:0][ccuCfg.addressCheckWidth-1:0] pend_alloc_slice;
     logic [1:0][pendIdxWidth-1:0]  pend_alloc_idx;
     logic [1:0]                    pend_full;
     logic [numPending-1:0]         pend_free_mask;
+    logic [numPending-1:0][ccuCfg.addressCheckWidth-1:0] pend_slice;
 
     assign aw_arb_slice = aw_arb.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
     assign wb_push      = aw_valid_o && aw_ready_i && aw_is_writeback;
@@ -152,6 +161,7 @@ module ccu_write_engine
 
     //  One allocation port each for PoS accepts and writebacks
     assign pend_alloc_valid = {pos_aw_valid_i, wb_push};
+    assign pend_alloc_slice = {pos_aw_slice_i, aw_arb_slice};
     assign pend_free_mask   = b_free ? (numPending'(1) << b_entry.sb_idx) : '0;
 
     assign pos_aw_full_o = pend_full[1];
@@ -167,7 +177,7 @@ module ccu_write_engine
         .clk_i,
         .rst_ni,
         .alloc_valid_i (pend_alloc_valid),
-        .alloc_slice_i ({aw_arb_slice, pos_aw_slice_i}),
+        .alloc_slice_i (pend_alloc_slice),
         .alloc_id_i    ('0),
         .alloc_idx_o   (pend_alloc_idx),
         .full_o        (pend_full),
@@ -177,7 +187,7 @@ module ccu_write_engine
         .query_slice_i (mem_ar_addr_slice_i),
         .query_hit_o   (pending_hit),
         .valid_o       (),
-        .slice_o       (),
+        .slice_o       (pend_slice),
         .id_o          ()
     );
 
@@ -356,6 +366,15 @@ module ccu_write_engine
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         wb_push |-> !pend_full[0])
         else $error("writeback issued with no pending entry");
+
+    //  a pending entry holds the line of the write that allocated it
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        wb_push |=> pend_slice[$past(pend_alloc_idx[0])] == $past(aw_arb_slice))
+        else $error("writeback pending entry holds the wrong line");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        pos_aw_valid_i |=> pend_slice[$past(pend_alloc_idx[1])] == $past(pos_aw_slice_i))
+        else $error("PoS pending entry holds the wrong line");
 
     //  the index queue mirrors the PoS accepts, so it never drops or starves
     assert property (@(posedge clk_i) disable iff (!rst_ni)
