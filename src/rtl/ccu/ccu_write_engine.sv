@@ -42,6 +42,10 @@ module ccu_write_engine
     input  logic                                writeback_w_valid_i,
     output logic                                writeback_w_ready_o,
     input  ccu_w_t                              writeback_w_i,
+    //  Write-back reservation, made before the snoop pipeline releases the line
+    input  logic                                wb_alloc_valid_i,
+    output logic                                wb_alloc_ready_o,
+    input  logic [ccuCfg.addressCheckWidth-1:0] wb_alloc_slice_i,
 
     output logic                                aw_valid_o,
     input  logic                                aw_ready_i,
@@ -95,18 +99,11 @@ module ccu_write_engine
     logic w_ctrl_fifo_ready_in;
     logic writeback_aw_valid;
     logic writeback_aw_ready;
-    logic wb_full;
-    logic wb_held_q;
+    logic wb_idx_empty;
 
-    //  Gate on `wb_full` before requesting: the arbiter has LockIn. A held request
-    //  keeps its valid, since only its own allocation can fill the scoreboard
-    assign writeback_aw_valid   = writeback_aw_valid_i && (!wb_full || wb_held_q);
+    //  Wait for the reservation; it is popped by this request's grant, as LockIn needs
+    assign writeback_aw_valid   = writeback_aw_valid_i && !wb_idx_empty;
     assign writeback_aw_ready_o = writeback_aw_ready;
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) wb_held_q <= 1'b0;
-        else         wb_held_q <= writeback_aw_valid && !writeback_aw_ready;
-    end
 
     rr_arb_tree #(
         .NumIn     (2),
@@ -142,6 +139,8 @@ module ccu_write_engine
 //  Pending-write scoreboard (PoS acceptance .. B), queried by the read engine
 //  {{{
     logic                                pending_hit;
+    logic                                wb_alloc;
+    logic                                wb_idx_full;
     logic                                wb_push;
     logic                                b_free;
     logic [ccuCfg.addressCheckWidth-1:0] aw_arb_slice;
@@ -159,13 +158,15 @@ module ccu_write_engine
     assign wb_push      = aw_valid_o && aw_ready_i && aw_is_writeback;
     assign b_free       = b_valid_i  && b_ready_o;
 
-    //  One allocation port each for PoS accepts and writebacks
-    assign pend_alloc_valid = {pos_aw_valid_i, wb_push};
-    assign pend_alloc_slice = {pos_aw_slice_i, aw_arb_slice};
+    assign wb_alloc_ready_o = !pend_full[0] && !wb_idx_full;
+    assign wb_alloc         = wb_alloc_valid_i && wb_alloc_ready_o;
+
+    //  One allocation port each for PoS accepts and writeback reservations
+    assign pend_alloc_valid = {pos_aw_valid_i, wb_alloc};
+    assign pend_alloc_slice = {pos_aw_slice_i, wb_alloc_slice_i};
     assign pend_free_mask   = b_free ? (numPending'(1) << b_entry.sb_idx) : '0;
 
     assign pos_aw_full_o = pend_full[1];
-    assign wb_full       = pend_full[0];
 
     ccu_scoreboard #(
         .numEntries (numPending),
@@ -195,7 +196,30 @@ module ccu_write_engine
     assign mem_ar_stall_o = mem_ar_addr_check_i &&
                             (pending_hit ||
                              (pos_aw_valid_i && pos_aw_slice_i == mem_ar_addr_slice_i) ||
-                             (wb_push && aw_arb_slice == mem_ar_addr_slice_i));
+                             (wb_alloc && wb_alloc_slice_i == mem_ar_addr_slice_i));
+//  }}}
+
+//  Writeback index queue, in reservation order
+//  {{{
+    logic [pendIdxWidth-1:0] wb_idx_head;
+
+    fifo_v3 #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (ccuCfg.u.numSnoopTransactions),
+        .DATA_WIDTH   (pendIdxWidth)
+    ) u_wb_idx_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .full_o     (wb_idx_full),
+        .empty_o    (wb_idx_empty),
+        .usage_o    (),
+        .data_i     (pend_alloc_idx[0]),
+        .push_i     (wb_alloc),
+        .data_o     (wb_idx_head),
+        .pop_i      (writeback_aw_valid && writeback_aw_ready)
+    );
 //  }}}
 
 //  PoS index queue, in AW order
@@ -238,7 +262,7 @@ module ccu_write_engine
     assign fifo_wdata = '{
         id:     aw_arb.id[ccuCfg.axiCcuIdWidth-1:0],
         is_wb:  aw_is_writeback,
-        sb_idx: aw_is_writeback ? pend_alloc_idx[0] : pos_idx_head
+        sb_idx: aw_is_writeback ? wb_idx_head : pos_idx_head
     };
 
     assign b_hash = b_i.id[hashWidth-1:0];
@@ -364,13 +388,26 @@ module ccu_write_engine
         else $error("PoS AW accepted with no pending entry");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        wb_push |-> !pend_full[0])
-        else $error("writeback issued with no pending entry");
+        wb_alloc |-> !pend_full[0])
+        else $error("writeback reserved with no pending entry");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        wb_push |-> !wb_idx_empty)
+        else $error("writeback issued without a reservation");
+
+    //  the memory AW never runs past its own grant, so the head is still its reservation
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        writeback_aw_valid_i && !writeback_aw_valid |-> !aw_arb_valid || !aw_is_writeback)
+        else $error("writeback forwarded while waiting for its reservation");
 
     //  a pending entry holds the line of the write that allocated it
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        wb_push |=> pend_slice[$past(pend_alloc_idx[0])] == $past(aw_arb_slice))
+        wb_alloc |=> pend_slice[$past(pend_alloc_idx[0])] == $past(wb_alloc_slice_i))
         else $error("writeback pending entry holds the wrong line");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        wb_push |-> pend_slice[wb_idx_head] == aw_arb_slice)
+        else $error("writeback issued under another line's reservation");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         pos_aw_valid_i |=> pend_slice[$past(pend_alloc_idx[1])] == $past(pos_aw_slice_i))

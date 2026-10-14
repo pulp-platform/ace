@@ -105,6 +105,9 @@ ccu_axi_manager_aw_t                 snoop_write_engine_aw;
 logic                                snoop_write_engine_w_valid;
 logic                                snoop_write_engine_w_ready;
 ccu_w_t                              snoop_write_engine_w;
+logic                                snoop_write_engine_wb_alloc_valid;
+logic                                snoop_write_engine_wb_alloc_ready;
+logic [ccuCfg.addressCheckWidth-1:0] snoop_write_engine_wb_alloc_slice;
 logic                                snoop_read_engine_ar_valid;
 logic                                snoop_read_engine_ar_ready;
 ccu_axi_manager_ar_t                 snoop_read_engine_ar;
@@ -406,6 +409,9 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
         .write_engine_w_valid_o   (snoop_write_engine_w_valid),
         .write_engine_w_ready_i   (snoop_write_engine_w_ready),
         .write_engine_w_o         (snoop_write_engine_w),
+        .write_engine_wb_alloc_valid_o (snoop_write_engine_wb_alloc_valid),
+        .write_engine_wb_alloc_ready_i (snoop_write_engine_wb_alloc_ready),
+        .write_engine_wb_alloc_slice_o (snoop_write_engine_wb_alloc_slice),
         .read_engine_ar_valid_o   (snoop_read_engine_ar_valid),
         .read_engine_ar_ready_i   (snoop_read_engine_ar_ready),
         .read_engine_ar_o         (snoop_read_engine_ar),
@@ -469,6 +475,9 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
         .writeback_w_valid_i      (snoop_write_engine_w_valid),
         .writeback_w_ready_o      (snoop_write_engine_w_ready),
         .writeback_w_i            (snoop_write_engine_w),
+        .wb_alloc_valid_i         (snoop_write_engine_wb_alloc_valid),
+        .wb_alloc_ready_o         (snoop_write_engine_wb_alloc_ready),
+        .wb_alloc_slice_i         (snoop_write_engine_wb_alloc_slice),
         .aw_valid_o               (manager_cut_req.aw_valid),
         .aw_ready_i               (manager_cut_resp.aw_ready),
         .aw_o                     (manager_cut_req.aw),

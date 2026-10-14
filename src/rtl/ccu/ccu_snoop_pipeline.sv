@@ -65,6 +65,10 @@ module ccu_snoop_pipeline
     output logic                                             write_engine_w_valid_o,
     input  logic                                             write_engine_w_ready_i,
     output ccu_w_t                                           write_engine_w_o,
+    //  Write-back reservation in the pending-write scoreboard
+    output logic                                             write_engine_wb_alloc_valid_o,
+    input  logic                                             write_engine_wb_alloc_ready_i,
+    output logic          [ccuCfg.addressCheckWidth-1:0]     write_engine_wb_alloc_slice_o,
 
     output logic                                             read_engine_ar_valid_o,
     input  logic                                             read_engine_ar_ready_i,
@@ -427,19 +431,26 @@ module ccu_snoop_pipeline
         endcase
     end
 
+    //  A write-back is pending before its entry pops, so no later read overtakes it
     stream_fork_dynamic #(
-        .N_OUP(3)
+        .N_OUP(4)
     ) u_engine_fork (
         .clk_i,
         .rst_ni,
         .valid_i    (engine_fork_valid),
         .ready_o    (engine_fork_ready),
-        .sel_i      ({read_engine_sel, cd_engine_sel, |sf_cr_remove_sel_o}),
+        .sel_i      ({read_engine_sel, cd_engine_sel, |sf_cr_remove_sel_o,
+                      cd_engine_forward_to_write}),
         .sel_valid_i(1'b1),
         .sel_ready_o(),
-        .valid_o    ({read_engine_ar_valid_o, cd_engine_valid, sf_cr_remove_valid_o}),
-        .ready_i    ({read_engine_ar_ready_i, cd_engine_ready, sf_cr_remove_ready_i})
+        .valid_o    ({read_engine_ar_valid_o, cd_engine_valid, sf_cr_remove_valid_o,
+                      write_engine_wb_alloc_valid_o}),
+        .ready_i    ({read_engine_ar_ready_i, cd_engine_ready, sf_cr_remove_ready_i,
+                      write_engine_wb_alloc_ready_i})
     );
+
+    assign write_engine_wb_alloc_slice_o =
+        stage1_fifo_rdata.ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 
     always_comb begin : read_engine_ar_comb
         //  ACE to AXI conversion can be done via the macro
