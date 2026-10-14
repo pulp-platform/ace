@@ -174,7 +174,6 @@ module ccu_ar_dispatch
     logic [numEntries-1:0]                 tail_q,        tail_d;
     logic [numEntries-1:0]                 pred_valid_q,  pred_valid_d;
     logic [numEntries-1:0][sbIdxWidth-1:0] pred_idx_q,    pred_idx_d;
-    logic [numEntries-1:0]                 chain_alloc_q, chain_alloc_d;
     logic [numEntries-1:0]                 tail_match;
     logic [sbIdxWidth-1:0]                 tail_idx;
 
@@ -209,25 +208,15 @@ module ccu_ar_dispatch
         end
     end
 
-    //  Set if any predecessor allocates, which makes our lookup stale
-    always_comb begin : chain_alloc_comb
-        chain_alloc_d = chain_alloc_q;
-        if (alloc)
-            chain_alloc_d[sb_alloc_idx] = |tail_match &&
-                                          (alloc_q[tail_idx] || chain_alloc_q[tail_idx]);
-    end
-
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            tail_q        <= '0;
-            pred_valid_q  <= '0;
-            pred_idx_q    <= '0;
-            chain_alloc_q <= '0;
+            tail_q       <= '0;
+            pred_valid_q <= '0;
+            pred_idx_q   <= '0;
         end else begin
-            tail_q        <= tail_d;
-            pred_valid_q  <= pred_valid_d;
-            pred_idx_q    <= pred_idx_d;
-            chain_alloc_q <= chain_alloc_d;
+            tail_q       <= tail_d;
+            pred_valid_q <= pred_valid_d;
+            pred_idx_q   <= pred_idx_d;
         end
     end
 //  }}}
@@ -292,45 +281,35 @@ module ccu_ar_dispatch
     end
 //  }}}
 
-//  Snoop filter lookup: at admission, and again after an allocating chain
+//  Snoop filter lookup: unchained entries at admission, chained ones once released
 //  {{{
-    logic [numQueue-1:0]             relookup_q, relookup_d;
-    logic [numQueue-1:0]             release_now;
+    logic [numQueue-1:0]             lookup_need;
     logic [numQueue-1:0]             bi_blocked;
     logic [numQueue-1:0]             bypass;
-    logic [queueIdxWidth-1:0]        relookup_idx, lookup_target_q, lookup_target_d;
-    logic                            relookup_none, lookup_pend_q;
+    logic [queueIdxWidth-1:0]        need_idx, lookup_target_q, lookup_target_d;
+    logic                            need_none, lookup_pend_q, admit_lookup;
 
     lzc #(
         .WIDTH (numQueue),
         .MODE  (1'b0)
-    ) u_relookup_lzc (
-        .in_i    (relookup_q),
-        .cnt_o   (relookup_idx),
-        .empty_o (relookup_none)
+    ) u_lookup_lzc (
+        .in_i    (lookup_need),
+        .cnt_o   (need_idx),
+        .empty_o (need_none)
     );
 
-    //  Admission wins the port; a re-lookup is only owed by a stalled entry
-    assign sf_lookup_valid_o = alloc || !relookup_none;
-    assign sf_lookup_addr_o  = alloc ? ar_i.addr
-                                     : {sb_line[queue_q[relookup_idx].sb_idx], {offWidth{1'b0}}};
-    assign lookup_target_d   = alloc ? queue_alloc_idx : relookup_idx;
-
-    always_comb begin : relookup_comb
-        relookup_d = relookup_q;
-        if (sf_lookup_valid_o) relookup_d[lookup_target_d] = 1'b0;
-        for (int unsigned e = 0; e < numQueue; e++) begin
-            if (release_now[e]) relookup_d[e] = 1'b1;
-        end
-    end
+    //  Admission wins the port; a chained entry's mask would go stale behind its predecessor
+    assign admit_lookup      = alloc && !(|tail_match);
+    assign sf_lookup_valid_o = admit_lookup || !need_none;
+    assign sf_lookup_addr_o  = admit_lookup ? ar_i.addr
+                                            : {sb_line[queue_q[need_idx].sb_idx], {offWidth{1'b0}}};
+    assign lookup_target_d   = admit_lookup ? queue_alloc_idx : need_idx;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            relookup_q       <= '0;
             lookup_pend_q    <= 1'b0;
             lookup_target_q  <= '0;
         end else begin
-            relookup_q       <= relookup_d;
             lookup_pend_q    <= sf_lookup_valid_o;
             if (sf_lookup_valid_o) lookup_target_q <= lookup_target_d;
         end
@@ -366,13 +345,11 @@ module ccu_ar_dispatch
         assign bi_blocked[e] = bi_pend_i[queue_sub] && !bi_req_i[queue_sub] &&
             bi_addr_i[queue_sub][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
                 queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-        //  A chained entry is released only once its predecessor retired
-        assign release_now[e] = queue_valid_q[e] &&
-                                pred_valid_q[queue_q[e].sb_idx] &&
-                                sb_free[pred_idx_q[queue_q[e].sb_idx]] &&
-                                chain_alloc_q[queue_q[e].sb_idx];
         //  Take the mask straight off the filter on its lookup cycle
-        assign bypass[e]   = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
+        assign bypass[e]      = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
+        //  Nothing precedes it and no mask is known or answering
+        assign lookup_need[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
+                                !queue_q[e].mask_valid && !bypass[e];
         //  An entry may dispatch once nothing precedes it and its mask is known
         assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
                              !bi_blocked[e] && (queue_q[e].mask_valid || bypass[e]);
@@ -387,7 +364,6 @@ module ccu_ar_dispatch
                 queue_d[e].mask       = sf_present_i;
                 queue_d[e].mask_valid = 1'b1;
             end
-            if (release_now[e]) queue_d[e].mask_valid = 1'b0;
             if (alloc_this)
                 queue_d[e] = '{ar: ar_i, sb_idx: sb_alloc_idx, mask: '0, mask_valid: 1'b0};
         end
