@@ -57,8 +57,10 @@ module ccu_snoop_filter
     output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
     input  logic [numSub-1:0]               backinval_ready_i,
 
-    //  Attempt in flight; pending without valid means the snoop is out, unanswered
-    output logic [numSub-1:0]               backinval_pend_o,
+    //  The subordinate has a read of the victim that may be answered before its RACK
+    input  logic [numSub-1:0]               backinval_hazard_i,
+    //  From the send until the answer: no read of the victim may be dispatched
+    output logic [numSub-1:0]               backinval_busy_o,
 
     //  A removal that found nothing; legal, but worth observing
     output logic [numSub-1:0]               remove_miss_o
@@ -75,6 +77,8 @@ module ccu_snoop_filter
     } entry_t;
 
     typedef enum logic [1:0] { IDLE, READ, WRITE } state_e;
+
+    typedef enum logic [1:0] { BI_IDLE, BI_WAIT, BI_SEND, BI_OWED } bi_state_e;
 
     typedef struct packed {
         logic            is_cr;
@@ -153,8 +157,7 @@ module ccu_snoop_filter
 
         //  Rotating victim: the policy only has to not keep picking one way
         logic [wayW-1:0]      victim_q, victim_d;
-        logic                 backinval_q, backinval_d;
-        logic                 backinval_pend_q, backinval_pend_d;
+        bi_state_e            bi_state_q, bi_state_d;
         logic                 backinval_done;
         logic [addrW-1:0]     backinval_addr_q, backinval_addr_d;
 
@@ -342,32 +345,33 @@ module ccu_snoop_filter
         assign rem_ready[s]    = (op_write && !op_insert_q) || remove_miss_o[s];
         assign remove_miss_o[s] = state_q == READ && !op_insert_q && way_none;
 
-        assign backinval_valid_o[s] = backinval_q;
-        assign backinval_pend_o[s]  = backinval_pend_q;
+        assign backinval_valid_o[s] = bi_state_q == BI_SEND;
+        assign backinval_busy_o[s]  = bi_state_q inside {BI_SEND, BI_OWED};
         assign backinval_addr_o[s]  = backinval_addr_q;
 
         //  An attempt stands until its own snoop response removes the victim
         assign backinval_done = rem_ready[s] && rem_is_cr[s] && cr_remove_maint_i &&
             {op_tag_q, op_set_q} == backinval_addr_q[offW +: setW+tagW];
 
-        //  One latched back-invalidation per table; the insert retries
+        //  One back-invalidation per table; the insert retries
         always_comb begin : backinval_comb
             victim_d          = victim_q;
-            backinval_d       = backinval_q;
-            backinval_pend_d  = backinval_pend_q;
+            bi_state_d        = bi_state_q;
             backinval_addr_d  = backinval_addr_q;
 
-            if (backinval_q && backinval_ready_i[s]) backinval_d = 1'b0;
-
-            if (backinval_pend_q) begin
-                backinval_pend_d = !backinval_done;
-            end else if (insert_stuck) begin
-                backinval_d      = 1'b1;
-                backinval_pend_d = 1'b1;
-                backinval_addr_d = addrW'({sram_rdata[victim_q].tag, op_set_q,
-                                           {offW{1'b0}}});
-                victim_d         = (victim_q == wayW'(numWays - 1)) ? '0 : victim_q + 1;
-            end
+            unique case (bi_state_q)
+                BI_IDLE: if (insert_stuck) begin
+                    bi_state_d       = BI_WAIT;
+                    backinval_addr_d = addrW'({sram_rdata[victim_q].tag, op_set_q,
+                                               {offW{1'b0}}});
+                    victim_d         = (victim_q == wayW'(numWays - 1)) ? '0 : victim_q + 1;
+                end
+                //  No snoop while the victim's own read may be between R and RACK (C6.2)
+                BI_WAIT: if (!backinval_hazard_i[s])  bi_state_d = BI_SEND;
+                BI_SEND: if (backinval_ready_i[s])    bi_state_d = BI_OWED;
+                BI_OWED: if (backinval_done)          bi_state_d = BI_IDLE;
+                default: bi_state_d = BI_IDLE;
+            endcase
         end
 
         always_comb begin : op_comb
@@ -394,8 +398,7 @@ module ccu_snoop_filter
                 op_tag_q        <= '0;
                 op_way_q        <= '0;
                 victim_q         <= '0;
-                backinval_q      <= 1'b0;
-                backinval_pend_q <= 1'b0;
+                bi_state_q       <= BI_IDLE;
                 backinval_addr_q <= '0;
             end else begin
                 state_q         <= state_d;
@@ -404,8 +407,7 @@ module ccu_snoop_filter
                 op_tag_q        <= op_tag_d;
                 op_way_q        <= op_way_d;
                 victim_q         <= victim_d;
-                backinval_q      <= backinval_d;
-                backinval_pend_q <= backinval_pend_d;
+                bi_state_q       <= bi_state_d;
                 backinval_addr_q <= backinval_addr_d;
             end
         end
@@ -422,13 +424,13 @@ module ccu_snoop_filter
               && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
             else $error("insert retired as a hit with a removal pending for it");
 
-        //  One attempt at a time, or the arbiter sees a moving payload
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            backinval_q |-> backinval_pend_q)
-            else $error("a back-invalidation outlived its attempt");
+            backinval_valid_o[s] && !backinval_ready_i[s] |=>
+                backinval_valid_o[s] && $stable(backinval_addr_o[s]))
+            else $error("a back-invalidation was withdrawn before it was sent");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            backinval_done |-> backinval_pend_q && !backinval_q)
+            backinval_done |-> bi_state_q == BI_OWED)
             else $error("a back-invalidation was answered before it was sent");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)

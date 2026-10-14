@@ -75,8 +75,7 @@ module ccu_ar_dispatch
 
     //  Back-invalidation attempts, one per subordinate, straight off the filter
     input  logic [numSub-1:0][addrWidth-1:0] bi_addr_i,
-    input  logic [numSub-1:0]                bi_req_i,
-    input  logic [numSub-1:0]                bi_pend_i,
+    input  logic [numSub-1:0]                bi_busy_i,
     output logic [numSub-1:0]                bi_hazard_o
 );
 
@@ -318,18 +317,35 @@ module ccu_ar_dispatch
 
 //  Back-invalidation hazards (C6.2): no snoop before the RACK, no R before the CR
 //  {{{
-    for (genvar s = 0; s < numSub; s++) begin : gen_bi_hazard
-        logic [numEntries-1:0] hit;
+    logic [numEntries-1:0] sb_queued;
 
-        //  Entries past their RACK are not hazards
-        for (genvar e = 0; e < numEntries; e++) begin : gen_hit
-            assign hit[e] = sb_valid[e] && !sb_retired[e] && !rack_mask_i[e] &&
+    always_comb begin : sb_queued_comb
+        sb_queued = '0;
+        for (int unsigned e = 0; e < numQueue; e++)
+            if (queue_valid_q[e]) sb_queued[queue_q[e].sb_idx] = 1'b1;
+    end
+
+    //  A queued entry that is not eligible is blocked from the first busy cycle instead
+    for (genvar s = 0; s < numSub; s++) begin : gen_bi_hazard
+        logic [numEntries-1:0] sent_hit;
+        logic [numQueue-1:0]   eligible_hit;
+
+        for (genvar e = 0; e < numEntries; e++) begin : gen_sent_hit
+            assign sent_hit[e] = sb_valid[e] && !sb_queued[e] &&
+                !sb_retired[e] && !rack_mask_i[e] &&
                 sb_id[e][ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s) &&
                 sb_line[e][chainWidth-1:0] ==
                     bi_addr_i[s][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
         end
 
-        assign bi_hazard_o[s] = |hit;
+        for (genvar e = 0; e < numQueue; e++) begin : gen_eligible_hit
+            assign eligible_hit[e] = eligible[e] &&
+                queue_q[e].ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s) &&
+                queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
+                    bi_addr_i[s][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+        end
+
+        assign bi_hazard_o[s] = |sent_hit || |eligible_hit;
     end
 //  }}}
 
@@ -341,8 +357,8 @@ module ccu_ar_dispatch
 
         assign alloc_this = alloc && queue_alloc_idx == queueIdxWidth'(e);
         assign queue_sub  = queue_q[e].ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth];
-        //  Own subordinate still owes a CR for this line
-        assign bi_blocked[e] = bi_pend_i[queue_sub] && !bi_req_i[queue_sub] &&
+        //  Own subordinate is being snooped for this line, or still owes the CR
+        assign bi_blocked[e] = bi_busy_i[queue_sub] &&
             bi_addr_i[queue_sub][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
                 queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
         //  Take the mask straight off the filter on its lookup cycle
@@ -436,6 +452,15 @@ module ccu_ar_dispatch
         $rose(|(bi_blocked & queue_valid_q)) |->
             !$past(|(~bi_blocked & queue_valid_q & eligible)))
         else $error("a back-invalidation blocked an entry that was eligible");
+
+    //  nothing is presented for a line its subordinate is being back-invalidated for
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        ar_valid_o |->
+            !(bi_busy_i[issue_entry.ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth]] &&
+              bi_addr_i[issue_entry.ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth]]
+                       [ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
+              issue_entry.ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb]))
+        else $error("an AR was presented while its subordinate is back-invalidated for the line");
 
     //  every address chain has a single tail
     assert property (@(posedge clk_i) disable iff (!rst_ni)
