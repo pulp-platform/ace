@@ -52,10 +52,14 @@ module ccu_snoop_filter
     input  logic                            cr_remove_maint_i,
     output logic                            cr_remove_ready_o,
 
-    //  Back-invalidation of a victim when an insert finds no free way
-    output logic [numSub-1:0]               backinval_valid_o,
+    //  Back-invalidation of a victim when an insert finds no free way, one table at a time
+    output logic                            maint_valid_o,
+    output logic [addrW-1:0]                maint_addr_o,
+    output logic [numSub-1:0]               maint_sel_o,
+    input  logic                            maint_ready_i,
+
+    //  Victim of each table's attempt
     output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
-    input  logic [numSub-1:0]               backinval_ready_i,
 
     //  The subordinate has a read of the victim that may be answered before its RACK
     input  logic [numSub-1:0]               backinval_hazard_i,
@@ -81,6 +85,11 @@ module ccu_snoop_filter
     typedef enum logic [1:0] { BI_IDLE, BI_WAIT, BI_SEND, BI_OWED } bi_state_e;
 
     typedef struct packed {
+        logic [addrW-1:0]  addr;
+        logic [numSub-1:0] sel;
+    } maint_t;
+
+    typedef struct packed {
         logic            is_cr;
         logic [setW-1:0] set;
         logic [tagW-1:0] tag;
@@ -101,6 +110,7 @@ module ccu_snoop_filter
     logic [numSub-1:0][setW-1:0] rem_set, aw_set, ins_set;
     logic [numSub-1:0][tagW-1:0] rem_tag, aw_tag, ins_tag;
     logic [numSub-1:0]           aw_track, ins_track, ins_gnt;
+    logic [numSub-1:0]           bi_valid, bi_ready;
 
     assign lookup_set   = lookup_addr_i[offW +: setW];
     assign lookup_tag   = lookup_addr_i[offW+setW +: tagW];
@@ -345,7 +355,7 @@ module ccu_snoop_filter
         assign rem_ready[s]    = (op_write && !op_insert_q) || remove_miss_o[s];
         assign remove_miss_o[s] = state_q == READ && !op_insert_q && way_none;
 
-        assign backinval_valid_o[s] = bi_state_q == BI_SEND;
+        assign bi_valid[s]          = bi_state_q == BI_SEND;
         assign backinval_busy_o[s]  = bi_state_q inside {BI_SEND, BI_OWED};
         assign backinval_addr_o[s]  = backinval_addr_q;
 
@@ -368,7 +378,7 @@ module ccu_snoop_filter
                 end
                 //  No snoop while the victim's own read may be between R and RACK (C6.2)
                 BI_WAIT: if (!backinval_hazard_i[s])  bi_state_d = BI_SEND;
-                BI_SEND: if (backinval_ready_i[s])    bi_state_d = BI_OWED;
+                BI_SEND: if (bi_ready[s])             bi_state_d = BI_OWED;
                 BI_OWED: if (backinval_done)          bi_state_d = BI_IDLE;
                 default: bi_state_d = BI_IDLE;
             endcase
@@ -425,8 +435,8 @@ module ccu_snoop_filter
             else $error("insert retired as a hit with a removal pending for it");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            backinval_valid_o[s] && !backinval_ready_i[s] |=>
-                backinval_valid_o[s] && $stable(backinval_addr_o[s]))
+            bi_valid[s] && !bi_ready[s] |=>
+                bi_valid[s] && $stable(backinval_addr_o[s]))
             else $error("a back-invalidation was withdrawn before it was sent");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
@@ -474,6 +484,34 @@ module ccu_snoop_filter
         `endif
         // pragma translate_on
     end
+
+    maint_t [numSub-1:0] bi_req;
+    maint_t              maint;
+    logic   [numSub-1:0] bi_arb_ready;
+
+    for (genvar s = 0; s < numSub; s++) begin : gen_bi_req
+        assign bi_req[s] = '{addr: backinval_addr_o[s], sel: numSub'(1) << s};
+    end
+
+    //  Round-robin so a busy set cannot keep another table's insert waiting
+    stream_arbiter #(
+        .DATA_T  (maint_t),
+        .N_INP   (numSub),
+        .ARBITER ("rr")
+    ) u_maint_arbiter (
+        .clk_i,
+        .rst_ni,
+        .inp_data_i  (bi_req),
+        .inp_valid_i (bi_valid),
+        .inp_ready_o (bi_arb_ready),
+        .oup_data_o  (maint),
+        .oup_valid_o (maint_valid_o),
+        .oup_ready_i (maint_ready_i)
+    );
+
+    assign bi_ready     = bi_arb_ready & bi_valid;
+    assign maint_addr_o = maint.addr;
+    assign maint_sel_o  = maint.sel;
 
     assign lookup_present_o = lookup_track_q ? table_present : '1;
 
