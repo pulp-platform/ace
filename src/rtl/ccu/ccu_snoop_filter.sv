@@ -48,6 +48,8 @@ module ccu_snoop_filter
     input  logic                            cr_remove_valid_i,
     input  logic [numSub-1:0]               cr_remove_sel_i,
     input  logic [addrW-1:0]                cr_remove_addr_i,
+    //  The response is to a back-invalidation
+    input  logic                            cr_remove_maint_i,
     output logic                            cr_remove_ready_o,
 
     //  Back-invalidation of a victim when an insert finds no free way
@@ -55,7 +57,7 @@ module ccu_snoop_filter
     output logic [numSub-1:0][addrW-1:0]    backinval_addr_o,
     input  logic [numSub-1:0]               backinval_ready_i,
 
-    //  Attempt in flight; pending without valid means the snoop was sent
+    //  Attempt in flight; pending without valid means the snoop is out, unanswered
     output logic [numSub-1:0]               backinval_pend_o,
 
     //  A removal that found nothing; legal, but worth observing
@@ -318,9 +320,9 @@ module ccu_snoop_filter
         assign backinval_pend_o[s]  = backinval_pend_q;
         assign backinval_addr_o[s]  = backinval_addr_q;
 
-        //  An attempt stands until this set is updated
-        assign backinval_done = ins_gnt[s] ||
-            (rem_ready[s] && op_set_q == backinval_addr_q[offW +: setW]);
+        //  An attempt stands until its own snoop response removes the victim
+        assign backinval_done = rem_ready[s] && rem_is_cr[s] && cr_remove_maint_i &&
+            {op_tag_q, op_set_q} == backinval_addr_q[offW +: setW+tagW];
 
         //  One latched back-invalidation per table; the insert retries
         always_comb begin : backinval_comb
@@ -398,6 +400,10 @@ module ccu_snoop_filter
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             backinval_q |-> backinval_pend_q)
             else $error("a back-invalidation outlived its attempt");
+
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            backinval_done |-> backinval_pend_q && !backinval_q)
+            else $error("a back-invalidation was answered before it was sent");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             !init_done_q |=> table_present[s])

@@ -81,6 +81,7 @@ module ccu_snoop_pipeline
     input  logic                                             sf_cr_remove_ready_i,
     output logic          [ccuCfg.u.numSubordinates-1:0]     sf_cr_remove_sel_o,
     output logic [ccuCfg.u.axiAddressWidth-1:0]              sf_cr_remove_addr_o,
+    output logic                                             sf_cr_remove_maint_o,
 
     output ccu_snoop_pipeline_events_t                       events_o
 );
@@ -371,7 +372,8 @@ module ccu_snoop_pipeline
         endcase
     end
 
-    assign sf_cr_remove_addr_o = stage1_fifo_rdata.ar.addr;
+    assign sf_cr_remove_addr_o  = stage1_fifo_rdata.ar.addr;
+    assign sf_cr_remove_maint_o = stage1_fifo_rdata.maintenance;
 
     always_comb begin : cr_comb
         cr = '0;

@@ -160,6 +160,7 @@ logic [ccuCfg.u.numSubordinates-1:0] sf_aw_remove_ready;
 logic                                sf_cr_remove_valid;
 logic [ccuCfg.u.numSubordinates-1:0] sf_cr_remove_sel;
 ccu_address_t                        sf_cr_remove_addr;
+logic                                sf_cr_remove_maint;
 logic                                sf_cr_remove_ready;
 logic [ccuCfg.u.numSubordinates-1:0] sf_remove_miss;
 
@@ -282,6 +283,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
         .cr_remove_valid_i  (sf_cr_remove_valid),
         .cr_remove_sel_i    (sf_cr_remove_sel),
         .cr_remove_addr_i   (sf_cr_remove_addr),
+        .cr_remove_maint_i  (sf_cr_remove_maint),
         .cr_remove_ready_o  (sf_cr_remove_ready),
         .backinval_valid_o  (sf_backinval_valid),
         .backinval_addr_o   (sf_backinval_addr),
@@ -417,6 +419,7 @@ logic           [ccuCfg.u.numSubordinates-1:0] bi_arb_valid, bi_arb_ready;
         .sf_cr_remove_valid_o     (sf_cr_remove_valid),
         .sf_cr_remove_sel_o       (sf_cr_remove_sel),
         .sf_cr_remove_addr_o      (sf_cr_remove_addr),
+        .sf_cr_remove_maint_o     (sf_cr_remove_maint),
         .sf_cr_remove_ready_i     (sf_cr_remove_ready),
         .events_o                 (perf_events)
     );
