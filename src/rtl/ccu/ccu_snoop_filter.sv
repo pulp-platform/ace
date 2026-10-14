@@ -76,6 +76,12 @@ module ccu_snoop_filter
 
     typedef enum logic [1:0] { IDLE, READ, WRITE } state_e;
 
+    typedef struct packed {
+        logic            is_cr;
+        logic [setW-1:0] set;
+        logic [tagW-1:0] tag;
+    } rem_t;
+
     //  Shift, since a part-select would not elaborate when trackW == addrW
     function automatic logic in_range(logic [addrW-1:0] addr);
         return (addr >> trackW) == '0;
@@ -83,7 +89,7 @@ module ccu_snoop_filter
 
     logic [setW-1:0]             lookup_set, cr_set;
     logic [tagW-1:0]             lookup_tag, cr_tag;
-    logic                        lookup_track, cr_track, cr_port_ready;
+    logic                        lookup_track, cr_track, cr_valid, cr_port_ready;
     logic                        lookup_track_q;
     logic [numSub-1:0]           table_present;
     logic [numSub-1:0]           cr_fork_valid, cr_fork_ready;
@@ -100,13 +106,22 @@ module ccu_snoop_filter
     assign cr_tag   = cr_remove_addr_i[offW+setW +: tagW];
     assign cr_track = in_range(cr_remove_addr_i);
 
+    //  Drop removals of untracked addresses
+    stream_filter u_cr_filter (
+        .valid_i (cr_remove_valid_i),
+        .ready_o (cr_remove_ready_o),
+        .drop_i  (!cr_track),
+        .valid_o (cr_valid),
+        .ready_i (cr_port_ready)
+    );
+
     //  Every selected responder must take the removal before the snoop advances
     stream_fork_dynamic #(
         .N_OUP (numSub)
     ) u_cr_fork (
         .clk_i,
         .rst_ni,
-        .valid_i     (cr_remove_valid_i && cr_track),
+        .valid_i     (cr_valid),
         .ready_o     (cr_port_ready),
         .sel_i       (cr_remove_sel_i),
         .sel_valid_i (1'b1),
@@ -114,9 +129,6 @@ module ccu_snoop_filter
         .valid_o     (cr_fork_valid),
         .ready_i     (cr_fork_ready)
     );
-
-    //  Drop removals of untracked addresses
-    assign cr_remove_ready_o = cr_track ? cr_port_ready : 1'b1;
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table
         entry_t [numWays-1:0] sram_rdata, sram_wdata;
@@ -155,6 +167,9 @@ module ccu_snoop_filter
         logic [setW:0]        init_cnt_q;
 
         logic                 lookup_valid, insert_valid;
+        logic                 aw_valid, aw_ready;
+        rem_t [1:0]           rem_inp;
+        rem_t                 rem_op;
 
         //  Address decode
         assign aw_set[s]   = aw_remove_addr_i[s][offW +: setW];
@@ -166,35 +181,46 @@ module ccu_snoop_filter
         assign ins_track[s] = in_range(insert_addr_i[s]);
 
         //  An untracked line is dropped rather than stalling its transaction
-        assign insert_ready_o[s] = ins_track[s] ? ins_gnt[s] : 1'b1;
+        stream_filter u_ins_filter (
+            .valid_i (insert_valid_i[s]),
+            .ready_o (insert_ready_o[s]),
+            .drop_i  (!ins_track[s]),
+            .valid_o (insert_valid),
+            .ready_i (ins_gnt[s])
+        );
 
-        //  Snoop-response removals first; the choice is locked once presented
-        logic rem_hold_q, rem_is_cr_q;
+        stream_filter u_aw_filter (
+            .valid_i (aw_remove_valid_i[s]),
+            .ready_o (aw_remove_ready_o[s]),
+            .drop_i  (!aw_track[s]),
+            .valid_o (aw_valid),
+            .ready_i (aw_ready)
+        );
 
-        assign rem_is_cr[s] = rem_hold_q ? rem_is_cr_q : cr_fork_valid[s];
-        assign rem_valid[s] = cr_fork_valid[s] || (aw_remove_valid_i[s] && aw_track[s]);
+        assign rem_inp[1] = '{is_cr: 1'b1, set: cr_set,    tag: cr_tag};
+        assign rem_inp[0] = '{is_cr: 1'b0, set: aw_set[s], tag: aw_tag[s]};
 
-        always_ff @(posedge clk_i or negedge rst_ni) begin
-            if (!rst_ni) begin
-                rem_hold_q  <= 1'b0;
-                rem_is_cr_q <= 1'b0;
-            end else if (rem_valid[s] && !rem_ready[s]) begin
-                rem_hold_q  <= 1'b1;
-                rem_is_cr_q <= rem_is_cr[s];
-            end else if (rem_ready[s]) begin
-                rem_hold_q  <= 1'b0;
-            end
-        end
+        //  The removal port retires one source at a time, held until the table applies it
+        stream_arbiter #(
+            .DATA_T  (rem_t),
+            .N_INP   (2),
+            .ARBITER ("rr")
+        ) u_rem_arbiter (
+            .clk_i,
+            .rst_ni,
+            .inp_data_i  (rem_inp),
+            .inp_valid_i ({cr_fork_valid[s], aw_valid}),
+            .inp_ready_o ({cr_fork_ready[s], aw_ready}),
+            .oup_data_o  (rem_op),
+            .oup_valid_o (rem_valid[s]),
+            .oup_ready_i (rem_ready[s])
+        );
 
-        assign rem_set[s]   = rem_is_cr[s] ? cr_set : aw_set[s];
-        assign rem_tag[s]   = rem_is_cr[s] ? cr_tag : aw_tag[s];
-
-        //  The port retires one source at a time, so each ready must name its own
-        assign cr_fork_ready[s]     = rem_ready[s] && rem_is_cr[s];
-        assign aw_remove_ready_o[s] = aw_track[s] ? (rem_ready[s] && !rem_is_cr[s]) : 1'b1;
+        assign rem_is_cr[s] = rem_op.is_cr;
+        assign rem_set[s]   = rem_op.set;
+        assign rem_tag[s]   = rem_op.tag;
 
         assign lookup_valid = lookup_valid_i && lookup_track;
-        assign insert_valid = insert_valid_i[s] && ins_track[s];
 
         //  Tag array: a byte is one way, so an update writes a single way
         tc_sram #(
