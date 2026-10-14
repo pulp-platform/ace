@@ -271,7 +271,7 @@ module ccu_frontend
     logic                aw_is_evict, aw_deallocates;
     logic                write_aw_valid, write_aw_ready;
     logic                evict_aw_valid, evict_aw_ready;
-    logic                aw_remove_valid, aw_remove_ready;
+    logic                aw_remove_valid, aw_remove_ready, aw_remove_hold;
     logic                evict_b_valid,   evict_b_gnt;
     ccu_ace_manager_b_t  evict_b, evict_b_q;
     logic                mem_b_valid, mem_b_ready;
@@ -319,12 +319,14 @@ module ccu_frontend
 
     //  One AW sits at the demux at a time, so the two legs never overlap
     assign aw_remove_valid = wb_remove_valid || evict_aw_valid;
-    //  Remove the token only once the write is visible to the hazard check
-    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx] && !write_pos_valid;
-    assign evict_aw_ready  = aw_remove_ready && !evict_b_valid;
+    //  Present the removal only once the write is visible to the hazard check and the B slot is free
+    assign aw_remove_hold  = write_pos_valid || (evict_aw_valid && evict_b_valid);
+    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx] && !aw_remove_hold;
+    assign evict_aw_ready  = aw_remove_ready;
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_aw_remove
-        assign sf_aw_remove_valid_o[s] = aw_remove_valid && aw_sub_idx == subIdxW'(s);
+        assign sf_aw_remove_valid_o[s] = aw_remove_valid && !aw_remove_hold &&
+                                         aw_sub_idx == subIdxW'(s);
         assign sf_aw_remove_addr_o[s]  = arbiter_req.aw.addr;
     end
 
@@ -443,6 +445,18 @@ module ccu_frontend
     `ACE_ASSIGN_R_STRUCT(arbiter_resp.r, r_spill_out.r)
     assign arbiter_resp.r_valid = r_spill_valid_out;
     assign r_spill_ready_out    = arbiter_req.r_ready;
+
+    // pragma translate_off
+    `ifndef VERILATOR
+    //  the filter retires a removal on its own handshake, so it must see the one we complete
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_aw_remove_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            sf_aw_remove_valid_o[s] && !sf_aw_remove_ready_i[s] |=>
+                sf_aw_remove_valid_o[s] && $stable(sf_aw_remove_addr_o[s]))
+            else $error("a write-channel removal was withdrawn before the filter took it");
+    end
+    `endif
+    // pragma translate_on
     //  }}}
 
 endmodule
