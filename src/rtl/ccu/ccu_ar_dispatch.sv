@@ -246,44 +246,39 @@ module ccu_ar_dispatch
                                                                                  alloc_q[e];
     end
 
-    for (genvar s = 0; s < numSub; s++) begin : gen_ins_port
-        logic [numEntries-1:0] ins_sub_req;
-        logic [sbIdxWidth-1:0] ins_sub_idx, ins_idx, ins_held_idx_q;
-        logic                  ins_sub_none, ins_held_q;
-        logic                  ins_handshake;
+    logic [numEntries-1:0][sbIdxWidth-1:0] ins_entry_idx;
 
-        for (genvar e = 0; e < numEntries; e++) begin : gen_ins_sub_req
-            assign ins_sub_req[e] = sb_retired[e] &&
+    for (genvar e = 0; e < numEntries; e++) begin : gen_ins_entry_idx
+        assign ins_entry_idx[e] = sbIdxWidth'(e);
+    end
+
+    //  Retired entries owe their insert; the scoreboard holds them until it lands
+    for (genvar s = 0; s < numSub; s++) begin : gen_ins_port
+        logic [numEntries-1:0] ins_sub_valid, ins_sub_ready;
+        logic [sbIdxWidth-1:0] ins_idx;
+
+        for (genvar e = 0; e < numEntries; e++) begin : gen_ins_sub_valid
+            assign ins_sub_valid[e] = sb_retired[e] &&
                 sb_id[e][ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s);
         end
 
-        lzc #(
-            .WIDTH (numEntries),
-            .MODE  (1'b0)
-        ) u_ins_lzc (
-            .in_i    (ins_sub_req),
-            .cnt_o   (ins_sub_idx),
-            .empty_o (ins_sub_none)
+        stream_arbiter #(
+            .DATA_T  (logic [sbIdxWidth-1:0]),
+            .N_INP   (numEntries),
+            .ARBITER ("rr")
+        ) u_ins_arbiter (
+            .clk_i,
+            .rst_ni,
+            .inp_data_i  (ins_entry_idx),
+            .inp_valid_i (ins_sub_valid),
+            .inp_ready_o (ins_sub_ready),
+            .oup_data_o  (ins_idx),
+            .oup_valid_o (sf_insert_valid_o[s]),
+            .oup_ready_i (sf_insert_ready_i[s])
         );
 
-        //  Hold the selection until its handshake completes
-        assign ins_idx              = ins_held_q ? ins_held_idx_q : ins_sub_idx;
-        assign sf_insert_valid_o[s] = ins_held_q || !ins_sub_none;
         assign sf_insert_addr_o[s]  = {sb_line[ins_idx], {offWidth{1'b0}}};
-        assign ins_handshake        = sf_insert_valid_o[s] && sf_insert_ready_i[s];
-        assign ins_req_clear_sub[s] = ins_handshake ? (numEntries'(1) << ins_idx) : '0;
-
-        always_ff @(posedge clk_i or negedge rst_ni) begin
-            if (!rst_ni) begin
-                ins_held_q     <= 1'b0;
-                ins_held_idx_q <= '0;
-            end else if (ins_handshake) begin
-                ins_held_q     <= 1'b0;
-            end else if (!ins_sub_none) begin
-                ins_held_q     <= 1'b1;
-                ins_held_idx_q <= ins_idx;
-            end
-        end
+        assign ins_req_clear_sub[s] = ins_sub_valid & ins_sub_ready;
     end
 
     always_comb begin : ins_req_clear_comb
