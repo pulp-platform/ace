@@ -314,9 +314,10 @@ module ccu_snoop_filter
         end
 
         //  Update
+        //  A stuck insert retries only once its attempt has freed the victim
         assign start_remove = rem_valid[s];
         assign op_start     = init_done_q && !lookup_grant && state_q == IDLE &&
-                              (rem_valid[s] || insert_valid);
+                              (rem_valid[s] || (insert_valid && bi_state_q == BI_IDLE));
 
         for (genvar w = 0; w < numWays; w++) begin : gen_way_match
             assign way_free[w]  = !sram_rdata[w].valid;
@@ -474,12 +475,17 @@ module ccu_snoop_filter
                 !sram_rdata[op_way_q].valid)
             else $error("insert targeted a live way");
 
-        //  a stuck insert eventually makes progress
+        //  a presented insert eventually retires
         localparam int unsigned stuckAssertLimit = 4096;
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            insert_stuck |-> ##[1:stuckAssertLimit] !insert_stuck)
-            else $error("insert stuck for %0d cycles: no way was ever freed",
+            insert_valid |-> ##[0:stuckAssertLimit] (ins_gnt[s] || !insert_valid))
+            else $error("insert waited %0d cycles: no way was ever freed",
                         stuckAssertLimit);
+
+        //  an attempt is armed only from idle, so a retry never re-arms over it
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            insert_stuck |-> bi_state_q == BI_IDLE)
+            else $error("an insert got stuck while its back-invalidation was in flight");
 
         `endif
         // pragma translate_on
