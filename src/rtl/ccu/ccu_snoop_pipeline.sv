@@ -243,6 +243,9 @@ module ccu_snoop_pipeline
     always_comb begin : maint_req_comb
         maint_req             = '0;
         maint_req.ar.addr     = maint_addr_i;
+        //  Its write-back must stay modifiable, as the LLC refills and evicts with it
+        maint_req.ar.cache    = axi_pkg::CACHE_BUFFERABLE | axi_pkg::CACHE_MODIFIABLE |
+                                axi_pkg::CACHE_RD_ALLOC   | axi_pkg::CACHE_WR_ALLOC;
         maint_req.flags.acsnoop = CleanInvalid;
         maint_req.sel         = maint_sel_i;
         maint_req.maintenance = 1'b1;
