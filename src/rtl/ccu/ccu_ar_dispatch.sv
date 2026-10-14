@@ -85,22 +85,21 @@ module ccu_ar_dispatch
     typedef struct packed {
         ccu_ace_ar_t             ar;
         logic [sbIdxWidth-1:0]   sb_idx;
+        logic [numSub-1:0]       mask;
+        logic                    mask_valid;
     } queue_entry_t;
 
-    queue_entry_t [numQueue-1:0]      queue_q;
+    queue_entry_t [numQueue-1:0]      queue_q, queue_d;
     logic         [numQueue-1:0]      queue_valid_q, queue_valid_d;
     logic         [queueIdxWidth-1:0] queue_alloc_idx;
     logic                             queue_full;
 
     logic [numQueue-1:0]      eligible;
-    logic [numQueue-1:0]      gnt;
+    logic [numQueue-1:0]      arb_ready;
     logic [numQueue-1:0]      dispatch;
     queue_entry_t             issue_entry;
-    logic [queueIdxWidth-1:0] issue_idx;
 
     logic          alloc;
-    logic          arb_req;
-    logic          arb_gnt;
     ccu_ar_flags_t ar_flags;
     logic          ar_flags_alloc;
     logic          ar_untracked;
@@ -300,8 +299,6 @@ module ccu_ar_dispatch
 
 //  Snoop filter lookup: at admission, and again after an allocating chain
 //  {{{
-    logic [numQueue-1:0][numSub-1:0] present_q, present_d;
-    logic [numQueue-1:0]             have_q, have_d;
     logic [numQueue-1:0]             relookup_q, relookup_d;
     logic [numQueue-1:0]             release_now;
     logic [numQueue-1:0]             bi_blocked;
@@ -324,36 +321,20 @@ module ccu_ar_dispatch
                                      : {sb_line[queue_q[relookup_idx].sb_idx], {offWidth{1'b0}}};
     assign lookup_target_d   = alloc ? queue_alloc_idx : relookup_idx;
 
-    always_comb begin : lookup_state_comb
-        present_d  = present_q;
-        have_d     = have_q;
+    always_comb begin : relookup_comb
         relookup_d = relookup_q;
-
-        if (lookup_pend_q) begin
-            present_d[lookup_target_q] = sf_present_i;
-            have_d[lookup_target_q]    = 1'b1;
-        end
         if (sf_lookup_valid_o) relookup_d[lookup_target_d] = 1'b0;
-
         for (int unsigned e = 0; e < numQueue; e++) begin
-            if (release_now[e]) begin
-                have_d[e]     = 1'b0;
-                relookup_d[e] = 1'b1;
-            end
+            if (release_now[e]) relookup_d[e] = 1'b1;
         end
-        if (alloc) have_d[queue_alloc_idx] = 1'b0;
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            present_q        <= '0;
-            have_q           <= '0;
             relookup_q       <= '0;
             lookup_pend_q    <= 1'b0;
             lookup_target_q  <= '0;
         end else begin
-            present_q        <= present_d;
-            have_q           <= have_d;
             relookup_q       <= relookup_d;
             lookup_pend_q    <= sf_lookup_valid_o;
             if (sf_lookup_valid_o) lookup_target_q <= lookup_target_d;
@@ -399,12 +380,21 @@ module ccu_ar_dispatch
         assign bypass[e]   = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
         //  An entry may dispatch once nothing precedes it and its mask is known
         assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
-                             !bi_blocked[e] && (have_q[e] || bypass[e]);
+                             !bi_blocked[e] && (queue_q[e].mask_valid || bypass[e]);
 
         always_comb begin : queue_entry_comb
             queue_valid_d[e] = queue_valid_q[e];
             if (dispatch[e])       queue_valid_d[e] = 1'b0;
             else if (alloc_this)   queue_valid_d[e] = 1'b1;
+
+            queue_d[e] = queue_q[e];
+            if (bypass[e]) begin
+                queue_d[e].mask       = sf_present_i;
+                queue_d[e].mask_valid = 1'b1;
+            end
+            if (release_now[e]) queue_d[e].mask_valid = 1'b0;
+            if (alloc_this)
+                queue_d[e] = '{ar: ar_i, sb_idx: sb_alloc_idx, mask: '0, mask_valid: 1'b0};
         end
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -413,7 +403,7 @@ module ccu_ar_dispatch
                 queue_q[e]       <= '0;
             end else begin
                 queue_valid_q[e] <= queue_valid_d[e];
-                if (alloc_this) queue_q[e] <= '{ar: ar_i, sb_idx: sb_alloc_idx};
+                queue_q[e]       <= queue_d[e];
             end
         end
     end
@@ -421,36 +411,27 @@ module ccu_ar_dispatch
 
 //  Dispatch arbitration
 //  {{{
-    rr_arb_tree #(
-        .NumIn     (numQueue),
-        .DataType  (queue_entry_t),
-        .ExtPrio   (1'b0),
-        .AxiVldRdy (1'b1),
-        .LockIn    (1'b1),
-        .FairArb   (1'b1)
+    stream_arbiter #(
+        .DATA_T  (queue_entry_t),
+        .N_INP   (numQueue),
+        .ARBITER ("rr")
     ) u_dispatch_arbiter (
         .clk_i,
         .rst_ni,
-        .flush_i (1'b0),
-        .rr_i    ('0),
-        .req_i   (eligible),
-        .gnt_o   (gnt),
-        .data_i  (queue_q),
-        .req_o   (arb_req),
-        .gnt_i   (arb_gnt),
-        .data_o  (issue_entry),
-        .idx_o   (issue_idx)
+        .inp_data_i  (queue_q),
+        .inp_valid_i (eligible),
+        .inp_ready_o (arb_ready),
+        .oup_data_o  (issue_entry),
+        .oup_valid_o (ar_valid_o),
+        .oup_ready_i (ar_ready_i)
     );
 
-    assign ar_present_o = have_q[issue_idx] ? present_q[issue_idx] : sf_present_i;
-    assign ar_o = issue_entry.ar;
-    assign ar_tid_o = issue_entry.sb_idx;
-    assign ar_flags_o = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
-
-    assign ar_valid_o = arb_req;
-    //  AxiVldRdy grants are unqualified, so qualify with valid
-    assign arb_gnt    = ar_valid_o && ar_ready_i;
-    assign dispatch   = gnt;
+    //  A bypassed entry is dispatched on its lookup cycle
+    assign ar_present_o = issue_entry.mask_valid ? issue_entry.mask : sf_present_i;
+    assign ar_o         = issue_entry.ar;
+    assign ar_tid_o     = issue_entry.sb_idx;
+    assign ar_flags_o   = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
+    assign dispatch     = eligible & arb_ready;
 //  }}}
 
 //  Assertions
@@ -475,8 +456,8 @@ module ccu_ar_dispatch
 
     //  a bypassed mask belongs to the dispatched entry
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        ar_valid_o && !have_q[issue_idx] |->
-            lookup_pend_q && lookup_target_q == issue_idx)
+        ar_valid_o && !issue_entry.mask_valid |->
+            lookup_pend_q && queue_q[lookup_target_q].sb_idx == issue_entry.sb_idx)
         else $error("dispatch bypassed a lookup issued for another entry");
 
     //  an eligible entry never becomes blocked
