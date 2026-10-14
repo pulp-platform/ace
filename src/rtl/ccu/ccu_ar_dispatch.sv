@@ -309,8 +309,6 @@ module ccu_ar_dispatch
     logic [queueIdxWidth-1:0]        relookup_idx, lookup_target_q, lookup_target_d;
     logic                            relookup_none, lookup_pend_q;
 
-    logic [numSub-1:0]               sf_bypass_mask_q, sf_bypass_mask_d;
-
     lzc #(
         .WIDTH (numQueue),
         .MODE  (1'b0)
@@ -326,25 +324,13 @@ module ccu_ar_dispatch
                                      : {sb_line[queue_q[relookup_idx].sb_idx], {offWidth{1'b0}}};
     assign lookup_target_d   = alloc ? queue_alloc_idx : relookup_idx;
 
-    always_comb begin : sf_bypass_comb
-        sf_bypass_mask_d = '0;
-        if (sf_lookup_valid_o) begin
-            for (int unsigned s = 0; s < numSub; s++) begin
-                if (sf_insert_valid_o[s] && sf_insert_ready_i[s] &&
-                    sf_lookup_addr_o[addrWidth-1:offWidth] == sf_insert_addr_o[s][addrWidth-1:offWidth]) begin
-                    sf_bypass_mask_d[s] = 1'b1;
-                end
-            end
-        end
-    end
-
     always_comb begin : lookup_state_comb
         present_d  = present_q;
         have_d     = have_q;
         relookup_d = relookup_q;
 
         if (lookup_pend_q) begin
-            present_d[lookup_target_q] = sf_present_i | sf_bypass_mask_q;
+            present_d[lookup_target_q] = sf_present_i;
             have_d[lookup_target_q]    = 1'b1;
         end
         if (sf_lookup_valid_o) relookup_d[lookup_target_d] = 1'b0;
@@ -365,13 +351,11 @@ module ccu_ar_dispatch
             relookup_q       <= '0;
             lookup_pend_q    <= 1'b0;
             lookup_target_q  <= '0;
-            sf_bypass_mask_q <= '0;
         end else begin
             present_q        <= present_d;
             have_q           <= have_d;
             relookup_q       <= relookup_d;
             lookup_pend_q    <= sf_lookup_valid_o;
-            sf_bypass_mask_q <= sf_bypass_mask_d;
             if (sf_lookup_valid_o) lookup_target_q <= lookup_target_d;
         end
     end
@@ -458,8 +442,7 @@ module ccu_ar_dispatch
         .idx_o   (issue_idx)
     );
 
-    assign ar_present_o = have_q[issue_idx] ? present_q[issue_idx]
-                                            : sf_present_i | sf_bypass_mask_q;
+    assign ar_present_o = have_q[issue_idx] ? present_q[issue_idx] : sf_present_i;
     assign ar_o = issue_entry.ar;
     assign ar_tid_o = issue_entry.sb_idx;
     assign ar_flags_o = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
