@@ -173,18 +173,20 @@ module ccu_ar_dispatch
     logic [numEntries-1:0]                 tail_q,        tail_d;
     logic [numEntries-1:0]                 pred_valid_q,  pred_valid_d;
     logic [numEntries-1:0][sbIdxWidth-1:0] pred_idx_q,    pred_idx_d;
-    logic [numEntries-1:0]                 tail_match;
+    logic [numEntries-1:0]                 tail_match, tail_link;
     logic [sbIdxWidth-1:0]                 tail_idx;
 
+    //  Match: a live tail on the line; link: the one we chain behind, unless it frees this cycle
     for (genvar e = 0; e < numEntries; e++) begin : gen_tail_match
-        assign tail_match[e] = sb_valid[e] && tail_q[e] && !sb_free[e] &&
+        assign tail_match[e] = sb_valid[e] && tail_q[e] &&
             sb_line[e][chainWidth-1:0] == ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+        assign tail_link[e]  = tail_match[e] && !sb_free[e];
     end
 
     onehot_to_bin #(
         .ONEHOT_WIDTH (numEntries)
     ) u_tail_onehot_to_bin (
-        .onehot (tail_match),
+        .onehot (tail_link),
         .bin    (tail_idx)
     );
 
@@ -201,9 +203,9 @@ module ccu_ar_dispatch
 
         if (alloc) begin
             tail_d[sb_alloc_idx]       = 1'b1;
-            pred_valid_d[sb_alloc_idx] = |tail_match;
+            pred_valid_d[sb_alloc_idx] = |tail_link;
             pred_idx_d[sb_alloc_idx]   = tail_idx;
-            if (|tail_match) tail_d[tail_idx] = 1'b0;
+            if (|tail_link) tail_d[tail_idx] = 1'b0;
         end
     end
 
@@ -298,6 +300,7 @@ module ccu_ar_dispatch
     );
 
     //  Admission wins the port; a chained entry's mask would go stale behind its predecessor
+    //  A tail freed this cycle defers the lookup: sb_free depends on the filter's insert ready
     assign admit_lookup      = alloc && !(|tail_match);
     assign sf_lookup_valid_o = admit_lookup || !need_none;
     assign sf_lookup_addr_o  = admit_lookup ? ar_i.addr
@@ -464,7 +467,7 @@ module ccu_ar_dispatch
 
     //  every address chain has a single tail
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        alloc |-> $onehot0(tail_match))
+        alloc |-> $onehot0(tail_link))
         else $error("multiple tails match one address chain");
 
     //  a live waiter's predecessor is live
