@@ -34,6 +34,8 @@ module ccu_read_engine
     input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
     //  A peer kept a copy but supplied no data; sets IsShared on memory R
     input  logic                                ar_is_shared_i,
+    //  Shareable exclusive load: the CCU monitor holds its reservation, not memory
+    input  logic                                ar_exclusive_i,
 
     //  Initiator R sourced by the snoop pipeline (read data and acks)
     input  logic                                snoop_pipeline_r_valid_i,
@@ -93,7 +95,8 @@ module ccu_read_engine
     //  The tid is the memory ARID
     always_comb begin : mem_ar_comb
         `AXI_SET_AR_STRUCT(ar_o, ar_i)
-        ar_o.id = ar_tid_i;
+        ar_o.id   = ar_tid_i;
+        ar_o.lock = ar_i.lock && !ar_exclusive_i;
     end
 //  }}}
 
@@ -106,17 +109,25 @@ module ccu_read_engine
     assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
 
     //  Indexed by tid, overwritten per AR, never cleared
-    logic [ccuCfg.u.numShareableTransactions-1:0] ar_is_shared_q;
+    logic [ccuCfg.u.numShareableTransactions-1:0] ar_is_shared_q, ar_exclusive_q;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni)                       ar_is_shared_q <= '0;
-        else if (ar_valid_i && ar_ready_o) ar_is_shared_q[ar_tid_i] <= ar_is_shared_i;
+        if (!rst_ni) begin
+            ar_is_shared_q <= '0;
+            ar_exclusive_q <= '0;
+        end else if (ar_valid_i && ar_ready_o) begin
+            ar_is_shared_q[ar_tid_i] <= ar_is_shared_i;
+            ar_exclusive_q[ar_tid_i] <= ar_exclusive_i;
+        end
     end
 
     always_comb begin : mem_r_comb
         `AXI_TO_ACE_SET_R_STRUCT(r_mem, r_i)
         r_mem.id                            = sb_id_i[r_mem_tid];
         r_mem.resp[ace_pkg::RESP_IS_SHARED] = ar_is_shared_q[r_mem_tid];
+        //  Errors pass through
+        if (ar_exclusive_q[r_mem_tid] && r_i.resp == axi_pkg::RESP_OKAY)
+            r_mem.resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_EXOKAY;
     end
 
     ccu_r_arbiter #(
@@ -153,6 +164,11 @@ module ccu_read_engine
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         ar_committed_q |-> !(mem_ar_stall_i && !$past(mem_ar_stall_i)))
         else $error("same-line write became pending under a committed memory AR");
+
+    //  memory never sees the lock of a load the CCU monitor reserves
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        r_valid_i && ar_exclusive_q[r_mem_tid] |-> r_i.resp != axi_pkg::RESP_EXOKAY)
+        else $error("memory answered EXOKAY to a load sent without ARLOCK");
 
     //  the memory AR is stable while stalled
     assert property (@(posedge clk_i) disable iff (!rst_ni)

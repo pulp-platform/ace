@@ -130,6 +130,7 @@ logic [ccuCfg.transactionIndexWidth-1:0] dispatch_ar_tid;
 logic [ccuCfg.transactionIndexWidth-1:0] ar_tid;
 logic [ccuCfg.transactionIndexWidth-1:0] snoop_read_engine_ar_tid;
 logic                                snoop_read_engine_ar_is_shared;
+logic                                snoop_read_engine_ar_exclusive;
 logic [ccuCfg.transactionIndexWidth-1:0] snoop_read_engine_r_tid;
 logic [ccuCfg.transactionIndexWidth-1:0] sc_fail_r_tid;
 logic [ccuCfg.transactionIndexWidth-1:0] manager_r_tid;
@@ -385,6 +386,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .read_engine_ar_o         (snoop_read_engine_ar),
         .read_engine_ar_tid_o     (snoop_read_engine_ar_tid),
         .read_engine_ar_is_shared_o (snoop_read_engine_ar_is_shared),
+        .read_engine_ar_exclusive_o (snoop_read_engine_ar_exclusive),
         .read_engine_r_valid_o    (snoop_read_engine_r_valid),
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
         .read_engine_r_o          (snoop_read_engine_r),
@@ -480,6 +482,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .ar_i                     (snoop_read_engine_ar),
         .ar_tid_i                 (snoop_read_engine_ar_tid),
         .ar_is_shared_i           (snoop_read_engine_ar_is_shared),
+        .ar_exclusive_i           (snoop_read_engine_ar_exclusive),
         .snoop_pipeline_r_valid_i (snoop_read_engine_r_valid),
         .snoop_pipeline_r_ready_o (snoop_read_engine_r_ready),
         .snoop_pipeline_r_i       (snoop_read_engine_r),

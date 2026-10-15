@@ -76,6 +76,8 @@ module ccu_snoop_pipeline
     output logic [ccuCfg.transactionIndexWidth-1:0]          read_engine_ar_tid_o,
     //  A peer keeps a copy but supplies no data
     output logic                                             read_engine_ar_is_shared_o,
+    //  Shareable exclusive load, reserved by the CCU monitor
+    output logic                                             read_engine_ar_exclusive_o,
     output logic                                             read_engine_r_valid_o,
     input  logic                                             read_engine_r_ready_i,
     output ccu_ace_r_t                                       read_engine_r_o,
@@ -459,6 +461,7 @@ module ccu_snoop_pipeline
 
     assign read_engine_ar_tid_o = stage1_fifo_rdata.tid;
     assign read_engine_ar_is_shared_o = rresp_is_shared;
+    assign read_engine_ar_exclusive_o = stage1_fifo_rdata.flags.is_exclusive_load;
 
     //  A peer keeping its copy narrows who may accept the dirty data (C4-199)
     assign rresp_is_shared  = cr.resp.IsShared && accepts_shared;
