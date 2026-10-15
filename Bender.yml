@@ -27,6 +27,7 @@ sources:
   - src/rtl/ace_pkg.sv
   - src/rtl/ace_intf.sv
   - src/rtl/snoop_intf.sv
+  - src/rtl/stream_iterator.sv
   # CCU package
   - src/rtl/ccu/ccu_pkg.sv
   - src/rtl/ccu/ccu_scoreboard.sv

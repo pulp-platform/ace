@@ -269,10 +269,8 @@ module ccu_frontend
 
     logic [subIdxW-1:0]  aw_sub_idx;
     logic                aw_is_evict, aw_deallocates;
-    logic                write_aw_valid, write_aw_ready;
-    logic                evict_aw_valid, evict_aw_ready;
-    logic                aw_remove_valid, aw_remove_ready, aw_remove_hold;
-    logic                evict_b_valid,   evict_b_gnt;
+    logic [2:0]          aw_leg_sel, aw_leg_valid, aw_leg_ready;
+    logic                evict_b_valid, evict_b_gnt;
     ccu_ace_manager_b_t  evict_b, evict_b_q;
     logic                mem_b_valid, mem_b_ready;
     ccu_ace_manager_b_t  mem_b;
@@ -286,48 +284,41 @@ module ccu_frontend
        (ace_is_write_back (arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop) ||
         ace_is_write_evict(arbiter_req.aw.bar[0], arbiter_req.aw.domain, arbiter_req.aw.snoop));
 
-    //  Evicts terminate here: the removal retires the AW, B follows
-    stream_demux #(
-        .N_OUP (2)
-    ) u_aw_evict_demux (
-        .inp_valid_i (arbiter_req.aw_valid),
-        .inp_ready_o (arbiter_resp.aw_ready),
-        .oup_sel_i   (aw_is_evict),
-        .oup_valid_o ({evict_aw_valid, write_aw_valid}),
-        .oup_ready_i ({evict_aw_ready, write_aw_ready})
-    );
-
     logic aw_spill_valid;
     logic aw_spill_ready;
     logic write_pos_valid, write_pos_ready;
-    logic wb_remove_valid;
 
-    //  A writeback carries data, so it de-allocates alongside the write
-    stream_fork_dynamic #(
-        .N_OUP (2)
-    ) u_aw_remove_fork (
+    //  Legs in order: PoS, filter removal, Evict B; Evicts terminate here
+    assign aw_leg_sel = aw_is_evict ? 3'b110 : {1'b0, aw_deallocates, 1'b1};
+
+    //  A removal waits for its write to be visible to the hazard check, an Evict B for its removal
+    stream_iterator #(
+        .N_OUP (3)
+    ) u_aw_iterator (
         .clk_i,
         .rst_ni,
-        .valid_i     (write_aw_valid),
-        .ready_o     (write_aw_ready),
-        .sel_i       ({aw_deallocates, 1'b1}),
-        .sel_valid_i (1'b1),
-        .sel_ready_o (),
-        .valid_o     ({wb_remove_valid, write_pos_valid}),
-        .ready_i     ({aw_remove_ready, write_pos_ready})
+        .valid_i (arbiter_req.aw_valid),
+        .ready_o (arbiter_resp.aw_ready),
+        .sel_i   (aw_leg_sel),
+        .valid_o (aw_leg_valid),
+        .ready_i (aw_leg_ready)
     );
 
-    //  One AW sits at the demux at a time, so the two legs never overlap
-    assign aw_remove_valid = wb_remove_valid || evict_aw_valid;
-    //  Present the removal only once the write is visible to the hazard check and the B slot is free
-    assign aw_remove_hold  = write_pos_valid || (evict_aw_valid && evict_b_valid);
-    assign aw_remove_ready = sf_aw_remove_ready_i[aw_sub_idx] && !aw_remove_hold;
-    assign evict_aw_ready  = aw_remove_ready;
+    assign write_pos_valid = aw_leg_valid[0];
+    assign aw_leg_ready[0] = write_pos_ready;
+
+    stream_demux #(
+        .N_OUP (ccuCfg.u.numSubordinates)
+    ) u_aw_remove_demux (
+        .inp_valid_i (aw_leg_valid[1]),
+        .inp_ready_o (aw_leg_ready[1]),
+        .oup_sel_i   (aw_sub_idx),
+        .oup_valid_o (sf_aw_remove_valid_o),
+        .oup_ready_i (sf_aw_remove_ready_i)
+    );
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_aw_remove
-        assign sf_aw_remove_valid_o[s] = aw_remove_valid && !aw_remove_hold &&
-                                         aw_sub_idx == subIdxW'(s);
-        assign sf_aw_remove_addr_o[s]  = arbiter_req.aw.addr;
+        assign sf_aw_remove_addr_o[s] = arbiter_req.aw.addr;
     end
 
     always_comb begin : evict_b_comb
@@ -337,18 +328,24 @@ module ccu_frontend
         evict_b.user = arbiter_req.aw.user;
     end
 
-    //  Made from the handshake that retires the AW, so it cannot overtake it
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
-            evict_b_valid <= 1'b0;
-            evict_b_q     <= '0;
-        end else if (evict_aw_valid && evict_aw_ready) begin
-            evict_b_valid <= 1'b1;
-            evict_b_q     <= evict_b;
-        end else if (evict_b_gnt) begin
-            evict_b_valid <= 1'b0;
-        end
-    end
+    //  Pushed by the handshake that retires the AW, so it cannot overtake it
+    stream_fifo #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (1),
+        .T            (ccu_ace_manager_b_t)
+    ) u_evict_b_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .usage_o    (),
+        .data_i     (evict_b),
+        .valid_i    (aw_leg_valid[2]),
+        .ready_o    (aw_leg_ready[2]),
+        .data_o     (evict_b_q),
+        .valid_o    (evict_b_valid),
+        .ready_i    (evict_b_gnt)
+    );
 
     //  Stall PoS write acceptance while the engine pending filter is at the bound
     assign aw_spill_valid  = write_pos_valid && !pos_aw_full_i;
