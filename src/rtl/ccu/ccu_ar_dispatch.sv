@@ -180,13 +180,16 @@ module ccu_ar_dispatch
     logic [numEntries-1:0]                 tail_q,        tail_d;
     logic [numEntries-1:0]                 pred_valid_q,  pred_valid_d;
     logic [numEntries-1:0][sbIdxWidth-1:0] pred_idx_q,    pred_idx_d;
-    logic [numEntries-1:0]                 tail_match, tail_link;
+    //  Cores that predecessors may still add to the filter after our lookup
+    logic [numEntries-1:0][numSub-1:0]     chain_mask_q,  chain_mask_d;
+    logic [numSub-1:0]                     link_mask;
+    logic [numEntries-1:0]                 tail_link;
     logic [sbIdxWidth-1:0]                 tail_idx;
 
-    //  Match: a live tail on the line; link: the one we chain behind, unless it frees this cycle
-    for (genvar e = 0; e < numEntries; e++) begin : gen_tail_match
-        assign tail_match[e] = sb_valid[e] && tail_q[e] && sb_line[e] == line_of(ar_i.addr);
-        assign tail_link[e]  = tail_match[e] && !sb_free[e];
+    //  The tail we chain behind, unless it frees this cycle
+    for (genvar e = 0; e < numEntries; e++) begin : gen_tail_link
+        assign tail_link[e] = sb_valid[e] && tail_q[e] && !sb_free[e] &&
+                              sb_line[e] == line_of(ar_i.addr);
     end
 
     onehot_to_bin #(
@@ -196,10 +199,15 @@ module ccu_ar_dispatch
         .bin    (tail_idx)
     );
 
+    //  A superset is enough: a core that no longer holds the line answers a miss
+    assign link_mask = !(|tail_link) ? '0 :
+        chain_mask_q[tail_idx] | (alloc_q[tail_idx] ? numSub'(1) << sub_of(sb_id[tail_idx]) : '0);
+
     always_comb begin : chain_comb
         tail_d       = tail_q;
         pred_valid_d = pred_valid_q;
         pred_idx_d   = pred_idx_q;
+        chain_mask_d = chain_mask_q;
 
         //  Release the successor only once our line is in the filter
         for (int unsigned e = 0; e < numEntries; e++) begin
@@ -211,6 +219,7 @@ module ccu_ar_dispatch
             tail_d[sb_alloc_idx]       = 1'b1;
             pred_valid_d[sb_alloc_idx] = |tail_link;
             pred_idx_d[sb_alloc_idx]   = tail_idx;
+            chain_mask_d[sb_alloc_idx] = link_mask;
             if (|tail_link) tail_d[tail_idx] = 1'b0;
         end
     end
@@ -220,10 +229,12 @@ module ccu_ar_dispatch
             tail_q       <= '0;
             pred_valid_q <= '0;
             pred_idx_q   <= '0;
+            chain_mask_q <= '0;
         end else begin
             tail_q       <= tail_d;
             pred_valid_q <= pred_valid_d;
             pred_idx_q   <= pred_idx_d;
+            chain_mask_q <= chain_mask_d;
         end
     end
 //  }}}
@@ -287,40 +298,13 @@ module ccu_ar_dispatch
     end
 //  }}}
 
-//  Snoop filter lookup: unchained entries at admission, chained ones once released
+//  Snoop filter lookup: once, at admission; the answer arrives with the entry in the queue
 //  {{{
-    logic [numQueue-1:0]             lookup_need;
-    logic [numQueue-1:0]             bi_blocked;
-    logic [numQueue-1:0]             bypass;
-    logic [queueIdxWidth-1:0]        need_idx, lookup_target_q, lookup_target_d;
-    logic                            need_none, lookup_pend_q, admit_lookup;
+    logic [numQueue-1:0] bi_blocked;
+    logic [numQueue-1:0] mask_valid;
 
-    lzc #(
-        .WIDTH (numQueue),
-        .MODE  (1'b0)
-    ) u_lookup_lzc (
-        .in_i    (lookup_need),
-        .cnt_o   (need_idx),
-        .empty_o (need_none)
-    );
-
-    //  Admission wins the port; a chained entry's mask would go stale behind its predecessor
-    //  A tail freed this cycle defers the lookup: sb_free depends on the filter's insert ready
-    assign admit_lookup      = alloc && !(|tail_match);
-    assign sf_lookup_valid_o = admit_lookup || !need_none;
-    assign sf_lookup_addr_o  = admit_lookup ? ar_i.addr
-                                            : {sb_line[queue_q[need_idx].sb_idx], {offWidth{1'b0}}};
-    assign lookup_target_d   = admit_lookup ? queue_alloc_idx : need_idx;
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
-            lookup_pend_q    <= 1'b0;
-            lookup_target_q  <= '0;
-        end else begin
-            lookup_pend_q    <= sf_lookup_valid_o;
-            if (sf_lookup_valid_o) lookup_target_q <= lookup_target_d;
-        end
-    end
+    assign sf_lookup_valid_o = alloc;
+    assign sf_lookup_addr_o  = ar_i.addr;
 //  }}}
 
 //  Back-invalidation hazards (C6.2): no snoop before the RACK, no R before the CR
@@ -364,14 +348,9 @@ module ccu_ar_dispatch
         //  Own subordinate is being snooped for this line, or still owes the CR
         assign bi_blocked[e] = bi_busy_i[queue_sub] &&
                                line_of(bi_addr_i[queue_sub]) == line_of(queue_q[e].ar.addr);
-        //  Take the mask straight off the filter on its lookup cycle
-        assign bypass[e]      = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
-        //  Nothing precedes it and no mask is known or answering
-        assign lookup_need[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
-                                !queue_q[e].mask_valid && !bypass[e];
-        //  An entry may dispatch once nothing precedes it and its mask is known
-        assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] &&
-                             !bi_blocked[e] && (queue_q[e].mask_valid || bypass[e]);
+        assign mask_valid[e] = queue_q[e].mask_valid;
+        //  An entry may dispatch once nothing precedes it; on its first cycle the mask is live
+        assign eligible[e] = queue_valid_q[e] && !pred_valid_q[queue_q[e].sb_idx] && !bi_blocked[e];
 
         always_comb begin : queue_entry_comb
             queue_valid_d[e] = queue_valid_q[e];
@@ -379,12 +358,12 @@ module ccu_ar_dispatch
             else if (alloc_this)   queue_valid_d[e] = 1'b1;
 
             queue_d[e] = queue_q[e];
-            if (bypass[e]) begin
-                queue_d[e].mask       = sf_present_i;
+            if (!queue_q[e].mask_valid) begin
+                queue_d[e].mask       = queue_q[e].mask | sf_present_i;
                 queue_d[e].mask_valid = 1'b1;
             end
             if (alloc_this)
-                queue_d[e] = '{ar: ar_i, sb_idx: sb_alloc_idx, mask: '0, mask_valid: 1'b0};
+                queue_d[e] = '{ar: ar_i, sb_idx: sb_alloc_idx, mask: link_mask, mask_valid: 1'b0};
         end
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -416,8 +395,8 @@ module ccu_ar_dispatch
         .oup_ready_i (ar_ready_i)
     );
 
-    //  A bypassed entry is dispatched on its lookup cycle
-    assign ar_present_o = issue_entry.mask_valid ? issue_entry.mask : sf_present_i;
+    //  On its first cycle an entry takes the filter's answer live
+    assign ar_present_o = issue_entry.mask_valid ? issue_entry.mask : issue_entry.mask | sf_present_i;
     assign ar_o         = issue_entry.ar;
     assign ar_tid_o     = issue_entry.sb_idx;
     assign ar_flags_o   = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
@@ -444,11 +423,12 @@ module ccu_ar_dispatch
             else $error("allocating an AR with an id already inflight");
     end
 
-    //  a bypassed mask belongs to the dispatched entry
-    assert property (@(posedge clk_i) disable iff (!rst_ni)
-        ar_valid_o && !issue_entry.mask_valid |->
-            lookup_pend_q && queue_q[lookup_target_q].sb_idx == issue_entry.sb_idx)
-        else $error("dispatch bypassed a lookup issued for another entry");
+    //  only the entry allocated last cycle is still waiting for its lookup answer
+    for (genvar e = 0; e < numQueue; e++) begin : gen_mask_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            queue_valid_q[e] && !mask_valid[e] |-> $past(alloc && queue_alloc_idx == queueIdxWidth'(e)))
+            else $error("a queue entry missed its lookup answer");
+    end
 
     //  an eligible entry never becomes blocked
     assert property (@(posedge clk_i) disable iff (!rst_ni)
