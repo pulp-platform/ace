@@ -360,9 +360,8 @@ module ccu_snoop_filter
         assign backinval_busy_o[s]  = bi_state_q inside {BI_SEND, BI_OWED};
         assign backinval_addr_o[s]  = backinval_addr_q;
 
-        //  An attempt stands until its own snoop response removes the victim
-        assign backinval_done = rem_ready[s] && rem_is_cr[s] && cr_remove_maint_i &&
-            {op_tag_q, op_set_q} == backinval_addr_q[offW +: setW+tagW];
+        //  An attempt stands until its own snoop response removes the victim; only it selects this table
+        assign backinval_done = rem_ready[s] && rem_is_cr[s] && cr_remove_maint_i;
 
         //  One back-invalidation per table; the insert retries
         always_comb begin : backinval_comb
@@ -443,6 +442,10 @@ module ccu_snoop_filter
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             backinval_done |-> bi_state_q == BI_OWED)
             else $error("a back-invalidation was answered before it was sent");
+
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            backinval_done |-> {op_tag_q, op_set_q} == backinval_addr_q[offW +: setW+tagW])
+            else $error("a back-invalidation was answered for another line");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             !init_done_q |=> table_present[s])
