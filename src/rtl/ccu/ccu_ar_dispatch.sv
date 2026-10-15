@@ -31,7 +31,6 @@ module ccu_ar_dispatch
     localparam int unsigned addrWidth       = ccuCfg.u.axiAddressWidth,
     localparam int unsigned offWidth        = ccuCfg.cachelineByteIndexWidth,
     localparam int unsigned lineWidth       = addrWidth - offWidth,
-    localparam int unsigned chainWidth      = ccuCfg.addressCheckWidth,
     localparam int unsigned subIdWidth      = ccuCfg.u.axiSubordinateIdWidth
 ) (
     input  logic clk_i,
@@ -79,6 +78,14 @@ module ccu_ar_dispatch
     output logic [numSub-1:0]                bi_hazard_o
 );
 
+    function automatic logic [lineWidth-1:0] line_of(logic [addrWidth-1:0] addr);
+        return addr[addrWidth-1:offWidth];
+    endfunction
+
+    function automatic logic [subIdxWidth-1:0] sub_of(logic [ccuCfg.axiCcuIdWidth-1:0] id);
+        return id[subIdWidth +: subIdxWidth];
+    endfunction
+
 //  Dispatch queue: holds the AR only until it is dispatched
 //  {{{
     typedef struct packed {
@@ -125,7 +132,7 @@ module ccu_ar_dispatch
     logic [numEntries-1:0]                               sb_retired;
     logic [numEntries-1:0]                               ins_req_set, ins_req_clear;
 
-    //  Full line address for the filter; chains match on the hazard slice
+    //  Full line address: the filter takes it, chains and hazards compare it
     ccu_scoreboard #(
         .numEntries (numEntries),
         .sliceWidth (lineWidth),
@@ -136,7 +143,7 @@ module ccu_ar_dispatch
         .clk_i,
         .rst_ni,
         .alloc_valid_i (alloc),
-        .alloc_slice_i (ar_i.addr[addrWidth-1:offWidth]),
+        .alloc_slice_i (line_of(ar_i.addr)),
         .alloc_id_i    (ar_i.id),
         .alloc_idx_o   (sb_alloc_idx),
         .full_o        (sb_full),
@@ -178,8 +185,7 @@ module ccu_ar_dispatch
 
     //  Match: a live tail on the line; link: the one we chain behind, unless it frees this cycle
     for (genvar e = 0; e < numEntries; e++) begin : gen_tail_match
-        assign tail_match[e] = sb_valid[e] && tail_q[e] &&
-            sb_line[e][chainWidth-1:0] == ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+        assign tail_match[e] = sb_valid[e] && tail_q[e] && sb_line[e] == line_of(ar_i.addr);
         assign tail_link[e]  = tail_match[e] && !sb_free[e];
     end
 
@@ -248,8 +254,7 @@ module ccu_ar_dispatch
         logic [sbIdxWidth-1:0] ins_idx;
 
         for (genvar e = 0; e < numEntries; e++) begin : gen_ins_sub_valid
-            assign ins_sub_valid[e] = sb_retired[e] &&
-                sb_id[e][ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s);
+            assign ins_sub_valid[e] = sb_retired[e] && sub_of(sb_id[e]) == subIdxWidth'(s);
         end
 
         stream_arbiter #(
@@ -336,16 +341,12 @@ module ccu_ar_dispatch
         for (genvar e = 0; e < numEntries; e++) begin : gen_sent_hit
             assign sent_hit[e] = sb_valid[e] && !sb_queued[e] &&
                 !sb_retired[e] && !rack_mask_i[e] &&
-                sb_id[e][ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s) &&
-                sb_line[e][chainWidth-1:0] ==
-                    bi_addr_i[s][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+                sub_of(sb_id[e]) == subIdxWidth'(s) && sb_line[e] == line_of(bi_addr_i[s]);
         end
 
         for (genvar e = 0; e < numQueue; e++) begin : gen_eligible_hit
-            assign eligible_hit[e] = eligible[e] &&
-                queue_q[e].ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth] == subIdxWidth'(s) &&
-                queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
-                    bi_addr_i[s][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+            assign eligible_hit[e] = eligible[e] && sub_of(queue_q[e].ar.id) == subIdxWidth'(s) &&
+                line_of(queue_q[e].ar.addr) == line_of(bi_addr_i[s]);
         end
 
         assign bi_hazard_o[s] = |sent_hit || |eligible_hit;
@@ -359,11 +360,10 @@ module ccu_ar_dispatch
         logic [subIdxWidth-1:0]  queue_sub;
 
         assign alloc_this = alloc && queue_alloc_idx == queueIdxWidth'(e);
-        assign queue_sub  = queue_q[e].ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth];
+        assign queue_sub  = sub_of(queue_q[e].ar.id);
         //  Own subordinate is being snooped for this line, or still owes the CR
         assign bi_blocked[e] = bi_busy_i[queue_sub] &&
-            bi_addr_i[queue_sub][ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
-                queue_q[e].ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
+                               line_of(bi_addr_i[queue_sub]) == line_of(queue_q[e].ar.addr);
         //  Take the mask straight off the filter on its lookup cycle
         assign bypass[e]      = lookup_pend_q && lookup_target_q == queueIdxWidth'(e);
         //  Nothing precedes it and no mask is known or answering
@@ -459,10 +459,8 @@ module ccu_ar_dispatch
     //  nothing is presented for a line its subordinate is being back-invalidated for
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         ar_valid_o |->
-            !(bi_busy_i[issue_entry.ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth]] &&
-              bi_addr_i[issue_entry.ar.id[ccuCfg.u.axiSubordinateIdWidth +: subIdxWidth]]
-                       [ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb] ==
-              issue_entry.ar.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb]))
+            !(bi_busy_i[sub_of(issue_entry.ar.id)] &&
+              line_of(bi_addr_i[sub_of(issue_entry.ar.id)]) == line_of(issue_entry.ar.addr)))
         else $error("an AR was presented while its subordinate is back-invalidated for the line");
 
     //  every address chain has a single tail

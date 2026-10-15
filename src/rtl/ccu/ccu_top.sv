@@ -77,6 +77,12 @@ module ccu_top
     `ACE_TYPEDEF_RESP_T(ccu_ace_resp_t, ccu_ace_b_t, ccu_ace_r_t)
 //  }}}
 
+//  A hazard slice with offset bits would miss same-line accesses at different offsets
+if (ccuCfg.u.addressCheckLsb < ccuCfg.cachelineByteIndexWidth) begin : gen_slice_check
+    $error("addressCheckLsb (%0d) is below the cacheline offset width (%0d)",
+           ccuCfg.u.addressCheckLsb, ccuCfg.cachelineByteIndexWidth);
+end
+
 logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free;
 logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_error;
 logic [ccuCfg.u.numShareableTransactions-1:0]
