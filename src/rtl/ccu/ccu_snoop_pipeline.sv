@@ -825,6 +825,11 @@ module ccu_snoop_pipeline
         engine_fork_valid |-> !(cr.resp.PassDirty && !cr.resp.DataTransfer))
         else $error("PassDirty without DataTransfer");
 
+    //  a MakeInvalid snoopee discards its line, dirty or not
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        engine_fork_valid && stage1_fifo_rdata.flags.acsnoop == MakeInvalid |-> !cr.resp.PassDirty)
+        else $error("PassDirty on a MakeInvalid response");
+
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         engine_fork_valid && cr.resp.DataTransfer && cr.resp.PassDirty && !rresp_pass_dirty
         |-> cd_engine_forward_to_write)
