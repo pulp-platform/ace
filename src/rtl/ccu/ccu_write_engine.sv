@@ -99,11 +99,17 @@ module ccu_write_engine
     logic w_ctrl_fifo_ready_in;
     logic writeback_aw_valid;
     logic writeback_aw_ready;
-    logic wb_idx_empty;
+    logic wb_idx_valid, wb_idx_pop;
 
     //  Wait for the reservation; it is popped by this request's grant, as LockIn needs
-    assign writeback_aw_valid   = writeback_aw_valid_i && !wb_idx_empty;
-    assign writeback_aw_ready_o = writeback_aw_ready;
+    stream_join #(
+        .N_INP (2)
+    ) u_wb_aw_join (
+        .inp_valid_i ({writeback_aw_valid_i, wb_idx_valid}),
+        .inp_ready_o ({writeback_aw_ready_o, wb_idx_pop}),
+        .oup_valid_o (writeback_aw_valid),
+        .oup_ready_i (writeback_aw_ready)
+    );
 
     rr_arb_tree #(
         .NumIn     (2),
@@ -140,7 +146,7 @@ module ccu_write_engine
 //  {{{
     logic                                pending_hit;
     logic                                wb_alloc;
-    logic                                wb_idx_full;
+    logic                                wb_idx_ready;
     logic                                wb_push;
     logic                                b_free;
     logic [ccuCfg.addressCheckWidth-1:0] aw_arb_slice;
@@ -158,7 +164,7 @@ module ccu_write_engine
     assign wb_push      = aw_valid_o && aw_ready_i && aw_is_writeback;
     assign b_free       = b_valid_i  && b_ready_o;
 
-    assign wb_alloc_ready_o = !pend_full[0] && !wb_idx_full;
+    assign wb_alloc_ready_o = !pend_full[0] && wb_idx_ready;
     assign wb_alloc         = wb_alloc_valid_i && wb_alloc_ready_o;
 
     //  One allocation port each for PoS accepts and writeback reservations
@@ -203,7 +209,7 @@ module ccu_write_engine
 //  {{{
     logic [pendIdxWidth-1:0] wb_idx_head;
 
-    fifo_v3 #(
+    stream_fifo #(
         .FALL_THROUGH (1'b0),
         .DEPTH        (ccuCfg.u.numSnoopTransactions),
         .DATA_WIDTH   (pendIdxWidth)
@@ -212,13 +218,13 @@ module ccu_write_engine
         .rst_ni,
         .flush_i    (1'b0),
         .testmode_i (1'b0),
-        .full_o     (wb_idx_full),
-        .empty_o    (wb_idx_empty),
         .usage_o    (),
         .data_i     (pend_alloc_idx[0]),
-        .push_i     (wb_alloc),
+        .valid_i    (wb_alloc_valid_i && !pend_full[0]),
+        .ready_o    (wb_idx_ready),
         .data_o     (wb_idx_head),
-        .pop_i      (writeback_aw_valid && writeback_aw_ready)
+        .valid_o    (wb_idx_valid),
+        .ready_i    (wb_idx_pop)
     );
 //  }}}
 
@@ -392,7 +398,7 @@ module ccu_write_engine
         else $error("writeback reserved with no pending entry");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        wb_push |-> !wb_idx_empty)
+        wb_push |-> wb_idx_valid)
         else $error("writeback issued without a reservation");
 
     //  the memory AW never runs past its own grant, so the head is still its reservation
