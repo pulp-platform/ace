@@ -57,9 +57,6 @@ module ccu_write_engine
     output logic                                b_ready_o,
     input  ccu_axi_b_t                          b_i,
 
-    //  WACK of frontend writes (unused)
-    input  logic [ccuCfg.u.numSubordinates-1:0] wack_i,
-
     //  PoS-accepted frontend AW (pre-spill), allocates a pending-write entry
     input  logic                                pos_aw_valid_i,
     input  logic [ccuCfg.addressCheckWidth-1:0] pos_aw_slice_i,

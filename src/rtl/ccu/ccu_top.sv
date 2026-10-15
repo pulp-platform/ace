@@ -463,7 +463,6 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .b_valid_i                (manager_cut_resp.b_valid),
         .b_ready_o                (manager_cut_req.b_ready),
         .b_i                      (manager_cut_resp.b),
-        .wack_i                   (subordinate_wack_i),
         .pos_aw_valid_i           (pos_aw_valid),
         .pos_aw_slice_i           (pos_aw_slice),
         .pos_aw_full_o            (pos_aw_full),
