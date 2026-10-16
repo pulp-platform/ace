@@ -489,8 +489,6 @@ module ccu_snoop_pipeline
 
 //  CD engine
 //  {{{
-    localparam int unsigned cachelineTransferIndexWidth = $clog2(ccuCfg.cachelineAxiTransfers + 1);
-
     typedef struct packed {
         logic [ccuCfg.u.numSubordinates-1:0]     source;
         logic [ccuCfg.u.numSubordinates-1:0]     discard;
@@ -592,30 +590,22 @@ module ccu_snoop_pipeline
     assign cd_entry_pop = cd_engine_fifo_valid && cd_engine_fifo_ready;
     assign cd_all_done  = &(cd_done | ~(cd_head_source | cd_head_discard));
 
-    //  One beat counter per master, cleared with the entry
-    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_counter
+    //  A master is done once its last beat is taken, until the entry pops
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_done
+        logic cd_done_q, cd_last_hs;
 
-        logic                                   cd_counter_en;
-        logic [cachelineTransferIndexWidth-1:0] cd_counter_q;
+        assign cd_last_hs = cd_fifo_valid[s] && cd_ready[s] && cd_fifo_rdata[s].last;
 
-        counter #(
-            .WIDTH (cachelineTransferIndexWidth)
-        ) u_cd_counter (
-            .clk_i,
-            .rst_ni,
-            .clear_i     (cd_entry_pop),
-            .en_i        (cd_counter_en),
-            .load_i      (1'b0),
-            .down_i      (1'b0),
-            .d_i         ('0),
-            .q_o         (cd_counter_q),
-            .overflow_o  ()
-        );
-        assign cd_done[s]    = cd_counter_q == ccuCfg.cachelineAxiTransfers;
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni)           cd_done_q <= 1'b0;
+            else if (cd_entry_pop) cd_done_q <= 1'b0;
+            else if (cd_last_hs)   cd_done_q <= 1'b1;
+        end
+
+        assign cd_done[s]    = cd_done_q;
         assign cd_valid[s]   = cd_fifo_valid[s] && cd_head_source[s]  && !cd_done[s];
         assign cd_discard[s] = cd_fifo_valid[s] && cd_head_discard[s] && !cd_done[s];
         assign cd_ready[s]   = cd_discard[s] || (cd_valid[s] && cd_engine_data_ready);
-        assign cd_counter_en = cd_fifo_valid[s] && cd_ready[s];
     end
 
     assign cd_fifo_ready        = cd_ready;
@@ -852,9 +842,19 @@ module ccu_snoop_pipeline
         cd_engine_data_valid |-> $onehot(cd_valid))
         else $error("more than one CD source forwarded in one beat");
 
-    assert property (@(posedge clk_i) disable iff (!rst_ni)
-        cd_entry_pop |=> cd_done == '0)
-        else $error("CD beat counters not cleared with the entry");
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_cd_beats_check
+        logic [$clog2(ccuCfg.cachelineAxiTransfers + 1)-1:0] beats_q;
+
+        always_ff @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni)                              beats_q <= '0;
+            else if (cd_fifo_valid[s] && cd_ready[s]) beats_q <= cd_fifo_rdata[s].last ? '0 : beats_q + 1'b1;
+        end
+
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            cd_fifo_valid[s] && cd_ready[s] |->
+            cd_fifo_rdata[s].last == (beats_q == ccuCfg.cachelineAxiTransfers - 1))
+            else $error("CD burst is not one cacheline");
+    end
 
     //  carried flags match the AR
     assert property (@(posedge clk_i) disable iff (!rst_ni)
