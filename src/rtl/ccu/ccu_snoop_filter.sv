@@ -151,7 +151,7 @@ module ccu_snoop_filter
         logic                 sram_req, sram_we;
 
         state_e               state_q, state_d;
-        logic                 lookup_grant, op_start, op_write, start_remove;
+        logic                 lookup_grant, op_start, op_write;
 
         logic                 op_insert_q, op_insert_d;
         logic [setW-1:0]      op_set_q, op_set_d;
@@ -171,7 +171,6 @@ module ccu_snoop_filter
         logic                 backinval_done;
         logic [addrW-1:0]     backinval_addr_q, backinval_addr_d;
 
-        logic [setW-1:0]      lookup_set_q;
         logic [tagW-1:0]      lookup_tag_q;
         logic                 lookup_forced_q;
         logic [numWays-1:0]   lookup_match;
@@ -284,7 +283,7 @@ module ccu_snoop_filter
                 sram_addr  = lookup_set;
             end else if (op_start) begin
                 sram_req   = 1'b1;
-                sram_addr  = start_remove ? rem_set[s] : ins_set[s];
+                sram_addr  = rem_valid[s] ? rem_set[s] : ins_set[s];
             end else if (op_write) begin
                 sram_req   = 1'b1;
                 sram_we    = 1'b1;
@@ -303,11 +302,9 @@ module ccu_snoop_filter
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
-                lookup_set_q    <= '0;
                 lookup_tag_q    <= '0;
                 lookup_forced_q <= 1'b1;
             end else if (lookup_valid) begin
-                lookup_set_q    <= lookup_set;
                 lookup_tag_q    <= lookup_tag;
                 lookup_forced_q <= !init_done_q;
             end
@@ -315,9 +312,8 @@ module ccu_snoop_filter
 
         //  Update
         //  A stuck insert retries only once its attempt has freed the victim
-        assign start_remove = rem_valid[s];
-        assign op_start     = init_done_q && !lookup_grant && state_q == IDLE &&
-                              (rem_valid[s] || (insert_valid && bi_state_q == BI_IDLE));
+        assign op_start = init_done_q && !lookup_grant && state_q == IDLE &&
+                          (rem_valid[s] || (insert_valid && bi_state_q == BI_IDLE));
 
         for (genvar w = 0; w < numWays; w++) begin : gen_way_match
             assign way_free[w]  = !sram_rdata[w].valid;
@@ -344,9 +340,7 @@ module ccu_snoop_filter
             unique case (state_q)
                 IDLE:    if (op_start) state_d = READ;
                 //  Hits, stuck inserts and removal misses retire without writing
-                READ:    state_d = insert_hit   ? IDLE :
-                                   insert_stuck ? IDLE :
-                                   way_none     ? IDLE : WRITE;
+                READ:    state_d = insert_hit || way_none ? IDLE : WRITE;
                 WRITE:   if (!lookup_grant) state_d = IDLE;
                 default: state_d = IDLE;
             endcase
@@ -392,9 +386,9 @@ module ccu_snoop_filter
 
             //  Removals go first: they gate the AR path
             if (op_start) begin
-                op_insert_d = !start_remove;
-                op_set_d    = start_remove ? rem_set[s] : ins_set[s];
-                op_tag_d    = start_remove ? rem_tag[s] : ins_tag[s];
+                op_insert_d = !rem_valid[s];
+                op_set_d    = rem_valid[s] ? rem_set[s] : ins_set[s];
+                op_tag_d    = rem_valid[s] ? rem_tag[s] : ins_tag[s];
             end
 
             if (state_q == READ) op_way_d = way_idx;
@@ -402,20 +396,20 @@ module ccu_snoop_filter
 
         always_ff @(posedge clk_i or negedge rst_ni) begin
             if (!rst_ni) begin
-                state_q         <= IDLE;
-                op_insert_q     <= 1'b0;
-                op_set_q        <= '0;
-                op_tag_q        <= '0;
-                op_way_q        <= '0;
+                state_q          <= IDLE;
+                op_insert_q      <= 1'b0;
+                op_set_q         <= '0;
+                op_tag_q         <= '0;
+                op_way_q         <= '0;
                 victim_q         <= '0;
                 bi_state_q       <= BI_IDLE;
                 backinval_addr_q <= '0;
             end else begin
-                state_q         <= state_d;
-                op_insert_q     <= op_insert_d;
-                op_set_q        <= op_set_d;
-                op_tag_q        <= op_tag_d;
-                op_way_q        <= op_way_d;
+                state_q          <= state_d;
+                op_insert_q      <= op_insert_d;
+                op_set_q         <= op_set_d;
+                op_tag_q         <= op_tag_d;
+                op_way_q         <= op_way_d;
                 victim_q         <= victim_d;
                 bi_state_q       <= bi_state_d;
                 backinval_addr_q <= backinval_addr_d;

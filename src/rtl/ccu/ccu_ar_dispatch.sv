@@ -101,6 +101,8 @@ module ccu_ar_dispatch
     logic                             queue_full;
 
     logic [numQueue-1:0]      eligible;
+    logic [numQueue-1:0]      bi_blocked;
+    logic [numQueue-1:0]      mask_valid;
     logic [numQueue-1:0]      arb_ready;
     logic [numQueue-1:0]      dispatch;
     queue_entry_t             issue_entry;
@@ -253,12 +255,6 @@ module ccu_ar_dispatch
                                                                                  alloc_q[e];
     end
 
-    logic [numEntries-1:0][sbIdxWidth-1:0] ins_entry_idx;
-
-    for (genvar e = 0; e < numEntries; e++) begin : gen_ins_entry_idx
-        assign ins_entry_idx[e] = sbIdxWidth'(e);
-    end
-
     //  Retired entries owe their insert; the scoreboard holds them until it lands
     for (genvar s = 0; s < numSub; s++) begin : gen_ins_port
         logic [numEntries-1:0] ins_sub_valid, ins_sub_ready;
@@ -268,19 +264,24 @@ module ccu_ar_dispatch
             assign ins_sub_valid[e] = sb_retired[e] && sub_of(sb_id[e]) == subIdxWidth'(s);
         end
 
-        stream_arbiter #(
-            .DATA_T  (logic [sbIdxWidth-1:0]),
-            .N_INP   (numEntries),
-            .ARBITER ("rr")
+        rr_arb_tree #(
+            .NumIn     (numEntries),
+            .DataType  (logic),
+            .ExtPrio   (1'b0),
+            .AxiVldRdy (1'b1),
+            .LockIn    (1'b1)
         ) u_ins_arbiter (
             .clk_i,
             .rst_ni,
-            .inp_data_i  (ins_entry_idx),
-            .inp_valid_i (ins_sub_valid),
-            .inp_ready_o (ins_sub_ready),
-            .oup_data_o  (ins_idx),
-            .oup_valid_o (sf_insert_valid_o[s]),
-            .oup_ready_i (sf_insert_ready_i[s])
+            .flush_i (1'b0),
+            .rr_i    ('0),
+            .req_i   (ins_sub_valid),
+            .gnt_o   (ins_sub_ready),
+            .data_i  ('0),
+            .req_o   (sf_insert_valid_o[s]),
+            .gnt_i   (sf_insert_ready_i[s]),
+            .data_o  (),
+            .idx_o   (ins_idx)
         );
 
         assign sf_insert_addr_o[s]  = {sb_line[ins_idx], {offWidth{1'b0}}};
@@ -300,9 +301,6 @@ module ccu_ar_dispatch
 
 //  Snoop filter lookup: once, at admission; the answer arrives with the entry in the queue
 //  {{{
-    logic [numQueue-1:0] bi_blocked;
-    logic [numQueue-1:0] mask_valid;
-
     assign sf_lookup_valid_o = alloc;
     assign sf_lookup_addr_o  = ar_i.addr;
 //  }}}

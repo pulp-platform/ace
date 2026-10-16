@@ -208,13 +208,8 @@ module ccu_snoop_pipeline
 // Stage 0
 // {{{
     logic        [ccuCfg.subordinateIndexWidth-1:0] subordinate_ar_index;
-    logic                                           ar_is_read_no_snoop;
-    acsnoop_t                                       ac_snoop;
     logic                                           stage0_valid;
     logic                                           stage0_ready;
-
-    assign ac_snoop            = ar_flags_i.acsnoop;
-    assign ar_is_read_no_snoop = ar_flags_i.is_no_snoop;
 
     assign subordinate_ar_index = ar_i.id[ccuCfg.u.axiSubordinateIdWidth+:ccuCfg.subordinateIndexWidth];
 
@@ -234,6 +229,7 @@ module ccu_snoop_pipeline
         ccu_ar_flags_t                              flags;
         logic [ccuCfg.transactionIndexWidth-1:0]    tid;
         logic [ccuCfg.u.numSubordinates-1:0]        sel;
+        //  Back-invalidation: no initiator
         logic                                       maintenance;
     } stage0_req_t;
 
@@ -298,19 +294,9 @@ module ccu_snoop_pipeline
 
 //  Stage 1
 //  {{{
-    typedef struct packed {
-        ccu_ace_ar_t                                ar;
-        ccu_ar_flags_t                              flags;
-        logic [ccuCfg.transactionIndexWidth-1:0]    tid;
-        logic        [ccuCfg.u.numSubordinates-1:0] sel;
-        //  Back-invalidation: no initiator
-        logic                                       maintenance;
-    } stage1_fifo_entry_t;
-
     logic                                stage1_fifo_valid;
     logic                                stage1_fifo_ready;
-    stage1_fifo_entry_t                  stage1_fifo_wdata;
-    stage1_fifo_entry_t                  stage1_fifo_rdata;
+    stage0_req_t                         stage1_fifo_rdata;
     logic                                accepts_dirty;
     logic                                accepts_dirty_shared;
     logic                                accepts_shared;
@@ -330,28 +316,18 @@ module ccu_snoop_pipeline
     logic                                cd_engine_ack_to_read;
     logic                                cd_engine_valid;
     logic                                cd_engine_ready;
-    logic                                cd_engine_resp_shared;
-    logic                                cd_engine_resp_dirty;
-
-    assign stage1_fifo_wdata = '{
-        ar   : stage0_req.ar,
-        flags: stage0_req.flags,
-        tid  : stage0_req.tid,
-        sel  : stage0_req.sel,
-        maintenance: stage0_req.maintenance
-    };
 
     stream_fifo #(
         .FALL_THROUGH (1'b0),
         .DEPTH        (ccuCfg.u.numSnoopTransactions),
-        .T            (stage1_fifo_entry_t)
+        .T            (stage0_req_t)
     ) u_stage1_fifo (
         .clk_i,
         .rst_ni,
         .flush_i    (1'b0),
         .testmode_i (1'b0),
         .usage_o    (),
-        .data_i     (stage1_fifo_wdata),
+        .data_i     (stage0_req),
         .valid_i    (stage0_valid),
         .ready_o    (stage0_ready),
         .data_o     (stage1_fifo_rdata),
@@ -468,9 +444,6 @@ module ccu_snoop_pipeline
     assign rresp_pass_dirty = cr.resp.PassDirty &&
                               (cr.resp.IsShared ? accepts_dirty_shared : accepts_dirty);
 
-    assign cd_engine_resp_shared = rresp_is_shared;
-    assign cd_engine_resp_dirty  = rresp_pass_dirty;
-
     //  Lowest-indexed responder supplies the data, others are drained
     always_comb begin : cd_data_role_comb
         cd_data_source = '0;
@@ -512,8 +485,8 @@ module ccu_snoop_pipeline
         forward_to_read:  cd_engine_forward_to_read,
         forward_to_write: cd_engine_forward_to_write,
         ack_to_read:      cd_engine_ack_to_read,
-        resp_shared:      cd_engine_resp_shared,
-        resp_dirty:       cd_engine_resp_dirty,
+        resp_shared:      rresp_is_shared,
+        resp_dirty:       rresp_pass_dirty,
         ar:               stage1_fifo_rdata.ar,
         tid:              stage1_fifo_rdata.tid
     };
@@ -554,7 +527,6 @@ module ccu_snoop_pipeline
 
     //  Head-entry legs: writeback AW, CD data, initiator ack
     logic cd_fork_valid;
-    logic cd_fork_ready;
     logic ack_branch_valid;
     logic ack_branch_ready;
 
@@ -633,7 +605,7 @@ module ccu_snoop_pipeline
         .ready_o     (cd_engine_data_ready),
         .sel_i       ({cd_engine_fifo_rdata.forward_to_read, cd_engine_fifo_rdata.forward_to_write}),
         .sel_valid_i (cd_fork_valid),
-        .sel_ready_o (cd_fork_ready),
+        .sel_ready_o (),
         .valid_o     ({cd_read_valid, write_engine_w_valid_o}),
         .ready_i     ({cd_read_ready, write_engine_w_ready_i})
     );

@@ -209,7 +209,6 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .subordinate_req_i          (subordinate_req_i),
         .subordinate_resp_o         (subordinate_resp_o),
         .subordinate_rack_i         (subordinate_rack_i),
-        .subordinate_wack_i         (subordinate_wack_i),
         .manager_req_o              (frontend_req),
         .manager_resp_i             (frontend_resp),
         .manager_r_sc_fail_i        (exclusive_sc_fail),

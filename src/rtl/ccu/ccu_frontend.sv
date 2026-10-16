@@ -41,7 +41,6 @@ module ccu_frontend
     input  ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0]      subordinate_req_i,
     output ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0]      subordinate_resp_o,
     input  logic                      [ccuCfg.u.numSubordinates-1:0]      subordinate_rack_i,
-    input  logic                      [ccuCfg.u.numSubordinates-1:0]      subordinate_wack_i,
 
     output  ccu_ace_manager_req_t                                         manager_req_o,
     input   ccu_ace_manager_resp_t                                        manager_resp_i,
