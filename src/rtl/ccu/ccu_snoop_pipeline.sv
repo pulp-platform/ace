@@ -94,60 +94,32 @@ module ccu_snoop_pipeline
 
 //  AC channel
 //  {{{
-    typedef struct packed {
-        ccu_snoop_ac_t                              ac;
-        logic        [ccuCfg.u.numSubordinates-1:0] sel;
-    } ac_fifo_entry_t;
-
     ccu_snoop_ac_t                                  ac;
     logic           [ccuCfg.u.numSubordinates-1:0]  ac_sel;
     //  Who an ordinary AR would snoop, before the arbiter picks a producer
     logic           [ccuCfg.u.numSubordinates-1:0]  ar_ac_sel;
-    logic                                           ac_valid;
-    logic                                           ac_ready;
-    ac_fifo_entry_t                                 ac_fifo_wdata;
-    ac_fifo_entry_t                                 ac_fifo_rdata;
-    logic                                           ac_fifo_valid;
-    logic                                           ac_fifo_ready;
+    logic           [ccuCfg.u.numSubordinates-1:0]  ac_valid;
+    logic           [ccuCfg.u.numSubordinates-1:0]  ac_ready;
 
-    assign ac_fifo_wdata = '{
-        ac:  ac,
-        sel: ac_sel
-    };
-
-    stream_fifo #(
-        .FALL_THROUGH (ccuCfg.u.snoopReqFifoFallthrough),
-        .DEPTH        (ccuCfg.u.numSnoopTransactions),
-        .T            (ac_fifo_entry_t)
-    ) u_ac_fifo (
-        .clk_i,
-        .rst_ni,
-        .flush_i    (1'b0),
-        .testmode_i (1'b0),
-        .usage_o    (),
-        .data_i     (ac_fifo_wdata),
-        .valid_i    (ac_valid),
-        .ready_o    (ac_ready),
-        .data_o     (ac_fifo_rdata),
-        .valid_o    (ac_fifo_valid),
-        .ready_i    (ac_fifo_ready)
-    );
-
-    assign ac_o = {ccuCfg.u.numSubordinates{ac_fifo_rdata.ac}};
-
-    stream_fork_dynamic #(
-        .N_OUP (ccuCfg.u.numSubordinates)
-    ) u_ac_fifo_fork (
-        .clk_i,
-        .rst_ni,
-        .valid_i     (ac_fifo_valid),
-        .ready_o     (ac_fifo_ready),
-        .sel_i       (ac_fifo_rdata.sel),
-        .sel_valid_i (1'b1),
-        .sel_ready_o (),
-        .valid_o     (ac_valid_o),
-        .ready_i     (ac_ready_i)
-    );
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_ac_fifo
+        stream_fifo #(
+            .FALL_THROUGH (ccuCfg.u.snoopReqFifoFallthrough),
+            .DEPTH        (ccuCfg.u.numSnoopTransactions),
+            .T            (ccu_snoop_ac_t)
+        ) u_ac_fifo (
+            .clk_i,
+            .rst_ni,
+            .flush_i    (1'b0),
+            .testmode_i (1'b0),
+            .usage_o    (),
+            .data_i     (ac),
+            .valid_i    (ac_valid[s]),
+            .ready_o    (ac_ready[s]),
+            .data_o     (ac_o[s]),
+            .valid_o    (ac_valid_o[s]),
+            .ready_i    (ac_ready_i[s])
+        );
+    end
 //  }}}
 
 //  CR channel
@@ -278,13 +250,13 @@ module ccu_snoop_pipeline
     };
 
     stream_fork_dynamic #(
-        .N_OUP (2)
+        .N_OUP (ccuCfg.u.numSubordinates+1)
     ) u_ac_fork (
         .clk_i,
         .rst_ni,
         .valid_i     (stage0_req_valid),
         .ready_o     (stage0_req_ready),
-        .sel_i       ({|ac_sel, 1'b1}),
+        .sel_i       ({ac_sel, 1'b1}),
         .sel_valid_i (1'b1),
         .sel_ready_o (),
         .valid_o     ({ac_valid, stage0_valid}),
@@ -697,7 +669,7 @@ module ccu_snoop_pipeline
         end
         // Stage 0 stalls
         if (ar_valid_i && !ar_ready_o) begin
-            events_d.stage0_stall_ac_fifo_full     = ac_valid && !ac_ready;
+            events_d.stage0_stall_ac_fifo_full     = |(ac_valid & ~ac_ready);
             events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
             // Catch all event
             events_d.stage0_stall_other            = ~|{
