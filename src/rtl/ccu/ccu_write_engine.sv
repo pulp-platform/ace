@@ -91,6 +91,7 @@ module ccu_write_engine
     ccu_axi_aw_t     aw_arb;
     logic            aw_is_writeback;
     logic [hashWidth-1:0] aw_hash;
+    logic            aw_grant;
 
     logic w_ctrl_fifo_valid_in;
     logic w_ctrl_fifo_ready_in;
@@ -129,7 +130,8 @@ module ccu_write_engine
         .idx_o   (aw_is_writeback)
     );
 
-    assign aw_hash = aw_arb.addr[hashLsb +: hashWidth];
+    assign aw_hash  = aw_arb.addr[hashLsb +: hashWidth];
+    assign aw_grant = aw_arb_valid && aw_arb_ready;
 
     //  Swap the id for the hash index so same-address writes share it
     always_comb begin : aw_id_swap_comb
@@ -158,7 +160,7 @@ module ccu_write_engine
     logic [numPending-1:0][ccuCfg.addressCheckWidth-1:0] pend_slice;
 
     assign aw_arb_slice = aw_arb.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
-    assign wb_push      = aw_valid_o && aw_ready_i && aw_is_writeback;
+    assign wb_push      = aw_grant && aw_is_writeback;
     assign b_free       = b_valid_i  && b_ready_o;
 
     assign wb_alloc_ready_o = !pend_full[0] && wb_idx_ready;
@@ -232,7 +234,7 @@ module ccu_write_engine
     logic                    pos_idx_empty;
     logic                    pos_idx_pop;
 
-    assign pos_idx_pop = aw_valid_o && aw_ready_i && !aw_is_writeback;
+    assign pos_idx_pop = aw_grant && !aw_is_writeback;
 
     fifo_v3 #(
         .FALL_THROUGH (1'b1),
@@ -271,7 +273,7 @@ module ccu_write_engine
     assign b_hash = b_i.id[hashWidth-1:0];
 
     for (genvar h = 0; h < numFifos; h++) begin : gen_inflight_fifo
-        assign fifo_push[h] = aw_valid_o && aw_ready_i && aw_hash == hashWidth'(h);
+        assign fifo_push[h] = aw_grant && aw_hash == hashWidth'(h);
         assign fifo_pop[h]  = b_valid_i  && b_ready_o  && b_hash  == hashWidth'(h);
 
         fifo_v3 #(
@@ -297,7 +299,7 @@ module ccu_write_engine
 
 //  AW fork
 //  {{{
-    //  Fork to the manager AW and the W-steering fifo; stall on a full hash FIFO
+    //  Fork to the manager AW and the W-steering fifo; the grant books a hash FIFO entry
     stream_fork_dynamic #(
         .N_OUP (2)
     ) u_aw_fork (
