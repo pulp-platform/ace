@@ -60,8 +60,8 @@ module ccu_ar_dispatch
     //  Those of them whose read errored; the line was never cached
     input  logic [numEntries-1:0] rack_error_i,
 
-    //  Transaction dropped downstream, so it allocates nothing
-    input  logic                 drop_valid_i,
+    //  Transaction dropped downstream, pulsed on its R handshake
+    input  logic                 drop_i,
     input  logic [sbIdxWidth-1:0] drop_tid_i,
 
     //  Snoop filter allocation, raised at RACK and held until it retires
@@ -249,7 +249,7 @@ module ccu_ar_dispatch
         //  So the entry outlives its RACK exactly when it owes one
         assign sb_free[e]     = (rack_mask_i[e] && !ins_req_set[e]) || ins_req_clear[e];
         assign alloc_d[e]     = alloc        && sb_alloc_idx == sbIdxWidth'(e) ? ar_flags_alloc :
-                                drop_valid_i && drop_tid_i   == sbIdxWidth'(e) ? 1'b0           :
+                                drop_i       && drop_tid_i   == sbIdxWidth'(e) ? 1'b0           :
                                                                                  alloc_q[e];
     end
 

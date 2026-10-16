@@ -250,7 +250,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .ar_ready_i        (dispatch_ar_ready),
         .rack_mask_i       (rack_free),
         .rack_error_i      (rack_error),
-        .drop_valid_i      (sc_fail_r_valid),
+        .drop_i            (sc_fail_r_valid && sc_fail_r_ready),
         .drop_tid_i        (sc_fail_r_tid),
         .sf_insert_valid_o (sf_insert_valid),
         .sf_insert_addr_o  (sf_insert_addr),
