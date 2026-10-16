@@ -552,21 +552,11 @@ module ccu_snoop_pipeline
         .ready_i    (cd_engine_fifo_ready)
     );
 
-    //  Head-entry fork branches: writeback AW, CD data, initiator ack
+    //  Head-entry legs: writeback AW, CD data, initiator ack
     logic cd_fork_valid;
     logic cd_fork_ready;
     logic ack_branch_valid;
     logic ack_branch_ready;
-    logic wb_ordered_q;
-    logic wb_ordered_set;
-    logic wb_ordered_clear;
-    logic wb_ordered_d;
-    logic aw_handshake;
-    logic wb_token_sel;
-    logic wb_token_ready;
-    logic r_last;
-    logic r_mux_valid;
-    logic r_mux_ready;
 
     always_comb begin : write_engine_aw_comb
         //  Writeback AW from the AR; the write engine replaces the id
@@ -618,22 +608,19 @@ module ccu_snoop_pipeline
         end
     end
 
-    //  {ACK, AW, DATA}; DATA completes on the last CD beat
-    stream_fork_dynamic #(
+    //  AW, then DATA, then ACK: R never precedes the writeback AW (C6.5.3)
+    stream_iterator #(
         .N_OUP (3)
-    ) u_cd_engine_fork (
+    ) u_cd_engine_iterator (
         .clk_i,
         .rst_ni,
-        .valid_i     (cd_engine_fifo_valid),
-        .ready_o     (cd_engine_fifo_ready),
-        .sel_i       ({cd_engine_fifo_rdata.ack_to_read,
-                       cd_engine_fifo_rdata.forward_to_write,
-                       |(cd_engine_fifo_rdata.source
-                       | cd_engine_fifo_rdata.discard)}),
-        .sel_valid_i (1'b1),
-        .sel_ready_o (),
-        .valid_o     ({ack_branch_valid, write_engine_aw_valid_o, cd_fork_valid}),
-        .ready_i     ({ack_branch_ready, write_engine_aw_ready_i, cd_all_done})
+        .valid_i (cd_engine_fifo_valid),
+        .ready_o (cd_engine_fifo_ready),
+        .sel_i   ({cd_engine_fifo_rdata.ack_to_read,
+                   |(cd_engine_fifo_rdata.source | cd_engine_fifo_rdata.discard),
+                   cd_engine_fifo_rdata.forward_to_write}),
+        .valid_o ({ack_branch_valid, cd_fork_valid, write_engine_aw_valid_o}),
+        .ready_i ({ack_branch_ready, cd_all_done,   write_engine_aw_ready_i})
     );
 
     //  Per-beat CD data fork to the initiator and/or the writeback W
@@ -670,20 +657,6 @@ module ccu_snoop_pipeline
     ccu_ace_r_t ack_r;
     ccu_ace_r_t cd_read_r;
 
-    //  Writeback-ordered token: set on the writeback AW handshake, gates R.last
-    assign aw_handshake = write_engine_aw_valid_o && write_engine_aw_ready_i;
-
-    //  Only when an R follows
-    assign wb_ordered_set   = aw_handshake && (cd_engine_fifo_rdata.forward_to_read
-                                            || cd_engine_fifo_rdata.ack_to_read);
-    assign wb_ordered_clear = wb_token_ready && r_last;
-    assign wb_ordered_d     = !wb_ordered_clear && (wb_ordered_q || wb_ordered_set);
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) wb_ordered_q <= 1'b0;
-        else         wb_ordered_q <= wb_ordered_d;
-    end
-
     assign ack_r = '{
         id:   cd_engine_fifo_rdata.ar.id,
         data: '0,
@@ -710,25 +683,12 @@ module ccu_snoop_pipeline
         .inp_ready_o ({ack_branch_ready, cd_read_ready}),
         .inp_sel_i   (cd_engine_fifo_rdata.ack_to_read),
         .oup_data_o  (read_engine_r_o),
-        .oup_valid_o (r_mux_valid),
-        .oup_ready_i (r_mux_ready)
+        .oup_valid_o (read_engine_r_valid_o),
+        .oup_ready_i (read_engine_r_ready_i)
     );
 
     assign read_engine_r_tid_o = cd_engine_fifo_rdata.tid;
 
-    //  Hold R until the writeback AW is ordered (C6.5.3)
-    assign r_last       = cd_engine_fifo_rdata.ack_to_read || cd.last;
-    assign wb_token_sel = cd_engine_fifo_rdata.forward_to_write;
-
-    stream_join_dynamic #(
-        .N_INP (2)
-    ) u_r_order_join (
-        .inp_valid_i ({wb_ordered_q,   r_mux_valid}),
-        .inp_ready_o ({wb_token_ready, r_mux_ready}),
-        .sel_i       ({wb_token_sel,   1'b1}),
-        .oup_valid_o (read_engine_r_valid_o),
-        .oup_ready_i (read_engine_r_ready_i)
-    );
 //  }}}
 
 //  Performance events
@@ -863,11 +823,6 @@ module ccu_snoop_pipeline
             ccu_ar_decode(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain,
                           stage1_fifo_rdata.ar.snoop,  stage1_fifo_rdata.ar.lock))
         else $error("carried AR flags disagree with the AR");
-
-    //  a new writeback AW must never find a stale token
-    assert property (@(posedge clk_i) disable iff (!rst_ni)
-        aw_handshake |-> !wb_ordered_q)
-        else $error("stale writeback-ordered token");
 
     //  the initiator R is stable while stalled
     assert property (@(posedge clk_i) disable iff (!rst_ni)
