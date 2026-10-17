@@ -12,8 +12,6 @@
 // Authors:
 // - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
-`include "ace/assign.svh"
-
 module ccu_frontend
     import ace_pkg::*;
     import ccu_pkg::*;
@@ -114,25 +112,13 @@ module ccu_frontend
         logic             r_error;
         logic             r_error_q;
 
-        `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
-        assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid;
-        assign subordinate_resp_o[s].ar_ready = subordinate_resp[s].ar_ready;
-
-        `ACE_ASSIGN_R_STRUCT(subordinate_resp_o[s].r, subordinate_resp[s].r)
-        assign subordinate_resp_o[s].r_valid = subordinate_resp[s].r_valid && !rack_fifo_full;
-        assign subordinate_req[s].r_ready    = subordinate_req_i[s].r_ready && !rack_fifo_full;
-
-        `ACE_ASSIGN_AW_STRUCT(subordinate_req[s].aw, subordinate_req_i[s].aw)
-        assign subordinate_req[s].aw_valid    = subordinate_req_i[s].aw_valid;
-        assign subordinate_resp_o[s].aw_ready = subordinate_resp[s].aw_ready;
-
-        `AXI_ASSIGN_W_STRUCT(subordinate_req[s].w, subordinate_req_i[s].w)
-        assign subordinate_req[s].w_valid    = subordinate_req_i[s].w_valid;
-        assign subordinate_resp_o[s].w_ready = subordinate_resp[s].w_ready;
-
-        `AXI_ASSIGN_B_STRUCT(subordinate_resp_o[s].b, subordinate_resp[s].b)
-        assign subordinate_resp_o[s].b_valid = subordinate_resp[s].b_valid;
-        assign subordinate_req[s].b_ready    = subordinate_req_i[s].b_ready;
+        //  R is held while the RACK FIFO cannot take its last beat
+        always_comb begin : subordinate_pass_comb
+            subordinate_req[s]            = subordinate_req_i[s];
+            subordinate_req[s].r_ready    = subordinate_req_i[s].r_ready && !rack_fifo_full;
+            subordinate_resp_o[s]         = subordinate_resp[s];
+            subordinate_resp_o[s].r_valid = subordinate_resp[s].r_valid && !rack_fifo_full;
+        end
 
         //  RACKs arrive in R.last order, so a FIFO carries the metadata
         assign r_beat = subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready;
@@ -438,7 +424,7 @@ module ccu_frontend
         .data_o  (r_spill_out)
     );
 
-    `ACE_ASSIGN_R_STRUCT(arbiter_resp.r, r_spill_out.r)
+    assign arbiter_resp.r       = r_spill_out.r;
     assign arbiter_resp.r_valid = r_spill_valid_out;
     assign r_spill_ready_out    = arbiter_req.r_ready;
 
