@@ -13,6 +13,7 @@
 // - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
 `include "axi/assign.svh"
+`include "ace/assign.svh"
 `include "ace/convert.svh"
 
 module ccu_read_engine
@@ -153,7 +154,7 @@ module ccu_read_engine
         .data_o  (r_beat)
     );
 
-    assign r_o         = r_beat.r;
+    `ACE_ASSIGN_R_STRUCT(r_o, r_beat.r)
     assign r_tid_o     = r_beat.tid;
     assign r_sc_fail_o = r_beat.sc_fail;
 //  }}}

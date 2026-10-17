@@ -12,6 +12,8 @@
 // Authors:
 // - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
+`include "ace/assign.svh"
+
 module ccu_exclusive_monitor
     import ace_pkg::*;
     import ccu_pkg::*;
@@ -144,7 +146,10 @@ stream_demux #(
     .oup_ready_i ({r_register_ready, ar_ready_i})
 );
 
-assign ar_req_o = ar_req_i;
+`ACE_ASSIGN_AR_STRUCT(ar_req_o.ar, ar_req_i.ar)
+assign ar_req_o.flags   = ar_req_i.flags;
+assign ar_req_o.tid     = ar_req_i.tid;
+assign ar_req_o.present = ar_req_i.present;
 
 r_register_entry_t r_register_wdata, r_register_rdata;
 
