@@ -19,7 +19,7 @@ module ccu_csr_wrap
   parameter ccu_config_t  ccuCfg      = '{default: '0},
   parameter type          apb_req_t   = logic,
   parameter type          apb_resp_t  = logic,
-  parameter  int unsigned numEvents   = 16
+  parameter  int unsigned numEvents   = ccu_pkg::numEvents
 ) (
   input  logic     clk_i,
   input  logic     rst_ni,
@@ -33,10 +33,13 @@ module ccu_csr_wrap
   ccu_csr__in_t  hwif_in;
   ccu_csr__out_t hwif_out;
 
+  //  The inhibit mask spans one register per 32 counters
+  localparam int unsigned inhibitWidth = 32;
+
   for (genvar i = 0; i < numPerfCounters; i++) begin : gen_hwif
     assign hwif_in.perf_counter[i].cnt.incr = &{
       hwif_out.perf_eventsel[i].event_id.value < numEvents,
-      !hwif_out.perf_countinhibit.inh.value[i],
+      !hwif_out.perf_countinhibit[i / inhibitWidth].inh.value[i % inhibitWidth],
       events_i[hwif_out.perf_eventsel[i].event_id.value]
     };
   end

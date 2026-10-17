@@ -1,5 +1,6 @@
 addrmap ccu_csr #(
-    longint unsigned numPerfCounters = 32
+    //  One counter per hardware event
+    longint unsigned numPerfCounters = 64
 ) {
     name = "CCU control and status registers";
 
@@ -33,15 +34,16 @@ addrmap ccu_csr #(
 
     reg perf_countinhibit_r {
         name = "Counter Inhibit";
-        desc = "Bit [i] = 1 means counter [i] is STOPPED. Bit [i] = 0 lets it run.";
+        desc = "Bit [i] = 1 means counter [i] is STOPPED. Bit [i] = 0 lets it
+                run. One register per 32 counters.";
         regwidth = 32;
 
         field {
             name = "Inhibit Bitmask";
             sw = rw;
             hw = r;
-            fieldwidth = numPerfCounters;
-        } inh = (1 << numPerfCounters) - 1;
+            fieldwidth = 32;
+        } inh = (1 << 32) - 1;
     };
 
     reg ctrl_r {
@@ -59,14 +61,14 @@ addrmap ccu_csr #(
 
     // --- Memory Map Instantiation ---
 
-    // Global Control @ 0x00
-    perf_countinhibit_r perf_countinhibit @ 0x00;
+    // Global Control @ 0x00, one register per 32 counters
+    perf_countinhibit_r perf_countinhibit[numPerfCounters / 32] @ 0x00;
 
     // Array of Event Selectors @ 0x40
     perf_eventsel_r perf_eventsel[numPerfCounters] @ 0x40;
 
-    // Array of 32-bit Counters @ 0xC0
-    perf_counter_r perf_counter[numPerfCounters] @ 0xC0;
+    // Array of 32-bit Counters @ 0x140
+    perf_counter_r perf_counter[numPerfCounters] @ 0x140;
 
     // Control register
     ctrl_r ctrl;

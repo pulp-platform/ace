@@ -67,7 +67,9 @@ module ccu_frontend
     output logic [ccuCfg.u.numSubordinates-1:0]                           sf_aw_remove_valid_o,
     input  logic [ccuCfg.u.numSubordinates-1:0]                           sf_aw_remove_ready_i,
     output logic [ccuCfg.u.numSubordinates-1:0]
-                 [ccuCfg.u.axiAddressWidth-1:0]                           sf_aw_remove_addr_o
+                 [ccuCfg.u.axiAddressWidth-1:0]                           sf_aw_remove_addr_o,
+
+    output ccu_frontend_events_t                                          events_o
 );
 
     typedef struct packed {
@@ -92,6 +94,11 @@ module ccu_frontend
 
     ccu_ace_manager_req_t  arbiter_req;
     ccu_ace_manager_resp_t arbiter_resp;
+
+    //  Per-subordinate event taps, reduced below
+    logic [ccuCfg.u.numSubordinates-1:0] evt_ar_stall;
+    logic [ccuCfg.u.numSubordinates-1:0] evt_r_stall_rack_fifo_full;
+    logic [ccuCfg.u.numSubordinates-1:0] evt_rack_outstanding;
 
     r_spill_entry_t      r_spill_in;
     r_spill_entry_t      r_spill_out;
@@ -180,6 +187,12 @@ module ccu_frontend
             (ccuCfg.u.numShareableTransactions'(1) << rack_fifo_rdata.tid) : '0;
         assign rack_error[s] = rack_fifo_rdata.error ? rack_free[s] : '0;
         assign exclusive_dealloc_o[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
+
+        assign evt_ar_stall[s]               = subordinate_req_i[s].ar_valid &&
+                                               !subordinate_resp_o[s].ar_ready;
+        assign evt_r_stall_rack_fifo_full[s] = subordinate_resp[s].r_valid && rack_fifo_full;
+        //  An R has returned whose RACK has not
+        assign evt_rack_outstanding[s]       = !rack_fifo_empty;
 
         // pragma translate_off
         `ifndef VERILATOR
@@ -441,6 +454,28 @@ module ccu_frontend
     `ACE_ASSIGN_R_STRUCT(arbiter_resp.r, r_spill_out.r)
     assign arbiter_resp.r_valid = r_spill_valid_out;
     assign r_spill_ready_out    = arbiter_req.r_ready;
+
+    //  Performance events
+    //  {{{
+    ccu_frontend_events_t events_d;
+
+    always_comb begin : events_comb
+        events_d = '0;
+
+        events_d.ar_stall    = |evt_ar_stall;
+        events_d.aw_accepted = pos_aw_valid_o;
+        //  A write held at the PoS by the pending-write bound, or by the filter removal
+        events_d.aw_stall_pos_full       = write_pos_valid && pos_aw_full_i;
+        events_d.aw_stall_sf_remove_full = aw_leg_valid[1] && !aw_leg_ready[1];
+        events_d.r_stall_rack_fifo_full  = |evt_r_stall_rack_fifo_full;
+        events_d.rack_outstanding        = |evt_rack_outstanding;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) events_o <= '0;
+        else         events_o <= events_d;
+    end
+    //  }}}
 
     // pragma translate_off
     `ifndef VERILATOR

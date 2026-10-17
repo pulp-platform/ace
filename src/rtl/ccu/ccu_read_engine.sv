@@ -72,7 +72,9 @@ module ccu_read_engine
     //  Memory AR gate: stalled while a same-line write is in PoS .. B
     output logic                                mem_ar_addr_check_o,
     output logic [ccuCfg.addressCheckWidth-1:0] mem_ar_addr_slice_o,
-    input  logic                                mem_ar_stall_i
+    input  logic                                mem_ar_stall_i,
+
+    output ccu_read_engine_events_t             events_o
 );
 
 //  AR channel: to memory, held while a same-line write is pending (C6.5.1)
@@ -157,6 +159,30 @@ module ccu_read_engine
     `ACE_ASSIGN_R_STRUCT(r_o, r_beat.r)
     assign r_tid_o     = r_beat.tid;
     assign r_sc_fail_o = r_beat.sc_fail;
+//  }}}
+
+//  Performance events
+//  {{{
+    ccu_read_engine_events_t events_d;
+
+    always_comb begin : events_comb
+        events_d = '0;
+
+        //  Held by the write-engine hazard check, not by memory
+        events_d.ar_stall_hazard = ar_valid_i && !ar_allow;
+        events_d.ar_stall_mem    = ar_valid_o && !ar_ready_i;
+        events_d.r_stall         = r_valid_o && !r_ready_i;
+
+        //  Where the beat came from
+        events_d.r_beat_snoop   = snoop_pipeline_r_valid_i && snoop_pipeline_r_ready_o;
+        events_d.r_beat_mem     = r_valid_i && r_ready_o;
+        events_d.r_beat_sc_fail = sc_fail_r_valid_i && sc_fail_r_ready_o;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) events_o <= '0;
+        else         events_o <= events_d;
+    end
 //  }}}
 
 //  Assertions

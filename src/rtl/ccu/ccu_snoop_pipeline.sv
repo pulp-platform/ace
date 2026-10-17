@@ -96,6 +96,8 @@ module ccu_snoop_pipeline
     logic           [ccuCfg.u.numSubordinates-1:0]  ac_sel;
     //  Who an ordinary AR would snoop, before the arbiter picks a producer
     logic           [ccuCfg.u.numSubordinates-1:0]  ar_ac_sel;
+    //  The same, before the filter narrows it
+    logic           [ccuCfg.u.numSubordinates-1:0]  ar_domain_sel;
     logic           [ccuCfg.u.numSubordinates-1:0]  ac_valid;
     logic           [ccuCfg.u.numSubordinates-1:0]  ac_ready;
 
@@ -186,12 +188,13 @@ module ccu_snoop_pipeline
     //  NonShareable and System lines snoop nobody
     always_comb begin : ace_sel_comb
         unique case (ar_req_i.ar.domain)
-            InnerShareable: ar_ac_sel = domain_map_i[subordinate_ar_index].inner;
-            OuterShareable: ar_ac_sel = domain_map_i[subordinate_ar_index].outer;
-            default:        ar_ac_sel = '0;
+            InnerShareable: ar_domain_sel = domain_map_i[subordinate_ar_index].inner;
+            OuterShareable: ar_domain_sel = domain_map_i[subordinate_ar_index].outer;
+            default:        ar_domain_sel = '0;
         endcase
-        ar_ac_sel &= ar_req_i.present;
     end
+
+    assign ar_ac_sel = ar_domain_sel & ar_req_i.present;
 
     //  Common request for ARs and back-invalidations
     typedef struct packed {
@@ -639,61 +642,63 @@ module ccu_snoop_pipeline
 
     always_comb begin : perf_events_comb
         events_d = '0;
-        // Transaction occurrence
-        if (stage1_fifo_valid && stage1_fifo_ready
-                && !stage1_fifo_rdata.maintenance) begin
-            events_d.stage1_read_no_snoop         =
-                ace_is_read_no_snoop(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_read_once             =
-                ace_is_read_once(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_read_shared           =
-                ace_is_read_shared(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_read_clean            =
-                ace_is_read_clean(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_read_not_shared_dirty =
-                ace_is_read_not_shared_dirty(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_read_unique           =
-                ace_is_read_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_clean_unique          =
-                ace_is_clean_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_make_unique           =
-                ace_is_make_unique(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_clean_shared          =
-                ace_is_clean_shared(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_clean_invalid         =
-                ace_is_clean_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-            events_d.stage1_make_invalid          =
-                ace_is_make_invalid(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
-        end
-        // Stage 0 stalls
-        if (ar_valid_i && !ar_ready_o) begin
-            events_d.stage0_stall_ac_fifo_full     = |(ac_valid & ~ac_ready);
-            events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
-            // Catch all event
-            events_d.stage0_stall_other            = ~|{
-                events_d.stage0_stall_ac_fifo_full,
-                events_d.stage0_stall_stage1_fifo_full
-            };
-        end
-        // Stage 1 stalls
-        if (stage1_fifo_valid && !stage1_fifo_ready) begin
-            events_d.stage1_stall_cr_not_valid      = stage1_fifo_valid && |(~cr_fifo_valid & stage1_fifo_rdata.sel);
-            events_d.stage1_stall_write_engine_busy = write_engine_aw_valid_o && !write_engine_aw_ready_i;
-            events_d.stage1_stall_read_engine_busy  = read_engine_ar_valid_o && !read_engine_ar_ready_i;
-            events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
-            // Catch all event
-            events_d.stage1_stall_other             = ~|{
-                events_d.stage1_stall_cr_not_valid,
-                events_d.stage1_stall_write_engine_busy,
-                events_d.stage1_stall_read_engine_busy,
-                events_d.stage1_stall_cd_engine_busy
-            };
+
+        //  Request mix, counted once per request as it leaves stage 1
+        if (stage1_fifo_valid && stage1_fifo_ready && !stage1_fifo_rdata.maintenance) begin
+            events_d.read_no_snoop = ace_is_read_no_snoop(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.read_shared   = ace_is_read_shared(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.read_clean    = ace_is_read_clean(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.read_unique   = ace_is_read_unique(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.clean_unique  = ace_is_clean_unique(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
+            events_d.make_unique   = ace_is_make_unique(stage1_fifo_rdata.ar.bar[0],
+                stage1_fifo_rdata.ar.domain, stage1_fifo_rdata.ar.snoop);
         end
 
+        //  Did the snoop produce data
         if (stage1_fifo_valid && stage1_fifo_ready && |stage1_fifo_rdata.sel
                 && !is_clean_or_make && !stage1_fifo_rdata.maintenance) begin
             events_d.snoop_hit  = cr.resp.DataTransfer;
             events_d.snoop_miss = !cr.resp.DataTransfer;
+        end
+
+        //  A back-invalidation that found its victim dirty
+        events_d.backinval_dirty = stage1_fifo_valid && stage1_fifo_ready &&
+                                   stage1_fifo_rdata.maintenance && cd_engine_forward_to_write;
+        events_d.snoop_writeback = write_engine_aw_valid_o && write_engine_aw_ready_i;
+
+        //  Snoop request channel; pruned means the filter dropped a peer the domain named
+        events_d.ac_sent   = |(ac_valid_o & ac_ready_i);
+        events_d.ac_stall  = |(ac_valid_o & ~ac_ready_i);
+        events_d.ac_pruned = ar_valid_i && ar_ready_o && |(ar_domain_sel & ~ar_req_i.present);
+
+        if (ar_valid_i && !ar_ready_o) begin
+            events_d.stage0_stall_ac_fifo_full     = |(ac_valid & ~ac_ready);
+            events_d.stage0_stall_stage1_fifo_full = stage0_valid && !stage0_ready;
+            //  The AR lost the arbiter to a back-invalidation
+            events_d.stage0_stall_maintenance      = maint_valid_i && maint_ready_o;
+            events_d.stage0_stall_other            = ~|{
+                events_d.stage0_stall_ac_fifo_full,
+                events_d.stage0_stall_stage1_fifo_full,
+                events_d.stage0_stall_maintenance
+            };
+        end
+
+        //  A read-engine stall shows up in its own block
+        if (stage1_fifo_valid && !stage1_fifo_ready) begin
+            events_d.stage1_stall_cr_not_valid      = |(~cr_fifo_valid & stage1_fifo_rdata.sel);
+            events_d.stage1_stall_write_engine_busy = write_engine_wb_alloc_valid_o &&
+                                                      !write_engine_wb_alloc_ready_i;
+            events_d.stage1_stall_cd_engine_busy    = cd_engine_valid && !cd_engine_ready;
+            events_d.stage1_stall_other             = ~|{
+                events_d.stage1_stall_cr_not_valid,
+                events_d.stage1_stall_write_engine_busy,
+                events_d.stage1_stall_cd_engine_busy
+            };
         end
     end
 

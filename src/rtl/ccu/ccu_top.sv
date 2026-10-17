@@ -158,7 +158,14 @@ ccu_ace_r_t                          sc_fail_r;
 ccu_axi_manager_req_t   manager_cut_req;
 ccu_axi_manager_resp_t  manager_cut_resp;
 
-ccu_snoop_pipeline_events_t perf_events;
+ccu_snoop_pipeline_events_t snoop_pipeline_events;
+ccu_frontend_events_t       frontend_events;
+ccu_ar_dispatch_events_t    ar_dispatch_events;
+ccu_snoop_filter_events_t   snoop_filter_events;
+ccu_write_engine_events_t   write_engine_events;
+ccu_read_engine_events_t    read_engine_events;
+ccu_top_events_t            top_events_d, top_events;
+ccu_events_t                perf_events;
 
 logic                                sf_lookup_valid;
 ccu_address_t                        sf_lookup_addr;
@@ -225,7 +232,8 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .pos_aw_full_i              (pos_aw_full),
         .sf_aw_remove_valid_o       (sf_aw_remove_valid),
         .sf_aw_remove_addr_o        (sf_aw_remove_addr),
-        .sf_aw_remove_ready_i       (sf_aw_remove_ready)
+        .sf_aw_remove_ready_i       (sf_aw_remove_ready),
+        .events_o                   (frontend_events)
     );
 //  }}}
 
@@ -257,7 +265,8 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .bi_addr_i         (sf_backinval_addr),
         .bi_busy_i         (sf_backinval_busy),
         .bi_hazard_o       (sf_backinval_hazard),
-        .sb_id_o           (sb_id)
+        .sb_id_o           (sb_id),
+        .events_o          (ar_dispatch_events)
     );
 //  }}}
 
@@ -292,7 +301,8 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .backinval_addr_o   (sf_backinval_addr),
         .backinval_hazard_i (sf_backinval_hazard),
         .backinval_busy_o   (sf_backinval_busy),
-        .remove_miss_o      (sf_remove_miss)
+        .remove_miss_o      (sf_remove_miss),
+        .events_o           (snoop_filter_events)
     );
 
     end else begin : gen_no_snoop_filter
@@ -307,6 +317,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         assign maint_valid         = 1'b0;
         assign maint_addr          = '0;
         assign maint_sel           = '0;
+        assign snoop_filter_events = '0;
 
     end
 //  }}}
@@ -394,7 +405,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .sf_cr_remove_addr_o      (sf_cr_remove_addr),
         .sf_cr_remove_maint_o     (sf_cr_remove_maint),
         .sf_cr_remove_ready_i     (sf_cr_remove_ready),
-        .events_o                 (perf_events)
+        .events_o                 (snoop_pipeline_events)
     );
 
     for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_snoop_assignments
@@ -459,7 +470,8 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .pos_aw_full_o            (pos_aw_full),
         .mem_ar_addr_check_i      (mem_ar_addr_check),
         .mem_ar_addr_slice_i      (mem_ar_addr_slice),
-        .mem_ar_stall_o           (mem_ar_stall)
+        .mem_ar_stall_o           (mem_ar_stall),
+        .events_o                 (write_engine_events)
     );
 //  }}}
 
@@ -501,7 +513,8 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .r_i                      (manager_cut_resp.r),
         .mem_ar_addr_check_o      (mem_ar_addr_check),
         .mem_ar_addr_slice_o      (mem_ar_addr_slice),
-        .mem_ar_stall_i           (mem_ar_stall)
+        .mem_ar_stall_i           (mem_ar_stall),
+        .events_o                 (read_engine_events)
     );
 //  }}}
 
@@ -526,6 +539,89 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
     );
 //  }}}
 
+//  Performance events
+//  {{{
+    always_comb begin : top_events_comb
+        top_events_d            = '0;
+        top_events_d.cycles     = 1'b1;
+        top_events_d.mem_ar     = manager_req_o.ar_valid && manager_resp_i.ar_ready;
+        top_events_d.mem_r_beat = manager_resp_i.r_valid && manager_req_o.r_ready;
+        top_events_d.mem_w_beat = manager_req_o.w_valid  && manager_resp_i.w_ready;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) top_events <= '0;
+        else         top_events <= top_events_d;
+    end
+
+    assign perf_events = '{
+        cycles                            : top_events.cycles,
+        ad_ar_admitted                    : ar_dispatch_events.ar_admitted,
+        ad_ar_dispatched                  : ar_dispatch_events.ar_dispatched,
+        fe_aw_accepted                    : frontend_events.aw_accepted,
+        fe_rack_outstanding               : frontend_events.rack_outstanding,
+        re_r_beat_mem                     : read_engine_events.r_beat_mem,
+        re_r_beat_snoop                   : read_engine_events.r_beat_snoop,
+        re_r_beat_sc_fail                 : read_engine_events.r_beat_sc_fail,
+        sp_snoop_hit                      : snoop_pipeline_events.snoop_hit,
+        sp_snoop_miss                     : snoop_pipeline_events.snoop_miss,
+        sp_snoop_writeback                : snoop_pipeline_events.snoop_writeback,
+        sp_backinval_dirty                : snoop_pipeline_events.backinval_dirty,
+        we_mem_ar_stall                   : write_engine_events.mem_ar_stall,
+        mem_ar                            : top_events.mem_ar,
+        sp_read_no_snoop                  : snoop_pipeline_events.read_no_snoop,
+        sp_read_shared                    : snoop_pipeline_events.read_shared,
+        sp_read_clean                     : snoop_pipeline_events.read_clean,
+        sp_read_unique                    : snoop_pipeline_events.read_unique,
+        sp_clean_unique                   : snoop_pipeline_events.clean_unique,
+        sp_make_unique                    : snoop_pipeline_events.make_unique,
+        sp_ac_sent                        : snoop_pipeline_events.ac_sent,
+        sp_ac_stall                       : snoop_pipeline_events.ac_stall,
+        sp_ac_pruned                      : snoop_pipeline_events.ac_pruned,
+        sp_stage0_stall_ac_fifo_full      : snoop_pipeline_events.stage0_stall_ac_fifo_full,
+        sp_stage0_stall_stage1_fifo_full  : snoop_pipeline_events.stage0_stall_stage1_fifo_full,
+        sp_stage0_stall_maintenance       : snoop_pipeline_events.stage0_stall_maintenance,
+        sp_stage0_stall_other             : snoop_pipeline_events.stage0_stall_other,
+        sp_stage1_stall_cr_not_valid      : snoop_pipeline_events.stage1_stall_cr_not_valid,
+        sp_stage1_stall_write_engine_busy : snoop_pipeline_events.stage1_stall_write_engine_busy,
+        sp_stage1_stall_cd_engine_busy    : snoop_pipeline_events.stage1_stall_cd_engine_busy,
+        sp_stage1_stall_other             : snoop_pipeline_events.stage1_stall_other,
+        ad_chained                        : ar_dispatch_events.chained,
+        ad_queue_blocked                  : ar_dispatch_events.queue_blocked,
+        ad_queue_pred_wait                : ar_dispatch_events.queue_pred_wait,
+        ad_stall_sb_full                  : ar_dispatch_events.stall_sb_full,
+        ad_stall_queue_full               : ar_dispatch_events.stall_queue_full,
+        ad_dispatch_stall                 : ar_dispatch_events.dispatch_stall,
+        ad_sf_insert_stall                : ar_dispatch_events.sf_insert_stall,
+        ad_sf_insert_outstanding          : ar_dispatch_events.sf_insert_outstanding,
+        ad_bi_blocked                     : ar_dispatch_events.bi_blocked,
+        sf_lookup                         : snoop_filter_events.lookup,
+        sf_lookup_present_none            : snoop_filter_events.lookup_present_none,
+        sf_lookup_present_all             : snoop_filter_events.lookup_present_all,
+        sf_port_busy                      : snoop_filter_events.port_busy,
+        sf_update_blocked_by_lookup       : snoop_filter_events.update_blocked_by_lookup,
+        sf_insert_stuck                   : snoop_filter_events.insert_stuck,
+        sf_backinval_issued               : snoop_filter_events.backinval_issued,
+        sf_remove_miss                    : snoop_filter_events.remove_miss,
+        we_aw_issued                      : write_engine_events.aw_issued,
+        we_aw_writeback                   : write_engine_events.aw_writeback,
+        fe_aw_stall_pos_full              : frontend_events.aw_stall_pos_full,
+        we_wb_alloc_stall_full            : write_engine_events.wb_alloc_stall_full,
+        we_aw_stall_hash_full             : write_engine_events.aw_stall_hash_full,
+        we_aw_stall_mem                   : write_engine_events.aw_stall_mem,
+        we_w_stall_mem                    : write_engine_events.w_stall_mem,
+        we_w_starve                       : write_engine_events.w_starve,
+        re_ar_stall_hazard                : read_engine_events.ar_stall_hazard,
+        re_ar_stall_mem                   : read_engine_events.ar_stall_mem,
+        re_r_stall                        : read_engine_events.r_stall,
+        fe_ar_stall                       : frontend_events.ar_stall,
+        fe_aw_stall_sf_remove_full        : frontend_events.aw_stall_sf_remove_full,
+        fe_r_stall_rack_fifo_full         : frontend_events.r_stall_rack_fifo_full,
+        mem_r_beat                        : top_events.mem_r_beat,
+        mem_w_beat                        : top_events.mem_w_beat
+    };
+//  }}}
+
 //  Control and status registers
 //  {{{
     if (ccuCfg.u.enableCSRs) begin : gen_csr
@@ -533,7 +629,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
             .ccuCfg     (ccuCfg),
             .apb_req_t  (apb_req_t),
             .apb_resp_t (apb_resp_t),
-            .numEvents  ($bits(ccu_snoop_pipeline_events_t))
+            .numEvents  ($bits(ccu_events_t))
         ) u_ccu_csrs (
             .clk_i,
             .rst_ni,

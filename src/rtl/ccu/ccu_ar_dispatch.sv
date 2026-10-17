@@ -73,7 +73,9 @@ module ccu_ar_dispatch
     //  Back-invalidation attempts, one per subordinate, straight off the filter
     input  logic [numSub-1:0][addrWidth-1:0] bi_addr_i,
     input  logic [numSub-1:0]                bi_busy_i,
-    output logic [numSub-1:0]                bi_hazard_o
+    output logic [numSub-1:0]                bi_hazard_o,
+
+    output ccu_ar_dispatch_events_t          events_o
 );
 
     function automatic logic [lineWidth-1:0] line_of(logic [addrWidth-1:0] addr);
@@ -400,6 +402,43 @@ module ccu_ar_dispatch
         present: issue_entry.mask_valid ? issue_entry.mask : issue_entry.mask | sf_present_i
     };
     assign dispatch = eligible & arb_ready;
+//  }}}
+
+//  Performance events
+//  {{{
+    ccu_ar_dispatch_events_t events_d;
+    logic [numQueue-1:0]     queue_pred_wait;
+
+    for (genvar e = 0; e < numQueue; e++) begin : gen_queue_pred_wait
+        assign queue_pred_wait[e] = queue_valid_q[e] && pred_valid_q[queue_q[e].sb_idx];
+    end
+
+    always_comb begin : events_comb
+        events_d = '0;
+
+        events_d.ar_admitted   = alloc;
+        events_d.ar_dispatched = ar_valid_o && ar_ready_i;
+        //  Admission needs both resources; attribute to the scoreboard first
+        events_d.stall_sb_full    = ar_valid_i && sb_full;
+        events_d.stall_queue_full = ar_valid_i && queue_full && !sb_full;
+
+        //  Same-line serialization: admitted behind a predecessor, and its cost
+        events_d.chained         = alloc && |tail_link;
+        events_d.queue_pred_wait = |queue_pred_wait;
+        events_d.queue_blocked   = |queue_valid_q && ~|eligible;
+        events_d.dispatch_stall  = ar_valid_o && !ar_ready_i;
+
+        //  An entry outlives its RACK until the filter takes its line
+        events_d.sf_insert_stall       = |(sf_insert_valid_o & ~sf_insert_ready_i);
+        events_d.sf_insert_outstanding = |sb_retired;
+
+        events_d.bi_blocked = |(queue_valid_q & bi_blocked);
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) events_o <= '0;
+        else         events_o <= events_d;
+    end
 //  }}}
 
 //  Assertions

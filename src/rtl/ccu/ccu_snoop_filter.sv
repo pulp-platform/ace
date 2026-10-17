@@ -67,7 +67,9 @@ module ccu_snoop_filter
     output logic [numSub-1:0]               backinval_busy_o,
 
     //  A removal that found nothing; legal, but worth observing
-    output logic [numSub-1:0]               remove_miss_o
+    output logic [numSub-1:0]               remove_miss_o,
+
+    output ccu_snoop_filter_events_t        events_o
 );
 
     localparam int unsigned numSets    = ccuCfg.u.subordinateCacheSets;
@@ -111,6 +113,7 @@ module ccu_snoop_filter
     logic [numSub-1:0][tagW-1:0] rem_tag, aw_tag, ins_tag;
     logic [numSub-1:0]           aw_track, ins_track, ins_gnt;
     logic [numSub-1:0]           bi_valid, bi_ready;
+    logic [numSub-1:0]           evt_port_busy, evt_update_blocked, evt_insert_stuck;
 
     assign lookup_set   = lookup_addr_i[offW +: setW];
     assign lookup_tag   = lookup_addr_i[offW+setW +: tagW];
@@ -416,6 +419,12 @@ module ccu_snoop_filter
             end
         end
 
+        assign evt_port_busy[s]      = state_q != IDLE;
+        //  An update had to wait because a lookup took the array port
+        assign evt_update_blocked[s] = lookup_grant &&
+            ((state_q == IDLE && (rem_valid[s] || insert_valid)) || state_q == WRITE);
+        assign evt_insert_stuck[s]   = insert_stuck;
+
         // pragma translate_off
         `ifndef VERILATOR
         assert property (@(posedge clk_i) disable iff (!rst_ni)
@@ -522,5 +531,41 @@ module ccu_snoop_filter
         if (!rst_ni)             lookup_track_q <= 1'b0;
         else if (lookup_valid_i) lookup_track_q <= lookup_track;
     end
+
+//  Performance events
+//  {{{
+    ccu_snoop_filter_events_t events_d;
+    //  The answer to a lookup lands one cycle after it is issued
+    logic                     lookup_answer_q;
+
+    always_comb begin : events_comb
+        events_d = '0;
+
+        events_d.lookup = lookup_valid_i;
+        //  How much the filter narrowed the snoop, measured on the answer
+        events_d.lookup_present_none = lookup_answer_q && ~|lookup_present_o;
+        events_d.lookup_present_all  = lookup_answer_q &&  &lookup_present_o;
+
+        //  Array port pressure
+        events_d.port_busy                = |evt_port_busy;
+        events_d.update_blocked_by_lookup = |evt_update_blocked;
+
+        //  An insert that found no free way, and the victim it evicts
+        events_d.insert_stuck     = |evt_insert_stuck;
+        events_d.backinval_issued = maint_valid_o && maint_ready_i;
+
+        events_d.remove_miss = |remove_miss_o;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            lookup_answer_q <= 1'b0;
+            events_o        <= '0;
+        end else begin
+            lookup_answer_q <= lookup_valid_i;
+            events_o        <= events_d;
+        end
+    end
+//  }}}
 
 endmodule

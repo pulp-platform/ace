@@ -161,30 +161,169 @@ package ccu_pkg;
     endfunction
 
     //  Performance events
+    //
+    //  Counter [i] counts event [i]. An event is a one-cycle pulse, so a count
+    //  is a number of cycles. Every unit registers its events at its boundary.
+    localparam int unsigned numEvents = 64;
+
+    //  Snoop pipeline
     typedef struct packed {
-        logic snoop_hit;                        // 0x16
-        logic snoop_miss;                       // 0x15
-        logic stage1_read_no_snoop;             // 0x14
-        logic stage1_read_once;                 // 0x13
-        logic stage1_read_shared;               // 0x12
-        logic stage1_read_clean;                // 0x11
-        logic stage1_read_not_shared_dirty;     // 0x10
-        logic stage1_read_unique;               // 0x0F
-        logic stage1_clean_unique;              // 0x0E
-        logic stage1_make_unique;               // 0x0D
-        logic stage1_clean_shared;              // 0x0C
-        logic stage1_clean_invalid;             // 0x0B
-        logic stage1_make_invalid;              // 0x0A
-        logic stage0_stall_other;               // 0x09
-        logic stage0_stall_scoreboard_hit;      // 0x08
-        logic stage0_stall_scoreboard_full;     // 0x07
-        logic stage0_stall_ac_fifo_full;        // 0x06
-        logic stage0_stall_stage1_fifo_full;    // 0x05
-        logic stage1_stall_other;               // 0x04
-        logic stage1_stall_cr_not_valid;        // 0x03
-        logic stage1_stall_write_engine_busy;   // 0x02
-        logic stage1_stall_read_engine_busy;    // 0x01
-        logic stage1_stall_cd_engine_busy;      // 0x00
+        logic stage1_stall_other;                   // 0x1E
+        logic stage1_stall_cd_engine_busy;          // 0x1D
+        logic stage1_stall_write_engine_busy;       // 0x1C
+        logic stage1_stall_cr_not_valid;            // 0x1B
+        logic stage0_stall_other;                   // 0x1A
+        logic stage0_stall_maintenance;             // 0x19
+        logic stage0_stall_stage1_fifo_full;        // 0x18
+        logic stage0_stall_ac_fifo_full;            // 0x17
+        logic ac_pruned;                            // 0x16
+        logic ac_stall;                             // 0x15
+        logic ac_sent;                              // 0x14
+        logic make_unique;                          // 0x13
+        logic clean_unique;                         // 0x12
+        logic read_unique;                          // 0x11
+        logic read_clean;                           // 0x10
+        logic read_shared;                          // 0x0F
+        logic read_no_snoop;                        // 0x0E
+        logic backinval_dirty;                      // 0x0B
+        logic snoop_writeback;                      // 0x0A
+        logic snoop_miss;                           // 0x09
+        logic snoop_hit;                            // 0x08
     } ccu_snoop_pipeline_events_t;
+
+    //  Frontend (Point of Serialization)
+    typedef struct packed {
+        logic r_stall_rack_fifo_full;               // 0x3D
+        logic aw_stall_sf_remove_full;              // 0x3C
+        logic ar_stall;                             // 0x3B
+        logic aw_stall_pos_full;                    // 0x32
+        logic rack_outstanding;                     // 0x04
+        logic aw_accepted;                          // 0x03
+    } ccu_frontend_events_t;
+
+    //  AR dispatch
+    typedef struct packed {
+        logic bi_blocked;                           // 0x27
+        logic sf_insert_outstanding;                // 0x26
+        logic sf_insert_stall;                      // 0x25
+        logic dispatch_stall;                       // 0x24
+        logic stall_queue_full;                     // 0x23
+        logic stall_sb_full;                        // 0x22
+        logic queue_pred_wait;                      // 0x21
+        logic queue_blocked;                        // 0x20
+        logic chained;                              // 0x1F
+        logic ar_dispatched;                        // 0x02
+        logic ar_admitted;                          // 0x01
+    } ccu_ar_dispatch_events_t;
+
+    //  Snoop filter, reduced over the per-subordinate tables
+    typedef struct packed {
+        logic remove_miss;                          // 0x2F
+        logic backinval_issued;                     // 0x2E
+        logic insert_stuck;                         // 0x2D
+        logic update_blocked_by_lookup;             // 0x2C
+        logic port_busy;                            // 0x2B
+        logic lookup_present_all;                   // 0x2A
+        logic lookup_present_none;                  // 0x29
+        logic lookup;                               // 0x28
+    } ccu_snoop_filter_events_t;
+
+    //  Write engine
+    typedef struct packed {
+        logic w_starve;                             // 0x37
+        logic w_stall_mem;                          // 0x36
+        logic aw_stall_mem;                         // 0x35
+        logic aw_stall_hash_full;                   // 0x34
+        logic wb_alloc_stall_full;                  // 0x33
+        logic aw_writeback;                         // 0x31
+        logic aw_issued;                            // 0x30
+        logic mem_ar_stall;                         // 0x0C
+    } ccu_write_engine_events_t;
+
+    //  Read engine
+    typedef struct packed {
+        logic r_stall;                              // 0x3A
+        logic ar_stall_mem;                         // 0x39
+        logic ar_stall_hazard;                      // 0x38
+        logic r_beat_sc_fail;                       // 0x07
+        logic r_beat_snoop;                         // 0x06
+        logic r_beat_mem;                           // 0x05
+    } ccu_read_engine_events_t;
+
+    //  Manager port and the window every rate is taken over
+    typedef struct packed {
+        logic mem_w_beat;                           // 0x3F
+        logic mem_r_beat;                           // 0x3E
+        logic mem_ar;                               // 0x0D
+        logic cycles;                               // 0x00
+    } ccu_top_events_t;
+
+    //  The event vector seen by the counters
+    typedef struct packed {
+        logic mem_w_beat;                           // 0x3F
+        logic mem_r_beat;                           // 0x3E
+        logic fe_r_stall_rack_fifo_full;            // 0x3D
+        logic fe_aw_stall_sf_remove_full;           // 0x3C
+        logic fe_ar_stall;                          // 0x3B
+        logic re_r_stall;                           // 0x3A
+        logic re_ar_stall_mem;                      // 0x39
+        logic re_ar_stall_hazard;                   // 0x38
+        logic we_w_starve;                          // 0x37
+        logic we_w_stall_mem;                       // 0x36
+        logic we_aw_stall_mem;                      // 0x35
+        logic we_aw_stall_hash_full;                // 0x34
+        logic we_wb_alloc_stall_full;               // 0x33
+        logic fe_aw_stall_pos_full;                 // 0x32
+        logic we_aw_writeback;                      // 0x31
+        logic we_aw_issued;                         // 0x30
+        logic sf_remove_miss;                       // 0x2F
+        logic sf_backinval_issued;                  // 0x2E
+        logic sf_insert_stuck;                      // 0x2D
+        logic sf_update_blocked_by_lookup;          // 0x2C
+        logic sf_port_busy;                         // 0x2B
+        logic sf_lookup_present_all;                // 0x2A
+        logic sf_lookup_present_none;               // 0x29
+        logic sf_lookup;                            // 0x28
+        logic ad_bi_blocked;                        // 0x27
+        logic ad_sf_insert_outstanding;             // 0x26
+        logic ad_sf_insert_stall;                   // 0x25
+        logic ad_dispatch_stall;                    // 0x24
+        logic ad_stall_queue_full;                  // 0x23
+        logic ad_stall_sb_full;                     // 0x22
+        logic ad_queue_pred_wait;                   // 0x21
+        logic ad_queue_blocked;                     // 0x20
+        logic ad_chained;                           // 0x1F
+        logic sp_stage1_stall_other;                // 0x1E
+        logic sp_stage1_stall_cd_engine_busy;       // 0x1D
+        logic sp_stage1_stall_write_engine_busy;    // 0x1C
+        logic sp_stage1_stall_cr_not_valid;         // 0x1B
+        logic sp_stage0_stall_other;                // 0x1A
+        logic sp_stage0_stall_maintenance;          // 0x19
+        logic sp_stage0_stall_stage1_fifo_full;     // 0x18
+        logic sp_stage0_stall_ac_fifo_full;         // 0x17
+        logic sp_ac_pruned;                         // 0x16
+        logic sp_ac_stall;                          // 0x15
+        logic sp_ac_sent;                           // 0x14
+        logic sp_make_unique;                       // 0x13
+        logic sp_clean_unique;                      // 0x12
+        logic sp_read_unique;                       // 0x11
+        logic sp_read_clean;                        // 0x10
+        logic sp_read_shared;                       // 0x0F
+        logic sp_read_no_snoop;                     // 0x0E
+        logic mem_ar;                               // 0x0D
+        logic we_mem_ar_stall;                      // 0x0C
+        logic sp_backinval_dirty;                   // 0x0B
+        logic sp_snoop_writeback;                   // 0x0A
+        logic sp_snoop_miss;                        // 0x09
+        logic sp_snoop_hit;                         // 0x08
+        logic re_r_beat_sc_fail;                    // 0x07
+        logic re_r_beat_snoop;                      // 0x06
+        logic re_r_beat_mem;                        // 0x05
+        logic fe_rack_outstanding;                  // 0x04
+        logic fe_aw_accepted;                       // 0x03
+        logic ad_ar_dispatched;                     // 0x02
+        logic ad_ar_admitted;                       // 0x01
+        logic cycles;                               // 0x00
+    } ccu_events_t;
 
 endpackage

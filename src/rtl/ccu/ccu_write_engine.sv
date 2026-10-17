@@ -66,7 +66,9 @@ module ccu_write_engine
     //  Memory AR gate: stall while a same-line write is in PoS .. B
     input  logic                                mem_ar_addr_check_i,
     input  logic [ccuCfg.addressCheckWidth-1:0] mem_ar_addr_slice_i,
-    output logic                                mem_ar_stall_o
+    output logic                                mem_ar_stall_o,
+
+    output ccu_write_engine_events_t            events_o
 );
 
     localparam int unsigned numFifos   = ccuCfg.numWriteFifos;
@@ -380,6 +382,35 @@ module ccu_write_engine
         `AXI_SET_B_STRUCT(b_o, b_i)
         b_o.id                           = '0;
         b_o.id[ccuCfg.axiCcuIdWidth-1:0] = b_entry.id;
+    end
+//  }}}
+
+//  Performance events
+//  {{{
+    ccu_write_engine_events_t events_d;
+
+    always_comb begin : events_comb
+        events_d = '0;
+
+        events_d.aw_issued    = aw_valid_o && aw_ready_i;
+        events_d.aw_writeback = wb_push;
+
+        //  Why an AW is not issued: the pending pool, the hash FIFO, memory
+        events_d.wb_alloc_stall_full = wb_alloc_valid_i && pend_full[0];
+        events_d.aw_stall_hash_full  = aw_arb_valid && fifo_full[aw_hash];
+        events_d.aw_stall_mem        = aw_valid_o && !aw_ready_i;
+
+        events_d.w_stall_mem = w_valid_o && !w_ready_i;
+        //  An AW is through but its data has not arrived
+        events_d.w_starve    = w_ctrl_fifo_valid_out && !w_mux_valid_out;
+
+        //  A memory read held off by a same-line write in PoS .. B (C6.5.1)
+        events_d.mem_ar_stall = mem_ar_stall_o;
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) events_o <= '0;
+        else         events_o <= events_d;
     end
 //  }}}
 
