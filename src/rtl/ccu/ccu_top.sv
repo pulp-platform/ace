@@ -75,6 +75,14 @@ module ccu_top
     `ACE_TYPEDEF_R_CHAN_T(ccu_ace_r_t, ccu_data_t, ccu_id_t, ccu_user_t)
     `ACE_TYPEDEF_REQ_T(ccu_ace_req_t, ccu_ace_aw_t, ccu_w_t, ccu_ace_ar_t)
     `ACE_TYPEDEF_RESP_T(ccu_ace_resp_t, ccu_ace_b_t, ccu_ace_r_t)
+
+    //  A dispatched AR on its way to the snoop pipeline
+    typedef struct packed {
+        ccu_ace_ar_t                             ar;
+        ccu_ar_flags_t                           flags;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
+        logic [ccuCfg.u.numSubordinates-1:0]     present;
+    } ccu_ar_req_t;
 //  }}}
 
 //  A hazard slice with offset bits would miss same-line accesses at different offsets
@@ -124,16 +132,12 @@ ccu_ace_r_t                          snoop_read_engine_r;
 
 logic                                ar_valid;
 logic                                ar_ready;
-ccu_ace_ar_t                         ar;
+ccu_ar_req_t                         ar_req;
 
 logic                                dispatch_ar_valid;
 logic                                dispatch_ar_ready;
-ccu_ace_ar_t                         dispatch_ar;
-ccu_ar_flags_t                       dispatch_ar_flags;
-ccu_ar_flags_t                       ar_flags;
+ccu_ar_req_t                         dispatch_ar_req;
 
-logic [ccuCfg.transactionIndexWidth-1:0] dispatch_ar_tid;
-logic [ccuCfg.transactionIndexWidth-1:0] ar_tid;
 logic [ccuCfg.transactionIndexWidth-1:0] snoop_read_engine_ar_tid;
 logic                                snoop_read_engine_ar_is_shared;
 logic                                snoop_read_engine_ar_exclusive;
@@ -159,8 +163,6 @@ ccu_snoop_pipeline_events_t perf_events;
 logic                                sf_lookup_valid;
 ccu_address_t                        sf_lookup_addr;
 logic [ccuCfg.u.numSubordinates-1:0] sf_present;
-logic [ccuCfg.u.numSubordinates-1:0] dispatch_ar_present;
-logic [ccuCfg.u.numSubordinates-1:0] ar_present;
 logic [ccuCfg.u.numSubordinates-1:0] sf_insert_valid;
 logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiAddressWidth-1:0] sf_insert_addr;
 logic [ccuCfg.u.numSubordinates-1:0] sf_insert_ready;
@@ -231,17 +233,15 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
 //  {{{
     ccu_ar_dispatch #(
         .ccuCfg       (ccuCfg),
-        .ccu_ace_ar_t (ccu_ace_ar_t)
+        .ccu_ace_ar_t (ccu_ace_ar_t),
+        .ccu_ar_req_t (ccu_ar_req_t)
     ) u_ccu_ar_dispatch (
         .clk_i,
         .rst_ni,
         .ar_i              (frontend_req.ar),
         .ar_valid_i        (frontend_req.ar_valid),
         .ar_ready_o        (frontend_resp.ar_ready),
-        .ar_o              (dispatch_ar),
-        .ar_flags_o        (dispatch_ar_flags),
-        .ar_tid_o          (dispatch_ar_tid),
-        .ar_present_o      (dispatch_ar_present),
+        .ar_req_o          (dispatch_ar_req),
         .sf_lookup_valid_o (sf_lookup_valid),
         .sf_lookup_addr_o  (sf_lookup_addr),
         .sf_present_i      (sf_present),
@@ -315,7 +315,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
 //  {{{
     ccu_exclusive_monitor #(
         .ccuCfg       (ccuCfg),
-        .ccu_ace_ar_t (ccu_ace_ar_t),
+        .ccu_ar_req_t (ccu_ar_req_t),
         .ccu_ace_r_t  (ccu_ace_r_t)
     ) u_ccu_exclusive_monitor (
         .clk_i,
@@ -323,16 +323,10 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .dealloc_i    (exclusive_dealloc),
         .lock_o       (exclusive_lock),
         .entry_id_o   (exclusive_entry_id),
-        .ar_i         (dispatch_ar),
-        .ar_flags_i   (dispatch_ar_flags),
-        .ar_tid_i     (dispatch_ar_tid),
-        .ar_present_i (dispatch_ar_present),
+        .ar_req_i     (dispatch_ar_req),
         .ar_valid_i   (dispatch_ar_valid),
         .ar_ready_o   (dispatch_ar_ready),
-        .ar_o         (ar),
-        .ar_flags_o   (ar_flags),
-        .ar_tid_o     (ar_tid),
-        .ar_present_o (ar_present),
+        .ar_req_o     (ar_req),
         .ar_valid_o   (ar_valid),
         .ar_ready_i   (ar_ready),
         .r_o          (sc_fail_r),
@@ -347,6 +341,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
     ccu_snoop_pipeline #(
         .ccuCfg         (ccuCfg),
         .ccu_ace_ar_t   (ccu_ace_ar_t),
+        .ccu_ar_req_t   (ccu_ar_req_t),
         .ccu_ace_r_t    (ccu_ace_r_t),
         .ccu_snoop_ac_t (ccu_snoop_ac_t),
         .ccu_snoop_cr_t (ccu_snoop_cr_t),
@@ -359,9 +354,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .clk_i,
         .rst_ni,
         .domain_map_i             (domain_map_i),
-        .ar_i                     (ar),
-        .ar_flags_i               (ar_flags),
-        .ar_tid_i                 (ar_tid),
+        .ar_req_i                 (ar_req),
         .ar_valid_i               (ar_valid),
         .ar_ready_o               (ar_ready),
         .maint_valid_i            (maint_valid),
@@ -396,7 +389,6 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .read_engine_r_ready_i    (snoop_read_engine_r_ready),
         .read_engine_r_o          (snoop_read_engine_r),
         .read_engine_r_tid_o      (snoop_read_engine_r_tid),
-        .ar_present_i             (ar_present),
         .sf_cr_remove_valid_o     (sf_cr_remove_valid),
         .sf_cr_remove_sel_o       (sf_cr_remove_sel),
         .sf_cr_remove_addr_o      (sf_cr_remove_addr),

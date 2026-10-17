@@ -12,15 +12,13 @@
 // Authors:
 // - Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>
 
-`include "ace/assign.svh"
-
 module ccu_exclusive_monitor
     import ace_pkg::*;
     import ccu_pkg::*;
 #(
     parameter ccu_config_t ccuCfg = '{default: '0},
 
-    parameter type ccu_ace_ar_t = logic,
+    parameter type ccu_ar_req_t = logic,
     parameter type ccu_ace_r_t  = logic
 ) (
     input  logic clk_i,
@@ -31,17 +29,11 @@ module ccu_exclusive_monitor
     output logic [ccuCfg.u.numSubordinates-1:0]
                  [ccuCfg.u.axiSubordinateIdWidth-1:0] entry_id_o,
 
-    input  ccu_ace_ar_t ar_i,
-    input  ccu_ar_flags_t ar_flags_i,
-    input  logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
-    input  logic [ccuCfg.u.numSubordinates-1:0]     ar_present_i,
+    input  ccu_ar_req_t ar_req_i,
     input  logic        ar_valid_i,
     output logic        ar_ready_o,
 
-    output ccu_ace_ar_t ar_o,
-    output ccu_ar_flags_t ar_flags_o,
-    output logic [ccuCfg.transactionIndexWidth-1:0] ar_tid_o,
-    output logic [ccuCfg.u.numSubordinates-1:0]     ar_present_o,
+    output ccu_ar_req_t ar_req_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
 
@@ -67,15 +59,15 @@ logic [ccuCfg.u.numSubordinates-1:0] valid_q, valid_d;
 logic [ccuCfg.u.numSubordinates-1:0] lock_q,  lock_d;
 
 logic [ccuCfg.subordinateIndexWidth-1:0] ar_sub_idx;
-assign ar_sub_idx = ar_i.id[ccuCfg.axiCcuIdWidth-1-:ccuCfg.subordinateIndexWidth];
+assign ar_sub_idx = ar_req_i.ar.id[ccuCfg.axiCcuIdWidth-1-:ccuCfg.subordinateIndexWidth];
 
 logic is_exclusive_load;
 logic is_exclusive_store;
 logic is_exclusive_sequence;
 logic exclusive_store_will_fail;
 
-assign is_exclusive_load  = ar_flags_i.is_exclusive_load;
-assign is_exclusive_store = ar_flags_i.is_exclusive_store;
+assign is_exclusive_load  = ar_req_i.flags.is_exclusive_load;
+assign is_exclusive_store = ar_req_i.flags.is_exclusive_store;
 
 assign is_exclusive_sequence     = is_exclusive_load || is_exclusive_store;
 assign exclusive_store_will_fail = is_exclusive_store && !valid_q[ar_sub_idx];
@@ -117,7 +109,7 @@ always_comb begin : entry_comb
         end else if (reservation_set &&
                      ccuCfg.subordinateIndexWidth'(s) == ar_sub_idx) begin
             valid_d[s] = 1'b1;
-            entry_d[s].id = ar_i.id[ccuCfg.u.axiSubordinateIdWidth-1:0];
+            entry_d[s].id = ar_req_i.ar.id[ccuCfg.u.axiSubordinateIdWidth-1:0];
         end
     end
 end
@@ -152,17 +144,14 @@ stream_demux #(
     .oup_ready_i ({r_register_ready, ar_ready_i})
 );
 
-`ACE_ASSIGN_AR_STRUCT(ar_o, ar_i)
-assign ar_flags_o   = ar_flags_i;
-assign ar_tid_o     = ar_tid_i;
-assign ar_present_o = ar_present_i;
+assign ar_req_o = ar_req_i;
 
 r_register_entry_t r_register_wdata, r_register_rdata;
 
 assign r_register_wdata = '{
-    id:   ar_i.id,
-    user: ar_i.user,
-    tid:  ar_tid_i
+    id:   ar_req_i.ar.id,
+    user: ar_req_i.ar.user,
+    tid:  ar_req_i.tid
 };
 
 stream_register #(

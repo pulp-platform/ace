@@ -22,6 +22,7 @@ module ccu_ar_dispatch
 #(
     parameter ccu_config_t  ccuCfg          = '{default: '0},
     parameter type          ccu_ace_ar_t    = logic,
+    parameter type          ccu_ar_req_t    = logic,
     localparam int unsigned numEntries      = ccuCfg.u.numShareableTransactions,
     localparam int unsigned sbIdxWidth      = ccuCfg.transactionIndexWidth,
     localparam int unsigned numQueue        = ccuCfg.u.numDispatchQueue,
@@ -42,10 +43,7 @@ module ccu_ar_dispatch
     output logic        ar_ready_o,
 
     //  Dispatched AR (to the snoop pipeline)
-    output ccu_ace_ar_t ar_o,
-    output ccu_ar_flags_t ar_flags_o,
-    output logic [sbIdxWidth-1:0] ar_tid_o,
-    output logic [numSub-1:0]     ar_present_o,
+    output ccu_ar_req_t ar_req_o,
     output logic        ar_valid_o,
     input  logic        ar_ready_i,
 
@@ -394,11 +392,14 @@ module ccu_ar_dispatch
     );
 
     //  On its first cycle an entry takes the filter's answer live
-    assign ar_present_o = issue_entry.mask_valid ? issue_entry.mask : issue_entry.mask | sf_present_i;
-    assign ar_o         = issue_entry.ar;
-    assign ar_tid_o     = issue_entry.sb_idx;
-    assign ar_flags_o   = ccu_ar_decode(ar_o.bar[0], ar_o.domain, ar_o.snoop, ar_o.lock);
-    assign dispatch     = eligible & arb_ready;
+    assign ar_req_o = '{
+        ar:      issue_entry.ar,
+        flags:   ccu_ar_decode(issue_entry.ar.bar[0], issue_entry.ar.domain,
+                               issue_entry.ar.snoop,  issue_entry.ar.lock),
+        tid:     issue_entry.sb_idx,
+        present: issue_entry.mask_valid ? issue_entry.mask : issue_entry.mask | sf_present_i
+    };
+    assign dispatch = eligible & arb_ready;
 //  }}}
 
 //  Assertions

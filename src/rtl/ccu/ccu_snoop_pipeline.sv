@@ -20,6 +20,7 @@ module ccu_snoop_pipeline
 #(
     parameter ccu_config_t ccuCfg         = '{default: '0},
     parameter type         ccu_ace_ar_t   = logic,
+    parameter type         ccu_ar_req_t   = logic,
     parameter type         ccu_ace_r_t    = logic,
     parameter type         ccu_snoop_ac_t = logic,
     parameter type         ccu_snoop_cr_t = logic,
@@ -34,10 +35,7 @@ module ccu_snoop_pipeline
 
     input domain_map_t  [ccuCfg.u.numSubordinates-1:0]       domain_map_i,
 
-    input  ccu_ace_ar_t                                      ar_i,
-    input  ccu_ar_flags_t                                    ar_flags_i,
-    input  logic          [ccuCfg.u.numSubordinates-1:0]     ar_present_i,
-    input  logic          [ccuCfg.transactionIndexWidth-1:0] ar_tid_i,
+    input  ccu_ar_req_t                                      ar_req_i,
     input  logic                                             ar_valid_i,
     output logic                                             ar_ready_o,
 
@@ -183,16 +181,16 @@ module ccu_snoop_pipeline
     logic                                           stage0_valid;
     logic                                           stage0_ready;
 
-    assign subordinate_ar_index = ar_i.id[ccuCfg.u.axiSubordinateIdWidth+:ccuCfg.subordinateIndexWidth];
+    assign subordinate_ar_index = ar_req_i.ar.id[ccuCfg.u.axiSubordinateIdWidth+:ccuCfg.subordinateIndexWidth];
 
     //  NonShareable and System lines snoop nobody
     always_comb begin : ace_sel_comb
-        unique case (ar_i.domain)
+        unique case (ar_req_i.ar.domain)
             InnerShareable: ar_ac_sel = domain_map_i[subordinate_ar_index].inner;
             OuterShareable: ar_ac_sel = domain_map_i[subordinate_ar_index].outer;
             default:        ar_ac_sel = '0;
         endcase
-        ar_ac_sel &= ar_present_i;
+        ar_ac_sel &= ar_req_i.present;
     end
 
     //  Common request for ARs and back-invalidations
@@ -209,7 +207,7 @@ module ccu_snoop_pipeline
     logic        stage0_req_valid, stage0_req_ready;
 
     assign ar_req = '{
-        ar: ar_i, flags: ar_flags_i, tid: ar_tid_i, sel: ar_ac_sel,
+        ar: ar_req_i.ar, flags: ar_req_i.flags, tid: ar_req_i.tid, sel: ar_ac_sel,
         maintenance: 1'b0
     };
 
@@ -710,7 +708,7 @@ module ccu_snoop_pipeline
     // pragma translate_off
     `ifndef VERILATOR
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        ar_valid_i && ar_i.domain inside {NonShareable, System} |-> ar_ac_sel == '0)
+        ar_valid_i && ar_req_i.ar.domain inside {NonShareable, System} |-> ar_ac_sel == '0)
         else $error("non-shareable domain selected a snoop target");
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
