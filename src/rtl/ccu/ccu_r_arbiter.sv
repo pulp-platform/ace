@@ -16,21 +16,20 @@
 //
 //  Round-robin, locked until the last beat.
 module ccu_r_arbiter #(
-    parameter  int unsigned numInputs = 0,
-    parameter  type         r_t       = logic,
-    localparam int unsigned idxWidth  = numInputs > 1 ? $clog2(numInputs) : 1
+    parameter int unsigned numInputs = 0,
+    parameter type         data_t    = logic
 ) (
     input  logic clk_i,
     input  logic rst_ni,
 
-    input  logic [numInputs-1:0] valid_i,
-    output logic [numInputs-1:0] ready_o,
-    input  r_t   [numInputs-1:0] r_i,
+    input  logic  [numInputs-1:0] valid_i,
+    output logic  [numInputs-1:0] ready_o,
+    input  data_t [numInputs-1:0] data_i,
+    input  logic  [numInputs-1:0] last_i,
 
-    output logic                 valid_o,
-    input  logic                 ready_i,
-    output r_t                   r_o,
-    output logic [idxWidth-1:0]  idx_o
+    output logic                  valid_o,
+    input  logic                  ready_i,
+    output data_t                 data_o
 );
 
     logic [numInputs-1:0] arb_valid;
@@ -42,7 +41,7 @@ module ccu_r_arbiter #(
 
     always_comb begin : mask_comb
         mask_d = mask_q;
-        if (valid_o && ready_i && r_o.last)
+        if (|(valid_i & ready_o & last_i))
             mask_d = '0;
         else if (valid_o && ready_i)
             mask_d = ~(arb_valid & arb_ready);
@@ -55,7 +54,7 @@ module ccu_r_arbiter #(
 
     rr_arb_tree #(
         .NumIn     (numInputs),
-        .DataType  (r_t),
+        .DataType  (data_t),
         .ExtPrio   (1'b0),
         .AxiVldRdy (1'b1),
         .LockIn    (1'b1),
@@ -67,11 +66,11 @@ module ccu_r_arbiter #(
         .rr_i    ('0),
         .req_i   (arb_valid),
         .gnt_o   (arb_ready),
-        .data_i  (r_i),
+        .data_i,
         .req_o   (valid_o),
         .gnt_i   (ready_i),
-        .data_o  (r_o),
-        .idx_o   (idx_o)
+        .data_o,
+        .idx_o   ()
     );
 
 endmodule

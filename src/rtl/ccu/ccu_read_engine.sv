@@ -102,9 +102,15 @@ module ccu_read_engine
 
 //  R channel: arbitrate memory reads, snoop-pipeline responses and SC fails
 //  {{{
+    typedef struct packed {
+        ccu_ace_r_t                              r;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
+        logic                                    sc_fail;
+    } r_beat_t;
+
     ccu_ace_r_t r_mem;
     logic [ccuCfg.transactionIndexWidth-1:0] r_mem_tid;
-    logic [1:0] r_idx;
+    r_beat_t r_beat;
 
     assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
 
@@ -132,28 +138,24 @@ module ccu_read_engine
 
     ccu_r_arbiter #(
         .numInputs (3),
-        .r_t       (ccu_ace_r_t)
+        .data_t    (r_beat_t)
     ) u_r_arbiter (
         .clk_i,
         .rst_ni,
         .valid_i ({sc_fail_r_valid_i, r_valid_i, snoop_pipeline_r_valid_i}),
         .ready_o ({sc_fail_r_ready_o, r_ready_o, snoop_pipeline_r_ready_o}),
-        .r_i     ({sc_fail_r_i,       r_mem,     snoop_pipeline_r_i}),
+        .data_i  ({r_beat_t'{sc_fail_r_i,        sc_fail_r_tid_i,        1'b1},
+                   r_beat_t'{r_mem,              r_mem_tid,              1'b0},
+                   r_beat_t'{snoop_pipeline_r_i, snoop_pipeline_r_tid_i, 1'b0}}),
+        .last_i  ({sc_fail_r_i.last, r_i.last, snoop_pipeline_r_i.last}),
         .valid_o (r_valid_o),
         .ready_i (r_ready_i),
-        .r_o     (r_o),
-        .idx_o   (r_idx)
+        .data_o  (r_beat)
     );
 
-    always_comb begin : r_tid_comb
-        case (r_idx)
-            2'd2:    r_tid_o = sc_fail_r_tid_i;
-            2'd1:    r_tid_o = r_mem_tid;
-            default: r_tid_o = snoop_pipeline_r_tid_i;
-        endcase
-    end
-
-    assign r_sc_fail_o = r_idx == 2'd2;
+    assign r_o         = r_beat.r;
+    assign r_tid_o     = r_beat.tid;
+    assign r_sc_fail_o = r_beat.sc_fail;
 //  }}}
 
 //  Assertions
