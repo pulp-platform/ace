@@ -170,6 +170,7 @@ ccu_events_t                perf_events;
 logic                                sf_lookup_valid;
 ccu_address_t                        sf_lookup_addr;
 logic [ccuCfg.u.numSubordinates-1:0] sf_present;
+logic                                sf_lookup_ready;
 logic [ccuCfg.u.numSubordinates-1:0] sf_insert_valid;
 logic [ccuCfg.u.numSubordinates-1:0][ccuCfg.u.axiAddressWidth-1:0] sf_insert_addr;
 logic [ccuCfg.u.numSubordinates-1:0] sf_insert_ready;
@@ -253,6 +254,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .sf_lookup_valid_o (sf_lookup_valid),
         .sf_lookup_addr_o  (sf_lookup_addr),
         .sf_present_i      (sf_present),
+        .sf_lookup_ready_i (sf_lookup_ready),
         .ar_valid_o        (dispatch_ar_valid),
         .ar_ready_i        (dispatch_ar_ready),
         .rack_mask_i       (rack_free),
@@ -283,6 +285,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .lookup_valid_i     (sf_lookup_valid),
         .lookup_addr_i      (sf_lookup_addr),
         .lookup_present_o   (sf_present),
+        .lookup_ready_o     (sf_lookup_ready),
         .insert_valid_i     (sf_insert_valid),
         .insert_addr_i      (sf_insert_addr),
         .insert_ready_o     (sf_insert_ready),
@@ -308,6 +311,7 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
     end else begin : gen_no_snoop_filter
 
         assign sf_present          = '1;
+        assign sf_lookup_ready     = 1'b1;
         assign sf_insert_ready     = '1;
         assign sf_aw_remove_ready  = '1;
         assign sf_cr_remove_ready  = 1'b1;

@@ -34,6 +34,7 @@ module ccu_snoop_filter
     input  logic                            lookup_valid_i,
     input  logic [addrW-1:0]                lookup_addr_i,
     output logic [numSub-1:0]               lookup_present_o,
+    output logic                            lookup_ready_o,
 
     input  logic [numSub-1:0]               insert_valid_i,
     input  logic [numSub-1:0][addrW-1:0]    insert_addr_i,
@@ -114,6 +115,7 @@ module ccu_snoop_filter
     logic [numSub-1:0]           aw_track, ins_track, ins_gnt;
     logic [numSub-1:0]           bi_valid, bi_ready;
     logic [numSub-1:0]           evt_port_busy, evt_update_blocked, evt_insert_stuck;
+    logic [numSub-1:0]           table_ready;
 
     assign lookup_set   = lookup_addr_i[offW +: setW];
     assign lookup_tag   = lookup_addr_i[offW+setW +: tagW];
@@ -266,9 +268,9 @@ module ccu_snoop_filter
             end
         end
 
-        assign lookup_grant = init_done_q && lookup_valid;
+        assign lookup_grant = init_done_q && lookup_valid && state_q == IDLE;
         assign op_entry     = '{valid: op_insert_q, tag: op_insert_q ? op_tag_q : '0};
-        assign op_write     = state_q == WRITE && !lookup_grant;
+        assign op_write     = state_q == WRITE;
 
         always_comb begin : sram_port_comb
             sram_req   = 1'b0;
@@ -344,7 +346,7 @@ module ccu_snoop_filter
                 IDLE:    if (op_start) state_d = READ;
                 //  Hits, stuck inserts and removal misses retire without writing
                 READ:    state_d = insert_hit || way_none ? IDLE : WRITE;
-                WRITE:   if (!lookup_grant) state_d = IDLE;
+                WRITE:   state_d = IDLE;
                 default: state_d = IDLE;
             endcase
         end
@@ -424,6 +426,7 @@ module ccu_snoop_filter
         assign evt_update_blocked[s] = lookup_grant &&
             ((state_q == IDLE && (rem_valid[s] || insert_valid)) || state_q == WRITE);
         assign evt_insert_stuck[s]   = insert_stuck;
+        assign table_ready[s]        = state_q == IDLE;
 
         // pragma translate_off
         `ifndef VERILATOR
@@ -526,6 +529,7 @@ module ccu_snoop_filter
     assign maint_sel_o  = maint.sel;
 
     assign lookup_present_o = lookup_track_q ? table_present : '1;
+    assign lookup_ready_o   = &table_ready;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni)             lookup_track_q <= 1'b0;

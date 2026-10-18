@@ -51,6 +51,7 @@ module ccu_ar_dispatch
     output logic                 sf_lookup_valid_o,
     output logic [addrWidth-1:0] sf_lookup_addr_o,
     input  logic [numSub-1:0]    sf_present_i,
+    input  logic                 sf_lookup_ready_i,
 
     //  Entries whose RACK arrived this cycle, one bit per scoreboard entry
     input  logic [numEntries-1:0] rack_mask_i,
@@ -162,7 +163,7 @@ module ccu_ar_dispatch
     assign sb_id_o = sb_id;
 
     //  Both resources are reserved before the AR is accepted
-    assign ar_ready_o = !queue_full && !sb_full;
+    assign ar_ready_o = !queue_full && !sb_full && sf_lookup_ready_i;
     assign alloc      = ar_valid_i && ar_ready_o;
 
     //  Untracked port: no snoops, no Evicts, so its lines are never tracked
