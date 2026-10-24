@@ -57,8 +57,6 @@ module ccu_frontend
 
     //  Transactions whose RACK arrived this cycle; several may retire together
     output logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free_o,
-    //  Subset of those whose read errored, so no line was cached
-    output logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_error_o,
 
     output logic                                                          pos_aw_valid_o,
     output logic [ccuCfg.addressCheckWidth-1:0]                           pos_aw_slice_o,
@@ -75,7 +73,6 @@ module ccu_frontend
     typedef struct packed {
         logic [ccuCfg.transactionIndexWidth-1:0] tid;
         logic                                    exclusive;
-        logic                                    error;
     } rack_fifo_entry_t;
 
     typedef struct packed {
@@ -86,8 +83,6 @@ module ccu_frontend
 
     logic [ccuCfg.u.numSubordinates-1:0]
           [ccuCfg.u.numShareableTransactions-1:0] rack_free;
-    logic [ccuCfg.u.numSubordinates-1:0]
-          [ccuCfg.u.numShareableTransactions-1:0] rack_error;
 
     ccu_ace_subordinate_req_t  [ccuCfg.u.numSubordinates-1:0] subordinate_req;
     ccu_ace_subordinate_resp_t [ccuCfg.u.numSubordinates-1:0] subordinate_resp;
@@ -118,8 +113,6 @@ module ccu_frontend
 
         logic             r_id_hit;
         logic             r_beat;
-        logic             r_error;
-        logic             r_error_q;
 
         `ACE_ASSIGN_AR_STRUCT(subordinate_req[s].ar, subordinate_req_i[s].ar)
         assign subordinate_req[s].ar_valid    = subordinate_req_i[s].ar_valid;
@@ -146,21 +139,12 @@ module ccu_frontend
 
         assign rack_fifo_push = r_beat && subordinate_resp_o[s].r.last;
 
-        //  Any beat may carry the error, and AXI4 forbids read interleaving
-        assign r_error = r_error_q | subordinate_resp_o[s].r.resp[1];
-
-        always_ff @(posedge clk_i or negedge rst_ni) begin
-            if (!rst_ni)     r_error_q <= 1'b0;
-            else if (r_beat) r_error_q <= subordinate_resp_o[s].r.last ? 1'b0 : r_error;
-        end
-
         //  RACK retires the dispatch entry and clears the monitor (not on SC fail)
         assign r_id_hit = exclusive_entry_id_i[s] == subordinate_resp_o[s].r.id;
 
         assign rack_fifo_wdata = '{
             tid:       r_spill_out.tid,
-            exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail,
-            error:     r_error
+            exclusive: r_id_hit && exclusive_lock_i[s] && !r_spill_out.sc_fail
         };
 
         assign rack_fifo_pop = subordinate_rack_i[s];
@@ -185,7 +169,6 @@ module ccu_frontend
 
         assign rack_free[s] = subordinate_rack_i[s] ?
             (ccuCfg.u.numShareableTransactions'(1) << rack_fifo_rdata.tid) : '0;
-        assign rack_error[s] = rack_fifo_rdata.error ? rack_free[s] : '0;
         assign exclusive_dealloc_o[s] = subordinate_rack_i[s] && rack_fifo_rdata.exclusive;
 
         assign evt_ar_stall[s]               = subordinate_req_i[s].ar_valid &&
@@ -205,11 +188,9 @@ module ccu_frontend
     end
 
     always_comb begin : rack_free_comb
-        rack_free_o  = '0;
-        rack_error_o = '0;
+        rack_free_o = '0;
         for (int unsigned s = 0; s < ccuCfg.u.numSubordinates; s++) begin
-            rack_free_o  |= rack_free[s];
-            rack_error_o |= rack_error[s];
+            rack_free_o |= rack_free[s];
         end
     end
 

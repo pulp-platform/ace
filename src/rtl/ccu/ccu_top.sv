@@ -92,7 +92,6 @@ if (ccuCfg.u.addressCheckLsb < ccuCfg.cachelineByteIndexWidth) begin : gen_slice
 end
 
 logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_free;
-logic [ccuCfg.u.numShareableTransactions-1:0]                   rack_error;
 logic [ccuCfg.u.numShareableTransactions-1:0]
       [ccuCfg.axiCcuIdWidth-1:0]                                sb_id;
 
@@ -227,7 +226,6 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .exclusive_entry_id_i       (exclusive_entry_id),
         .exclusive_dealloc_o        (exclusive_dealloc),
         .rack_free_o                (rack_free),
-        .rack_error_o               (rack_error),
         .pos_aw_valid_o             (pos_aw_valid),
         .pos_aw_slice_o             (pos_aw_slice),
         .pos_aw_full_i              (pos_aw_full),
@@ -258,12 +256,13 @@ logic [ccuCfg.u.numSubordinates-1:0]                               sf_backinval_
         .ar_valid_o        (dispatch_ar_valid),
         .ar_ready_i        (dispatch_ar_ready),
         .rack_mask_i       (rack_free),
-        .rack_error_i      (rack_error),
         .drop_i            (sc_fail_r_valid && sc_fail_r_ready),
         .drop_tid_i        (sc_fail_r_tid),
         .sf_insert_valid_o (sf_insert_valid),
         .sf_insert_addr_o  (sf_insert_addr),
         .sf_insert_ready_i (sf_insert_ready),
+        .sf_aw_remove_valid_i (sf_aw_remove_valid),
+        .sf_aw_remove_addr_i  (sf_aw_remove_addr),
         .bi_addr_i         (sf_backinval_addr),
         .bi_busy_i         (sf_backinval_busy),
         .bi_hazard_o       (sf_backinval_hazard),

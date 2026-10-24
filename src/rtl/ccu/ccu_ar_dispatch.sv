@@ -56,9 +56,6 @@ module ccu_ar_dispatch
     //  Entries whose RACK arrived this cycle, one bit per scoreboard entry
     input  logic [numEntries-1:0] rack_mask_i,
 
-    //  Those of them whose read errored; the line was never cached
-    input  logic [numEntries-1:0] rack_error_i,
-
     //  Transaction dropped downstream, pulsed on its R handshake
     input  logic                 drop_i,
     input  logic [sbIdxWidth-1:0] drop_tid_i,
@@ -67,6 +64,9 @@ module ccu_ar_dispatch
     output logic [numSub-1:0]                 sf_insert_valid_o,
     output logic [numSub-1:0][addrWidth-1:0]  sf_insert_addr_o,
     input  logic [numSub-1:0]                 sf_insert_ready_i,
+
+    input  logic [numSub-1:0]                 sf_aw_remove_valid_i,
+    input  logic [numSub-1:0][addrWidth-1:0]  sf_aw_remove_addr_i,
 
     //  Scoreboard ids, indexed by tid to restore the id of a memory read
     output logic [numEntries-1:0][ccuCfg.axiCcuIdWidth-1:0] sb_id_o,
@@ -244,13 +244,17 @@ module ccu_ar_dispatch
 
 //  Snoop filter allocation: an entry lives until its line is in the filter
 //  {{{
-    logic [numSub-1:0][numEntries-1:0] ins_req_clear_sub;
+    logic [numSub-1:0][numEntries-1:0] ins_req_clear_sub, ins_presented_sub;
+    logic [numEntries-1:0]             ins_presented, ins_evicted;
 
     for (genvar e = 0; e < numEntries; e++) begin : gen_ins_entry
-        //  A read that allocated and completed cleanly owes the filter its line
-        assign ins_req_set[e] = rack_mask_i[e] && alloc_q[e] && !rack_error_i[e];
+        assign ins_evicted[e] = sf_aw_remove_valid_i[sub_of(sb_id[e])] &&
+                                line_of(sf_aw_remove_addr_i[sub_of(sb_id[e])]) == sb_line[e];
+        //  A read that allocated owes the filter its line
+        assign ins_req_set[e] = rack_mask_i[e] && alloc_q[e] && !ins_evicted[e];
         //  So the entry outlives its RACK exactly when it owes one
-        assign sb_free[e]     = (rack_mask_i[e] && !ins_req_set[e]) || ins_req_clear[e];
+        assign sb_free[e]     = (rack_mask_i[e] && !ins_req_set[e]) || ins_req_clear[e] ||
+                                (sb_retired[e] && ins_evicted[e] && !ins_presented[e]);
         assign alloc_d[e]     = alloc        && sb_alloc_idx == sbIdxWidth'(e) ? ar_flags_alloc :
                                 drop_i       && drop_tid_i   == sbIdxWidth'(e) ? 1'b0           :
                                                                                  alloc_q[e];
@@ -287,11 +291,16 @@ module ccu_ar_dispatch
 
         assign sf_insert_addr_o[s]  = {sb_line[ins_idx], {offWidth{1'b0}}};
         assign ins_req_clear_sub[s] = ins_sub_valid & ins_sub_ready;
+        assign ins_presented_sub[s] = sf_insert_valid_o[s] ? numEntries'(1) << ins_idx : '0;
     end
 
     always_comb begin : ins_req_clear_comb
         ins_req_clear = '0;
-        for (int unsigned s = 0; s < numSub; s++) ins_req_clear |= ins_req_clear_sub[s];
+        ins_presented = '0;
+        for (int unsigned s = 0; s < numSub; s++) begin
+            ins_req_clear |= ins_req_clear_sub[s];
+            ins_presented |= ins_presented_sub[s];
+        end
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin

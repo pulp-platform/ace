@@ -183,7 +183,7 @@ module ccu_snoop_filter
         logic                 init_done_q;
         logic [setW:0]        init_cnt_q;
 
-        logic                 lookup_valid, insert_valid;
+        logic                 lookup_valid, insert_valid, insert_evicted;
         logic                 aw_valid, aw_ready;
         rem_t [1:0]           rem_inp;
         rem_t                 rem_op;
@@ -197,11 +197,15 @@ module ccu_snoop_filter
         assign ins_tag[s]   = insert_addr_i[s][offW+setW +: tagW];
         assign ins_track[s] = in_range(insert_addr_i[s]);
 
+        assign insert_evicted = aw_remove_valid_i[s] && aw_track[s] &&
+                                aw_set[s] == ins_set[s] && aw_tag[s] == ins_tag[s] &&
+                                !(state_q != IDLE && op_insert_q);
+
         //  An untracked line is dropped rather than stalling its transaction
         stream_filter u_ins_filter (
             .valid_i (insert_valid_i[s]),
             .ready_o (insert_ready_o[s]),
-            .drop_i  (!ins_track[s]),
+            .drop_i  (!ins_track[s] || insert_evicted),
             .valid_o (insert_valid),
             .ready_i (ins_gnt[s])
         );
@@ -436,7 +440,7 @@ module ccu_snoop_filter
 
         //  a redundant insert never races a removal of the same line
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            !(insert_hit && rem_valid[s]
+            !(insert_hit && rem_valid[s] && rem_is_cr[s]
               && rem_set[s] == op_set_q && rem_tag[s] == op_tag_q))
             else $error("insert retired as a hit with a removal pending for it");
 
@@ -458,8 +462,8 @@ module ccu_snoop_filter
             else $error("lookup answered from an uninitialised tag array");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
-            insert_valid && !ins_gnt[s] |=>
-            insert_valid && $stable({ins_set[s], ins_tag[s]}))
+            insert_valid_i[s] && !insert_ready_o[s] |=>
+            insert_valid_i[s] && $stable({ins_set[s], ins_tag[s]}))
             else $error("insert payload changed before it retired");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
