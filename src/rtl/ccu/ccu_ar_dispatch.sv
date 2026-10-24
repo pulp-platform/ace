@@ -479,10 +479,11 @@ module ccu_ar_dispatch
     end
 
     //  an eligible entry never becomes blocked
-    assert property (@(posedge clk_i) disable iff (!rst_ni)
-        $rose(|(bi_blocked & queue_valid_q)) |->
-            !$past(|(~bi_blocked & queue_valid_q & eligible)))
-        else $error("a back-invalidation blocked an entry that was eligible");
+    for (genvar e = 0; e < numQueue; e++) begin : gen_bi_blocked_assert
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            queue_valid_q[e] && bi_blocked[e] |-> !$past(eligible[e] && !dispatch[e]))
+            else $error("a back-invalidation blocked an entry that was eligible");
+    end
 
     //  nothing is presented for a line its subordinate is being back-invalidated for
     assert property (@(posedge clk_i) disable iff (!rst_ni)
