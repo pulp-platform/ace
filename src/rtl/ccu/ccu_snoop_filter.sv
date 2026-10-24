@@ -268,7 +268,7 @@ module ccu_snoop_filter
             end
         end
 
-        assign lookup_grant = init_done_q && lookup_valid && state_q == IDLE;
+        assign lookup_grant = init_done_q && lookup_valid && state_q != WRITE;
         assign op_entry     = '{valid: op_insert_q, tag: op_insert_q ? op_tag_q : '0};
         assign op_write     = state_q == WRITE;
 
@@ -426,7 +426,7 @@ module ccu_snoop_filter
         assign evt_update_blocked[s] = lookup_grant &&
             ((state_q == IDLE && (rem_valid[s] || insert_valid)) || state_q == WRITE);
         assign evt_insert_stuck[s]   = insert_stuck;
-        assign table_ready[s]        = state_q == IDLE;
+        assign table_ready[s]        = state_q != WRITE;
 
         // pragma translate_off
         `ifndef VERILATOR
