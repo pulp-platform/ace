@@ -467,6 +467,29 @@ module ccu_write_engine
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         b_valid_o && !b_ready_i |=> b_valid_o && $stable(b_o))
         else $error("B channel unstable while stalled");
+
+    //  W carries no id: each memory W burst must match the AW it was steered for
+    axi_pkg::len_t chk_len [$];
+    axi_pkg::len_t chk_beat;
+
+    always @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            chk_len.delete();
+            chk_beat = '0;
+        end else begin
+            if (w_ctrl_fifo_valid_in && w_ctrl_fifo_ready_in) chk_len.push_back(aw_arb.len);
+            if (w_valid_o && w_ready_i) begin
+                assert (chk_len.size() != 0) else $error("memory W with no AW");
+                if (chk_len.size() != 0) begin
+                    assert (w_o.last == (chk_beat == chk_len[0]))
+                        else $error("memory W burst (%s): last on beat %0d, AW len %0d",
+                                    w_is_writeback ? "writeback" : "frontend", chk_beat, chk_len[0]);
+                    if (w_o.last) void'(chk_len.pop_front());
+                end
+                chk_beat = w_o.last ? '0 : chk_beat + 1;
+            end
+        end
+    end
     `endif
     // pragma translate_on
 //  }}}

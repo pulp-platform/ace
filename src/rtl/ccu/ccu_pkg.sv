@@ -25,6 +25,8 @@ package ccu_pkg;
         int unsigned    numWriteTransactions;
         //  Number of simultaneous inflight snoop transactions
         int unsigned    numSnoopTransactions;
+        //  Memory reads in flight; each reserves a cacheline of R buffering
+        int unsigned    numMemReadCredits;
         //  Address bits hashed to index the write-engine inflight FIFOs
         int unsigned    writeHashWidth;
         //  AXI/ACE parameters

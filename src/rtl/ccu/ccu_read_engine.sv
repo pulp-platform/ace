@@ -79,14 +79,20 @@ module ccu_read_engine
 
 //  AR channel: to memory, held while a same-line write is pending (C6.5.1)
 //  {{{
+    localparam int unsigned memRBeats = ccuCfg.u.numMemReadCredits * ccuCfg.cachelineAxiTransfers;
+
     logic ar_committed_q;
     logic ar_allow;
+    logic mem_r_credit;
+
+    ccu_axi_r_t mem_r;
+    logic       mem_r_valid, mem_r_ready;
 
     assign mem_ar_addr_check_o = ar_valid_i;
     assign mem_ar_addr_slice_o = ar_i.addr[ccuCfg.u.addressCheckMsb:ccuCfg.u.addressCheckLsb];
 
     //  Ignore the stall once the AR is presented (C5.2.3)
-    assign ar_allow   = ar_committed_q || !mem_ar_stall_i;
+    assign ar_allow   = mem_r_credit && (ar_committed_q || !mem_ar_stall_i);
     assign ar_valid_o = ar_valid_i && ar_allow;
     assign ar_ready_o = ar_ready_i && ar_allow;
 
@@ -94,6 +100,39 @@ module ccu_read_engine
         if (!rst_ni) ar_committed_q <= 1'b0;
         else         ar_committed_q <= ar_valid_o && !ar_ready_i;
     end
+
+    //  Memory R is never back-pressured, so a stalled initiator cannot hold a WriteBack B (C6.6.1)
+    credit_counter #(
+        .NumCredits (ccuCfg.u.numMemReadCredits)
+    ) u_mem_r_credits (
+        .clk_i,
+        .rst_ni,
+        .credit_o      (),
+        .credit_give_i (mem_r_valid && mem_r_ready && mem_r.last),
+        .credit_take_i (ar_valid_o && ar_ready_i),
+        .credit_init_i (1'b0),
+        .credit_left_o (mem_r_credit),
+        .credit_crit_o (),
+        .credit_full_o ()
+    );
+
+    stream_fifo #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (memRBeats),
+        .T            (ccu_axi_r_t)
+    ) u_mem_r_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .usage_o    (),
+        .data_i     (r_i),
+        .valid_i    (r_valid_i),
+        .ready_o    (r_ready_o),
+        .data_o     (mem_r),
+        .valid_o    (mem_r_valid),
+        .ready_i    (mem_r_ready)
+    );
 
     //  The tid is the memory ARID
     always_comb begin : mem_ar_comb
@@ -115,7 +154,7 @@ module ccu_read_engine
     logic [ccuCfg.transactionIndexWidth-1:0] r_mem_tid;
     r_beat_t r_beat;
 
-    assign r_mem_tid = r_i.id[ccuCfg.transactionIndexWidth-1:0];
+    assign r_mem_tid = mem_r.id[ccuCfg.transactionIndexWidth-1:0];
 
     //  Indexed by tid, overwritten per AR, never cleared
     logic [ccuCfg.u.numShareableTransactions-1:0] ar_is_shared_q, ar_exclusive_q;
@@ -131,11 +170,11 @@ module ccu_read_engine
     end
 
     always_comb begin : mem_r_comb
-        `AXI_TO_ACE_SET_R_STRUCT(r_mem, r_i)
+        `AXI_TO_ACE_SET_R_STRUCT(r_mem, mem_r)
         r_mem.id                            = sb_id_i[r_mem_tid];
         r_mem.resp[ace_pkg::RESP_IS_SHARED] = ar_is_shared_q[r_mem_tid];
         //  Errors pass through
-        if (ar_exclusive_q[r_mem_tid] && r_i.resp == axi_pkg::RESP_OKAY)
+        if (ar_exclusive_q[r_mem_tid] && mem_r.resp == axi_pkg::RESP_OKAY)
             r_mem.resp[axi_pkg::RespWidth-1:0] = axi_pkg::RESP_EXOKAY;
     end
 
@@ -145,12 +184,12 @@ module ccu_read_engine
     ) u_r_arbiter (
         .clk_i,
         .rst_ni,
-        .valid_i ({sc_fail_r_valid_i, r_valid_i, snoop_pipeline_r_valid_i}),
-        .ready_o ({sc_fail_r_ready_o, r_ready_o, snoop_pipeline_r_ready_o}),
+        .valid_i ({sc_fail_r_valid_i, mem_r_valid, snoop_pipeline_r_valid_i}),
+        .ready_o ({sc_fail_r_ready_o, mem_r_ready, snoop_pipeline_r_ready_o}),
         .data_i  ({r_beat_t'{sc_fail_r_i,        sc_fail_r_tid_i,        1'b1},
                    r_beat_t'{r_mem,              r_mem_tid,              1'b0},
                    r_beat_t'{snoop_pipeline_r_i, snoop_pipeline_r_tid_i, 1'b0}}),
-        .last_i  ({sc_fail_r_i.last, r_i.last, snoop_pipeline_r_i.last}),
+        .last_i  ({sc_fail_r_i.last, mem_r.last, snoop_pipeline_r_i.last}),
         .valid_o (r_valid_o),
         .ready_i (r_ready_i),
         .data_o  (r_beat)
@@ -169,7 +208,7 @@ module ccu_read_engine
         events_d = '0;
 
         //  Held by the write-engine hazard check, not by memory
-        events_d.ar_stall_hazard = ar_valid_i && !ar_allow;
+        events_d.ar_stall_hazard = ar_valid_i && !ar_committed_q && mem_ar_stall_i;
         events_d.ar_stall_mem    = ar_valid_o && !ar_ready_i;
         events_d.r_stall         = r_valid_o && !r_ready_i;
 
@@ -196,8 +235,53 @@ module ccu_read_engine
 
     //  memory never sees the lock of a load the CCU monitor reserves
     assert property (@(posedge clk_i) disable iff (!rst_ni)
-        r_valid_i && ar_exclusive_q[r_mem_tid] |-> r_i.resp != axi_pkg::RESP_EXOKAY)
+        mem_r_valid && ar_exclusive_q[r_mem_tid] |-> mem_r.resp != axi_pkg::RESP_EXOKAY)
         else $error("memory answered EXOKAY to a load sent without ARLOCK");
+
+    //  each credit covers one cacheline of R
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        ar_valid_o |-> ar_o.len < ccuCfg.cachelineAxiTransfers)
+        else $error("memory AR longer than the cacheline its credit reserves");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        r_valid_i |-> r_ready_o)
+        else $error("memory R back-pressured despite its credit");
+
+    //  memory R may interleave tids, but each tid's burst must match its own AR
+    localparam int unsigned chkTids = 2**ccuCfg.transactionIndexWidth;
+
+    logic          [chkTids-1:0] chk_out;
+    axi_pkg::len_t [chkTids-1:0] chk_len, chk_beat;
+
+    always @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            chk_out  = '0;
+            chk_len  = '0;
+            chk_beat = '0;
+        end else begin
+            if (r_valid_i && r_ready_o) begin
+                automatic logic [ccuCfg.transactionIndexWidth-1:0] tid =
+                    r_i.id[ccuCfg.transactionIndexWidth-1:0];
+
+                assert (chk_out[tid]) else $error("memory R for tid %0d with no outstanding AR", tid);
+                assert (r_i.last == (chk_beat[tid] == chk_len[tid]))
+                    else $error("memory R burst for tid %0d: last on beat %0d, AR len %0d",
+                                tid, chk_beat[tid], chk_len[tid]);
+                chk_beat[tid] = r_i.last ? '0 : chk_beat[tid] + 1;
+                if (r_i.last) chk_out[tid] = 1'b0;
+            end
+            if (ar_valid_o && ar_ready_i) begin
+                assert (!chk_out[ar_o.id[ccuCfg.transactionIndexWidth-1:0]])
+                    else $error("memory AR reuses outstanding tid %0d", ar_o.id);
+                chk_out[ar_o.id[ccuCfg.transactionIndexWidth-1:0]] = 1'b1;
+                chk_len[ar_o.id[ccuCfg.transactionIndexWidth-1:0]] = ar_o.len;
+            end
+        end
+    end
+
+    initial assert (ccuCfg.u.numMemReadCredits >= 1 &&
+                    ccuCfg.u.numMemReadCredits <= ccuCfg.u.numShareableTransactions)
+        else $fatal(1, "numMemReadCredits must be in 1..numShareableTransactions");
 
     //  the memory AR is stable while stalled
     assert property (@(posedge clk_i) disable iff (!rst_ni)

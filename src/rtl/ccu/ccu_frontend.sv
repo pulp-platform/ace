@@ -467,6 +467,46 @@ module ccu_frontend
                 sf_aw_remove_valid_o[s] && $stable(sf_aw_remove_addr_o[s]))
             else $error("a write-channel removal was withdrawn before the filter took it");
     end
+
+    //  HPDcache refills count beats: a subordinate takes R one whole burst at a time
+    for (genvar s = 0; s < ccuCfg.u.numSubordinates; s++) begin : gen_r_burst_assert
+        localparam int unsigned chkIds = 2**ccuCfg.u.axiSubordinateIdWidth;
+
+        axi_pkg::len_t chk_len  [chkIds][$];
+        axi_pkg::len_t chk_beat [chkIds];
+        logic          chk_open;
+        logic [ccuCfg.u.axiSubordinateIdWidth-1:0] chk_open_id;
+
+        always @(posedge clk_i or negedge rst_ni) begin
+            if (!rst_ni) begin
+                foreach (chk_len[i]) chk_len[i].delete();
+                foreach (chk_beat[i]) chk_beat[i] = '0;
+                chk_open = 1'b0;
+            end else begin
+                if (subordinate_resp_o[s].r_valid && subordinate_req_i[s].r_ready) begin
+                    automatic logic [ccuCfg.u.axiSubordinateIdWidth-1:0] id = subordinate_resp_o[s].r.id;
+                    automatic logic last = subordinate_resp_o[s].r.last;
+
+                    assert (!chk_open || id == chk_open_id)
+                        else $error("R bursts interleaved at subordinate %0d: id %0h inside id %0h",
+                                    s, id, chk_open_id);
+                    assert (chk_len[id].size() != 0)
+                        else $error("R at subordinate %0d for id %0h with no outstanding AR", s, id);
+                    if (chk_len[id].size() != 0) begin
+                        assert (last == (chk_beat[id] == chk_len[id][0]))
+                            else $error("R burst at subordinate %0d id %0h: last on beat %0d, AR len %0d",
+                                        s, id, chk_beat[id], chk_len[id][0]);
+                        if (last) void'(chk_len[id].pop_front());
+                    end
+                    chk_beat[id] = last ? '0 : chk_beat[id] + 1;
+                    chk_open     = !last;
+                    chk_open_id  = id;
+                end
+                if (subordinate_req_i[s].ar_valid && subordinate_resp_o[s].ar_ready)
+                    chk_len[subordinate_req_i[s].ar.id].push_back(subordinate_req_i[s].ar.len);
+            end
+        end
+    end
     `endif
     // pragma translate_on
     //  }}}

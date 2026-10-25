@@ -451,6 +451,14 @@ module ccu_snoop_pipeline
     logic                  cd_engine_fifo_ready;
     cd_engine_fifo_entry_t cd_engine_fifo_wdata;
     cd_engine_fifo_entry_t cd_engine_fifo_rdata;
+    logic                  cd_engine_push_ready;
+
+    //  An entry producing an initiator R reserves a cacheline of R buffering on entry
+    logic cd_r_needed, cd_r_credit, cd_r_admit;
+
+    assign cd_r_needed     = cd_engine_forward_to_read || cd_engine_ack_to_read;
+    assign cd_r_admit      = !cd_r_needed || cd_r_credit;
+    assign cd_engine_ready = cd_engine_push_ready && cd_r_admit;
 
     assign cd_engine_fifo_wdata  = '{
         source:           cd_data_source,
@@ -491,8 +499,8 @@ module ccu_snoop_pipeline
         .testmode_i (1'b0),
         .usage_o    (),
         .data_i     (cd_engine_fifo_wdata),
-        .valid_i    (cd_engine_valid),
-        .ready_o    (cd_engine_ready),
+        .valid_i    (cd_engine_valid && cd_r_admit),
+        .ready_o    (cd_engine_push_ready),
         .data_o     (cd_engine_fifo_rdata),
         .valid_o    (cd_engine_fifo_valid),
         .ready_i    (cd_engine_fifo_ready)
@@ -618,6 +626,14 @@ module ccu_snoop_pipeline
         user: cd_engine_fifo_rdata.ar.user
     };
 
+    typedef struct packed {
+        ccu_ace_r_t                              r;
+        logic [ccuCfg.transactionIndexWidth-1:0] tid;
+    } cd_r_beat_t;
+
+    cd_r_beat_t cd_r_beat, cd_r_beat_q;
+    logic       cd_r_valid, cd_r_ready;
+
     //  Read data XOR ack per entry
     stream_mux #(
         .DATA_T (ccu_ace_r_t),
@@ -627,12 +643,48 @@ module ccu_snoop_pipeline
         .inp_valid_i ({ack_branch_valid, cd_read_valid}),
         .inp_ready_o ({ack_branch_ready, cd_read_ready}),
         .inp_sel_i   (cd_engine_fifo_rdata.ack_to_read),
-        .oup_data_o  (read_engine_r_o),
-        .oup_valid_o (read_engine_r_valid_o),
-        .oup_ready_i (read_engine_r_ready_i)
+        .oup_data_o  (cd_r_beat.r),
+        .oup_valid_o (cd_r_valid),
+        .oup_ready_i (cd_r_ready)
     );
 
-    assign read_engine_r_tid_o = cd_engine_fifo_rdata.tid;
+    assign cd_r_beat.tid = cd_engine_fifo_rdata.tid;
+
+    //  A stalled initiator R cannot hold the writeback W it is forked with (C6.6.1)
+    credit_counter #(
+        .NumCredits (ccuCfg.u.numSnoopTransactions)
+    ) u_cd_r_credits (
+        .clk_i,
+        .rst_ni,
+        .credit_o      (),
+        .credit_give_i (read_engine_r_valid_o && read_engine_r_ready_i && read_engine_r_o.last),
+        .credit_take_i (cd_engine_valid && cd_engine_ready && cd_r_needed),
+        .credit_init_i (1'b0),
+        .credit_left_o (cd_r_credit),
+        .credit_crit_o (),
+        .credit_full_o ()
+    );
+
+    stream_fifo #(
+        .FALL_THROUGH (1'b0),
+        .DEPTH        (ccuCfg.u.numSnoopTransactions * ccuCfg.cachelineAxiTransfers),
+        .T            (cd_r_beat_t)
+    ) u_cd_r_fifo (
+        .clk_i,
+        .rst_ni,
+        .flush_i    (1'b0),
+        .testmode_i (1'b0),
+        .usage_o    (),
+        .data_i     (cd_r_beat),
+        .valid_i    (cd_r_valid),
+        .ready_o    (cd_r_ready),
+        .data_o     (cd_r_beat_q),
+        .valid_o    (read_engine_r_valid_o),
+        .ready_i    (read_engine_r_ready_i)
+    );
+
+    assign read_engine_r_o     = cd_r_beat_q.r;
+    assign read_engine_r_tid_o = cd_r_beat_q.tid;
 
 //  }}}
 
@@ -770,6 +822,10 @@ module ccu_snoop_pipeline
             ccu_ar_decode(stage1_fifo_rdata.ar.bar[0], stage1_fifo_rdata.ar.domain,
                           stage1_fifo_rdata.ar.snoop,  stage1_fifo_rdata.ar.lock))
         else $error("carried AR flags disagree with the AR");
+
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        cd_r_valid |-> cd_r_ready)
+        else $error("CD-sourced R back-pressured despite its credit");
 
     //  the initiator R is stable while stalled
     assert property (@(posedge clk_i) disable iff (!rst_ni)
