@@ -1,0 +1,125 @@
+addrmap ccu_csr #(
+    //  One counter per hardware event
+    longint unsigned numPerfCounters = 64
+) {
+    name = "CCU control and status registers";
+
+    reg perf_eventsel_r {
+        name = "Performance Event Selector";
+        desc = "Selects the microarchitectural event to monitor.";
+        regwidth = 32;
+
+        field {
+            name = "Event Code";
+            desc = "Hardware event ID, as ccu_pkg::ccu_events_t packs them. A
+                    per-port event counts the cycles any port had it.
+
+                    0x00 top.cycles
+                    0x01 top.mem_ar
+                    0x02 top.mem_r_beat
+                    0x03 top.mem_aw
+                    0x04 top.mem_w_beat
+                    0x05 top.mem_b
+                    0x06 port.ar_accept
+                    0x07 port.ar_stall_r_slot
+                    0x08 port.aw_accept
+                    0x09 port.aw_stall
+                    0x0A port.w_wait_map
+                    0x0B port.r_beat
+                    0x0C port.r_stall
+                    0x0D port.b_beat
+                    0x0E port.cd_wait_resolve
+                    0x0F tt.admit_read
+                    0x10 tt.admit_back_inval
+                    0x11 tt.admit_stall_full
+                    0x12 tt.chained
+                    0x13 tt.snoop_token
+                    0x14 tt.snoop_stall_ac_full
+                    0x15 tt.resolve
+                    0x16 tt.resolve_stall_writeback
+                    0x17 tt.resolve_stall_memory
+                    0x18 tt.insert_owed
+                    0x19 tt.issue_stall_tid
+                    0x1A snoop.ac_sent
+                    0x1B snoop.ac_stall
+                    0x1C snoop.cr
+                    0x1D mem.ar_issued
+                    0x1E mem.ar_stall_memory
+                    0x1F mem.ar_stall_hazard
+                    0x20 mem.r_beat
+                    0x21 lane.port_alloc
+                    0x22 lane.port_stall_full
+                    0x23 lane.writeback_alloc
+                    0x24 lane.aw_issued
+                    0x25 lane.aw_stall_memory
+                    0x26 lane.w_beat
+                    0x27 lane.w_stall_memory
+                    0x28 lane.b
+                    0x29 filter.lookup
+                    0x2A filter.lookup_present_none
+                    0x2B filter.lookup_present_all
+                    0x2C filter.update_busy
+                    0x2D filter.insert_stuck
+                    0x2E filter.back_inval
+                    0x2F filter.remove_miss";
+            sw = rw;
+            hw = r;
+            fieldwidth = 8;
+        } event_id = 0;
+    };
+
+    reg perf_counter_r {
+        name = "Performance Counter";
+        desc = "32-bit counter value incremented by the hardware.";
+        regwidth = 32;
+
+        field {
+            name = "Count";
+            sw = rw;
+            hw = r;
+            counter;
+            fieldwidth = 32;
+        } cnt = 0;
+    };
+
+    reg perf_countinhibit_r {
+        name = "Counter Inhibit";
+        desc = "Bit [i] = 1 means counter [i] is STOPPED. Bit [i] = 0 lets it
+                run. One register per 32 counters.";
+        regwidth = 32;
+
+        field {
+            name = "Inhibit Bitmask";
+            sw = rw;
+            hw = r;
+            fieldwidth = 32;
+        } inh = (1 << 32) - 1;
+    };
+
+    reg ctrl_r {
+        name = "Static Configuration";
+        desc = "Static configuration bits for the CCU features.";
+        regwidth = 32;
+
+        field {
+            name = "Snoop Filter Enable";
+            sw = rw;
+            hw = r;
+            fieldwidth = 1;
+        } snoop_filter_en = 1;
+    };
+
+    // --- Memory Map Instantiation ---
+
+    // Global Control @ 0x00, one register per 32 counters
+    perf_countinhibit_r perf_countinhibit[numPerfCounters / 32] @ 0x00;
+
+    // Array of Event Selectors @ 0x40
+    perf_eventsel_r perf_eventsel[numPerfCounters] @ 0x40;
+
+    // Array of 32-bit Counters @ 0x140
+    perf_counter_r perf_counter[numPerfCounters] @ 0x140;
+
+    // Control register
+    ctrl_r ctrl;
+};

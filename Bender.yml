@@ -1,0 +1,57 @@
+package:
+  name: ace
+  # Authors in alphabetical order (surname)
+  authors:
+    - "Aleksi Korsman <aleksi.korsman@aalto.fi>"
+    - "Riccardo Tedeschi <riccardo.tedeschi6@unibo.it>"
+
+dependencies:
+  axi:
+    git: "https://github.com/pulp-platform/axi.git"
+    version: 0.39.9
+  common_cells:
+    git: "https://github.com/pulp-platform/common_cells.git"
+    version: 1.39.0
+  apb:
+    git: "https://github.com/pulp-platform/apb.git"
+    version: 0.2.4
+  tech_cells_generic:
+    git: "https://github.com/pulp-platform/tech_cells_generic.git"
+    version: 0.2.2
+
+export_include_dirs:
+  - include
+
+sources:
+  # Generic ACE package and interfaces
+  - src/rtl/ace_pkg.sv
+  - src/rtl/ace_intf.sv
+  - src/rtl/snoop_intf.sv
+  - src/rtl/stream_iterator.sv
+  - src/rtl/ace_cut.sv
+  - src/rtl/snoop_cut.sv
+  # CCU package
+  - src/rtl/ccu/ccu_pkg.sv
+  # CCU registers, generated from src/rdl by `make regs`
+  - src/rtl/ccu/generated/ccu_csr_pkg.sv
+  - src/rtl/ccu/generated/ccu_csr.sv
+  - src/rtl/ccu/ccu_csr_wrap.sv
+  # CCU source files
+  - src/rtl/ccu/ccu_pulse_cut.sv
+  - src/rtl/ccu/ccu_r_buffer.sv
+  - src/rtl/ccu/ccu_port_read.sv
+  - src/rtl/ccu/ccu_port_write.sv
+  - src/rtl/ccu/ccu_port_snoop.sv
+  - src/rtl/ccu/ccu_port_adapter.sv
+  - src/rtl/ccu/ccu_snoop_engine.sv
+  - src/rtl/ccu/ccu_mem_engine.sv
+  - src/rtl/ccu/ccu_write_lane.sv
+  - src/rtl/ccu/ccu_excl_monitor.sv
+  - src/rtl/ccu/ccu_snoop_filter.sv
+  - src/rtl/ccu/ccu_line_chain.sv
+  - src/rtl/ccu/ccu_dispatch_pool.sv
+  - src/rtl/ccu/ccu_completion_entry.sv
+  - src/rtl/ccu/ccu_completion_buffer.sv
+  - src/rtl/ccu/ccu_tt.sv
+  - src/rtl/ccu/ccu_slice.sv
+  - src/rtl/ccu/ccu_top.sv
