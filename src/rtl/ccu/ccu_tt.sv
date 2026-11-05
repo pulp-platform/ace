@@ -61,6 +61,7 @@ module ccu_tt
     output logic                                lookup_valid_o,
     output logic        [lineW-1:0]             lookup_line_o,
     input  logic        [numSub-1:0]            lookup_present_i,
+    input  logic                                lookup_ready_i,
 
     //  Exclusive monitor, answer registered
     output excl_req_t                           excl_req_o,
@@ -172,6 +173,7 @@ module ccu_tt
         .lookup_valid_o,
         .lookup_line_o,
         .lookup_present_i,
+        .lookup_ready_i,
         .cb_read_tid_i       (cb_read_tid),
         .cb_read_full_i      (cb_read_full),
         .cb_bi_tid_i         (cb_bi_tid),

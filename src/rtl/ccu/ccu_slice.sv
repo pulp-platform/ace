@@ -139,6 +139,7 @@ module ccu_slice
     logic                          lookup_valid;
     logic        [lineW-1:0]       lookup_line;
     logic        [numSub-1:0]      lookup_present;
+    logic                          lookup_ready;
     logic        [numSub-1:0]      bi_valid, bi_ready;
     logic        [numSub-1:0][lineW-1:0] bi_line;
     logic                          insert_valid;
@@ -187,6 +188,7 @@ module ccu_slice
         .lookup_valid_o     (lookup_valid),
         .lookup_line_o      (lookup_line),
         .lookup_present_i   (lookup_present),
+        .lookup_ready_i     (lookup_ready),
         .excl_req_o         (excl_req),
         .excl_req_valid_o   (excl_req_valid),
         .excl_i             (excl),
@@ -372,6 +374,7 @@ module ccu_slice
             .lookup_valid_i    (lookup_valid),
             .lookup_line_i     (lookup_line),
             .lookup_present_o  (lookup_present),
+            .lookup_ready_o    (lookup_ready),
             .insert_valid_i    (insert_valid),
             .insert_port_i     (insert_port),
             .insert_line_i     (insert_line),
@@ -395,6 +398,7 @@ module ccu_slice
     end else begin : gen_no_snoop_filter
         //  Every snoop is broadcast
         assign lookup_present  = '1;
+        assign lookup_ready    = 1'b1;
         assign bi_valid        = '0;
         assign bi_line         = '0;
         assign insert_free     = '1;

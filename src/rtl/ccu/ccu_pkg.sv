@@ -54,6 +54,8 @@ package ccu_pkg;
         int unsigned    numBackInvalSlots;
         //  R buffer and write-lane data in flops; a 2-port tc_sram otherwise
         bit             flopBuffers;
+        //  Filter tag arrays on one port, shared by fixed phases; two ports otherwise
+        bit             singlePortFilter;
         //  Register cuts, one bit per channel; see the Cut* indices
         logic [9:0]     cutSubordinate;
         logic [4:0]     cutManager;

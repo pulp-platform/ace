@@ -35,6 +35,7 @@ module ccu_snoop_filter
     input  logic                            lookup_valid_i,
     input  logic [lineW-1:0]                lookup_line_i,
     output logic [numSub-1:0]               lookup_present_o,
+    output logic                            lookup_ready_o,
 
     //  One insert channel, taken at once by a free table; done once the line is in it
     input  logic                            insert_valid_i,
@@ -69,6 +70,7 @@ module ccu_snoop_filter
     localparam int unsigned numWays = ccuCfg.u.subordinateCacheWays;
     localparam int unsigned entryW  = ccuCfg.snoopFilterEntryWidth;
     localparam int unsigned wayW    = numWays > 1 ? $clog2(numWays) : 1;
+    localparam int unsigned numTagPorts = ccuCfg.u.singlePortFilter ? 1 : 2;
 
     typedef struct packed {
         logic            valid;
@@ -78,6 +80,8 @@ module ccu_snoop_filter
     typedef enum logic [1:0] { OpAwRemove, OpCrRemove, OpInsert } op_e;
 
     typedef enum logic [1:0] { BiIdle, BiSend, BiOwed } bi_state_e;
+
+    typedef enum logic [1:0] { PhaseUpdateRead, PhaseLookup, PhaseUpdateWrite } tag_phase_e;
 
     typedef struct packed {
         logic [lineW-1:0] line;
@@ -113,12 +117,30 @@ module ccu_snoop_filter
 
     logic [numSub-1:0] evt_busy, evt_stuck, evt_remove_miss;
 
+    //  One global rotation on the shared tag port: every table follows the same phase
+    tag_phase_e phase_q;
+    logic       update_turn;
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni)                         phase_q <= PhaseUpdateRead;
+        else if (phase_q == PhaseUpdateRead) phase_q <= PhaseLookup;
+        else if (phase_q == PhaseLookup)     phase_q <= PhaseUpdateWrite;
+        else                                 phase_q <= PhaseUpdateRead;
+    end
+
+    assign lookup_ready_o = !ccuCfg.u.singlePortFilter || phase_q == PhaseLookup;
+    assign update_turn    = !ccuCfg.u.singlePortFilter || phase_q == PhaseUpdateRead;
+
     for (genvar s = 0; s < numSub; s++) begin : gen_table
         entry_t [numWays-1:0] upd_rdata, lkp_rdata, upd_wdata;
-        entry_t [numWays-1:0] upd_sram_rdata, lkp_sram_rdata;
         logic   [numWays-1:0] upd_be;
         logic   [setW-1:0]    upd_addr;
         logic                 upd_req, upd_we;
+
+        logic   [numTagPorts-1:0]              tag_req, tag_we;
+        logic   [numTagPorts-1:0][setW-1:0]    tag_addr;
+        logic   [numTagPorts-1:0][numWays-1:0] tag_be;
+        entry_t [numTagPorts-1:0][numWays-1:0] tag_wdata, tag_rdata;
 
         logic                 init_done_q;
         logic [setW:0]        init_cnt_q;
@@ -212,7 +234,7 @@ module ccu_snoop_filter
             start_op   = OpAwRemove;
             start_line = aw_head;
             start_tid  = '0;
-            if (init_done_q && !read_q && !busy_q) begin
+            if (init_done_q && !read_q && !busy_q && update_turn) begin
                 if (aw_valid && (rm_turn_q || cr_empty)) begin
                     start = 1'b1;
                 end else if (!cr_empty) begin
@@ -313,22 +335,39 @@ module ccu_snoop_filter
             .NumWords  (numSets),
             .DataWidth (numWays * entryW),
             .ByteWidth (entryW),
-            .NumPorts  (32'd2),
+            .NumPorts  (numTagPorts),
             .Latency   (32'd1)
         ) u_tag_array (
             .clk_i,
             .rst_ni,
-            .req_i   ({lookup_valid_i, upd_req}),
-            .we_i    ({1'b0, upd_we}),
-            .addr_i  ({set_of(lookup_line_i), upd_addr}),
-            .wdata_i ({{(numWays * entryW){1'b0}}, upd_wdata}),
-            .be_i    ({{numWays{1'b0}}, upd_be}),
-            .rdata_o ({lkp_sram_rdata, upd_sram_rdata})
+            .req_i   (tag_req),
+            .we_i    (tag_we),
+            .addr_i  (tag_addr),
+            .wdata_i (tag_wdata),
+            .be_i    (tag_be),
+            .rdata_o (tag_rdata)
         );
 
+        if (ccuCfg.u.singlePortFilter) begin : gen_shared_tag_port
+            logic lookup_turn;
+
+            assign lookup_turn  = lookup_valid_i && init_done_q;
+            assign tag_req[0]   = upd_req || lookup_turn;
+            assign tag_we[0]    = upd_we;
+            assign tag_addr[0]  = lookup_turn ? set_of(lookup_line_i) : upd_addr;
+            assign tag_wdata[0] = upd_wdata;
+            assign tag_be[0]    = upd_be;
+        end else begin : gen_own_tag_ports
+            assign tag_req   = {lookup_valid_i, upd_req};
+            assign tag_we    = {1'b0, upd_we};
+            assign tag_addr  = {set_of(lookup_line_i), upd_addr};
+            assign tag_wdata = {{(numWays * entryW){1'b0}}, upd_wdata};
+            assign tag_be    = {{numWays{1'b0}}, upd_be};
+        end
+
         always_ff @(posedge clk_i) begin
-            upd_rdata <= upd_sram_rdata;
-            lkp_rdata <= lkp_sram_rdata;
+            upd_rdata <= tag_rdata[0];
+            lkp_rdata <= tag_rdata[numTagPorts-1];
         end
 
         //  The back-invalidation stands until a removal of its victim is applied
@@ -413,7 +452,20 @@ module ccu_snoop_filter
 //  {{{
     // pragma translate_off
     `ifndef VERILATOR
+    assert property (@(posedge clk_i) disable iff (!rst_ni)
+        lookup_valid_i |-> lookup_ready_o)
+        else $error("a lookup outside its phase");
+
     for (genvar s = 0; s < numSub; s++) begin : gen_table_assertions
+        assert property (@(posedge clk_i) disable iff (!rst_ni || !gen_table[s].init_done_q)
+            ccuCfg.u.singlePortFilter && gen_table[s].upd_req |-> phase_q != PhaseLookup)
+            else $error("an update took the tag port in the lookup phase");
+
+        assert property (@(posedge clk_i) disable iff (!rst_ni || !gen_table[s].init_done_q)
+            ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].upd_we |->
+            phase_q == PhaseUpdateWrite)
+            else $error("an update wrote outside its phase");
+
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             gen_table[s].busy_q |-> $onehot0(gen_table[s].way_match))
             else $error("a set holds the same line twice");

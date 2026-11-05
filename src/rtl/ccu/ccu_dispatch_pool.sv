@@ -61,6 +61,7 @@ module ccu_dispatch_pool
     output logic                                   lookup_valid_o,
     output logic        [lineW-1:0]                lookup_line_o,
     input  logic        [numSub-1:0]               lookup_present_i,
+    input  logic                                   lookup_ready_i,
 
     //  Completion buffer: free tids, and the live entries to chain behind
     input  logic        [tidW-1:0]                 cb_read_tid_i,
@@ -169,7 +170,8 @@ module ccu_dispatch_pool
         .empty_o (pool_full)
     );
 
-    assign admit_req = {bi_valid_i & {numSub{!bi_slots_full}}, ar_valid_i & {numSub{!pool_full}}};
+    assign admit_req = {bi_valid_i & {numSub{!bi_slots_full}},
+                        ar_valid_i & {numSub{!pool_full && lookup_ready_i}}};
 
     rr_arb_tree #(
         .NumIn     (2*numSub),
