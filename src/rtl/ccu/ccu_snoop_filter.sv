@@ -118,8 +118,9 @@ module ccu_snoop_filter
     logic [numSub-1:0] evt_busy, evt_stuck, evt_remove_miss;
 
     //  One global rotation on the shared tag port: every table follows the same phase
-    tag_phase_e phase_q;
-    logic       update_turn;
+    tag_phase_e        phase_q;
+    logic              update_turn;
+    logic [numSub-1:0] update_waiting, update_busy;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni)                         phase_q <= PhaseUpdateRead;
@@ -128,7 +129,10 @@ module ccu_snoop_filter
         else                                 phase_q <= PhaseUpdateRead;
     end
 
-    assign lookup_ready_o = !ccuCfg.u.singlePortFilter || phase_q == PhaseLookup;
+    //  A lookup also takes an update phase that no table uses
+    assign lookup_ready_o = !ccuCfg.u.singlePortFilter || phase_q == PhaseLookup ||
+                            phase_q == PhaseUpdateRead  && update_waiting == '0 ||
+                            phase_q == PhaseUpdateWrite && update_busy == '0;
     assign update_turn    = !ccuCfg.u.singlePortFilter || phase_q == PhaseUpdateRead;
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table
@@ -229,12 +233,17 @@ module ccu_snoop_filter
         end
 
         //  One update in flight: read the set, then write the way it decides on
+        assign update_waiting[s] = init_done_q && !read_q && !busy_q &&
+                                   (aw_valid || !cr_empty ||
+                                    hold_valid_q && tracked(hold_line_q) && bi_state_q == BiIdle);
+        assign update_busy[s]    = busy_q;
+
         always_comb begin : start_comb
             start      = 1'b0;
             start_op   = OpAwRemove;
             start_line = aw_head;
             start_tid  = '0;
-            if (init_done_q && !read_q && !busy_q && update_turn) begin
+            if (update_waiting[s] && update_turn) begin
                 if (aw_valid && (rm_turn_q || cr_empty)) begin
                     start = 1'b1;
                 end else if (!cr_empty) begin
@@ -461,6 +470,11 @@ module ccu_snoop_filter
             ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].init_done_q |->
             phase_q != PhaseLookup)
             else $error("an update took the tag port in the lookup phase");
+
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            ccuCfg.u.singlePortFilter && lookup_valid_i && gen_table[s].init_done_q |->
+            !gen_table[s].upd_req)
+            else $error("a lookup and an update shared the tag port");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
             ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].upd_we &&
