@@ -457,13 +457,14 @@ module ccu_snoop_filter
         else $error("a lookup outside its phase");
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table_assertions
-        assert property (@(posedge clk_i) disable iff (!rst_ni || !gen_table[s].init_done_q)
-            ccuCfg.u.singlePortFilter && gen_table[s].upd_req |-> phase_q != PhaseLookup)
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].init_done_q |->
+            phase_q != PhaseLookup)
             else $error("an update took the tag port in the lookup phase");
 
-        assert property (@(posedge clk_i) disable iff (!rst_ni || !gen_table[s].init_done_q)
-            ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].upd_we |->
-            phase_q == PhaseUpdateWrite)
+        assert property (@(posedge clk_i) disable iff (!rst_ni)
+            ccuCfg.u.singlePortFilter && gen_table[s].upd_req && gen_table[s].upd_we &&
+            gen_table[s].init_done_q |-> phase_q == PhaseUpdateWrite)
             else $error("an update wrote outside its phase");
 
         assert property (@(posedge clk_i) disable iff (!rst_ni)
