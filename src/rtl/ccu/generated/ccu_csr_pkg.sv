@@ -5,7 +5,7 @@ package ccu_csr_pkg;
 
     localparam CCU_CSR_DATA_WIDTH = 32;
     localparam CCU_CSR_MIN_ADDR_WIDTH = 10;
-    localparam CCU_CSR_SIZE = 'h244;
+    localparam CCU_CSR_SIZE = 'h240;
     localparam numPerfCounters = 'h40;
 
     typedef struct {
@@ -45,17 +45,8 @@ package ccu_csr_pkg;
     } ccu_csr__perf_counter_r__out_t;
 
     typedef struct {
-        logic value;
-    } ccu_csr__ctrl_r__snoop_filter_en__out_t;
-
-    typedef struct {
-        ccu_csr__ctrl_r__snoop_filter_en__out_t snoop_filter_en;
-    } ccu_csr__ctrl_r__out_t;
-
-    typedef struct {
         ccu_csr__perf_countinhibit_r__out_t perf_countinhibit[2];
         ccu_csr__perf_eventsel_r__out_t perf_eventsel[64];
         ccu_csr__perf_counter_r__out_t perf_counter[64];
-        ccu_csr__ctrl_r__out_t ctrl;
     } ccu_csr__out_t;
 endpackage

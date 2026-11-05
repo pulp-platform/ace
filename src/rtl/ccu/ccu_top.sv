@@ -691,7 +691,6 @@ module ccu_top
 //  {{{
     ccu_axi_manager_req_t  slice_req;
     ccu_axi_manager_resp_t slice_resp;
-    ccu_phase_e [numTids-1:0] phase;
     ccu_events_t      perf_events;
 
     ccu_slice #(
@@ -763,7 +762,6 @@ module ccu_top
         .rack_tid_i      (slc_rack_tid),
         .manager_req_o   (slice_req),
         .manager_resp_i  (slice_resp),
-        .phase_o         (phase),
         .tt_events_o     (perf_events.tt),
         .snoop_events_o  (perf_events.snoop),
         .mem_events_o    (perf_events.mem),

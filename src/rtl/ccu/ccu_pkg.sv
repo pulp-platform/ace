@@ -44,8 +44,6 @@ package ccu_pkg;
         int unsigned    snoopFilterAddrWidth;
         //  Instantiate CCU control and status registers
         bit             enableCSRs;
-        //  Home slices, interleaved by address; only one for now
-        int unsigned    numSlices;
         //  R reassembly slots per port, one per outstanding read
         int unsigned    numRSlots;
         //  Write-lane slots for the managers' non-blocking writes
@@ -253,18 +251,6 @@ package ccu_pkg;
         OpBackInval,
         OpInvalid
     } ccu_op_e;
-
-    //  Where an entry is in its life
-    typedef enum logic [2:0] {
-        PhaseFree,
-        PhaseAdmitted,
-        PhaseOrdered,
-        PhaseSnooping,
-        PhaseResolved,
-        PhaseActing,
-        PhaseAcked,
-        PhaseSettled
-    } ccu_phase_e;
 
     //  What an entry does once its snoops are resolved
     typedef struct packed {

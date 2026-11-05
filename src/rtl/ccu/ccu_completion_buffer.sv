@@ -112,8 +112,7 @@ module ccu_completion_buffer
 
     output ccu_tt_events_t                      events_o,
     output logic        [numTids-1:0]           acked_o,
-    output logic        [numTids-1:0]           free_o,
-    output ccu_phase_e  [numTids-1:0]           phase_o
+    output logic        [numTids-1:0]           free_o
 );
 
 //  Entries
@@ -147,7 +146,6 @@ module ccu_completion_buffer
         logic                freeing;
         logic                acked_now;
         logic                respond_late;
-        ccu_phase_e          phase;
     } status_t;
 
     status_t [numTids-1:0] st;
@@ -156,7 +154,6 @@ module ccu_completion_buffer
     for (genvar t = 0; t < numTids; t++) begin : gen_status
         assign valid[t]            = st[t].state.valid;
         assign freeing[t]          = st[t].freeing;
-        assign phase_o[t]          = st[t].phase;
         assign acked_o[t]          = st[t].state.acked;
         assign live_o[t]           = valid[t] && !freeing[t];
         assign tail_o[t]           = st[t].state.tail;

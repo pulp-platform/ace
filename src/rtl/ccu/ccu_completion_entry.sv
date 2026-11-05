@@ -135,7 +135,7 @@ module ccu_completion_entry
     end
 //  }}}
 
-//  Status, and the phase the lifecycle names
+//  Status
 //  {{{
     always_comb begin : status_comb
         status_o           = '0;
@@ -143,12 +143,6 @@ module ccu_completion_entry
         status_o.freeing   = freeing;
         status_o.acked_now = acked_now;
         status_o.respond_late = src_done && q.pending.ack_r && q.pending.cd_wb && !q.responding;
-        if (!q.valid)                       status_o.phase = PhaseFree;
-        else if (!q.resolved)               status_o.phase = PhaseSnooping;
-        else if (!q.responding && !q.bi)    status_o.phase = PhaseResolved;
-        else if (!q.acked)                  status_o.phase = PhaseActing;
-        else if (!settled)                  status_o.phase = PhaseAcked;
-        else                                status_o.phase = PhaseSettled;
     end
 //  }}}
 
@@ -196,7 +190,8 @@ module ccu_completion_entry
 
     assert property (@(posedge clk_i) disable iff (!rst_ni)
         age_q < livenessBound)
-        else $error("entry live for %0d cycles in phase %s", livenessBound, status_o.phase.name());
+        else $error("entry live for %0d cycles: resolved %b responding %b acked %b", livenessBound,
+               q.resolved, q.responding, q.acked);
     `endif
     // pragma translate_on
 //  }}}

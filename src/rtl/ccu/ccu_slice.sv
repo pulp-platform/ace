@@ -106,18 +106,12 @@ module ccu_slice
     output mgr_req_t                           manager_req_o,
     input  mgr_resp_t                          manager_resp_i,
 
-    output ccu_phase_e  [numTids-1:0]          phase_o,
-
     output ccu_tt_events_t                     tt_events_o,
     output ccu_snoop_events_t                  snoop_events_o,
     output ccu_mem_events_t                    mem_events_o,
     output ccu_lane_events_t                   lane_events_o,
     output ccu_filter_events_t                 filter_events_o
 );
-
-    if (ccuCfg.u.numSlices != 1) begin : gen_slices_check
-        $error("numSlices (%0d) must be 1", ccuCfg.u.numSlices);
-    end
 
     //  Back-invalidations need tids no read can hold
     if (ccuCfg.u.numBackInvalSlots < 1) begin : gen_back_inval_check
@@ -236,7 +230,6 @@ module ccu_slice
         .cr_remove_ready_i  (cr_remove_ready),
         .acked_o            (acked),
         .free_o             (freeing),
-        .phase_o,
         .events_o           (tt_events_o)
     );
 //  }}}

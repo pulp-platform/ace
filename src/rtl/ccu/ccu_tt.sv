@@ -120,8 +120,7 @@ module ccu_tt
 
     output ccu_tt_events_t                      events_o,
     output logic        [numTids-1:0]           acked_o,
-    output logic        [numTids-1:0]           free_o,
-    output ccu_phase_e  [numTids-1:0]           phase_o
+    output logic        [numTids-1:0]           free_o
 );
 
 //  Issue: what the completion entry starts from
@@ -267,8 +266,7 @@ module ccu_tt
         .cr_remove_ready_i,
         .events_o           (buffer_events),
         .acked_o,
-        .free_o,
-        .phase_o
+        .free_o
     );
 //  }}}
 

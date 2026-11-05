@@ -90,7 +90,6 @@ module ccu_csr (
         logic perf_countinhibit[2];
         logic perf_eventsel[64];
         logic perf_counter[64];
-        logic ctrl;
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_err;
@@ -114,7 +113,6 @@ module ccu_csr (
         for(int i0=0; i0<64; i0++) begin
             decoded_reg_strb.perf_counter[i0] = cpuif_req_masked & (cpuif_addr == 10'h140 + (10)'(i0) * 10'h4);
         end
-        decoded_reg_strb.ctrl = cpuif_req_masked & (cpuif_addr == 10'h240);
         decoded_err = '0;
     end
 
@@ -149,12 +147,6 @@ module ccu_csr (
                 logic overflow;
             } cnt;
         } perf_counter[64];
-        struct {
-            struct {
-                logic next;
-                logic load_next;
-            } snoop_filter_en;
-        } ctrl;
     } field_combo_t;
     field_combo_t field_combo;
 
@@ -174,11 +166,6 @@ module ccu_csr (
                 logic [31:0] value;
             } cnt;
         } perf_counter[64];
-        struct {
-            struct {
-                logic value;
-            } snoop_filter_en;
-        } ctrl;
     } field_storage_t;
     field_storage_t field_storage;
 
@@ -265,29 +252,6 @@ module ccu_csr (
         end
         assign hwif_out.perf_counter[i0].cnt.value = field_storage.perf_counter[i0].cnt.value;
     end
-    // Field: ccu_csr.ctrl.snoop_filter_en
-    always_comb begin
-        automatic logic [0:0] next_c;
-        automatic logic load_next_c;
-        next_c = field_storage.ctrl.snoop_filter_en.value;
-        load_next_c = '0;
-        if(decoded_reg_strb.ctrl && decoded_req_is_wr) begin // SW write
-            next_c = (field_storage.ctrl.snoop_filter_en.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
-            load_next_c = '1;
-        end
-        field_combo.ctrl.snoop_filter_en.next = next_c;
-        field_combo.ctrl.snoop_filter_en.load_next = load_next_c;
-    end
-    always_ff @(posedge clk or negedge arst_n) begin
-        if(~arst_n) begin
-            field_storage.ctrl.snoop_filter_en.value <= 1'h1;
-        end else begin
-            if(field_combo.ctrl.snoop_filter_en.load_next) begin
-                field_storage.ctrl.snoop_filter_en.value <= field_combo.ctrl.snoop_filter_en.next;
-            end
-        end
-    end
-    assign hwif_out.ctrl.snoop_filter_en.value = field_storage.ctrl.snoop_filter_en.value;
 
     //--------------------------------------------------------------------------
     // Write response
@@ -323,9 +287,6 @@ module ccu_csr (
             if(rd_mux_addr == 10'h140 + (10)'(i0) * 10'h4) begin
                 readback_data_var[31:0] = field_storage.perf_counter[i0].cnt.value;
             end
-        end
-        if(rd_mux_addr == 10'h240) begin
-            readback_data_var[0] = field_storage.ctrl.snoop_filter_en.value;
         end
         readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;
