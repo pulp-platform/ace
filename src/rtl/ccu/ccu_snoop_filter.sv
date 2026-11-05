@@ -115,6 +115,7 @@ module ccu_snoop_filter
 
     for (genvar s = 0; s < numSub; s++) begin : gen_table
         entry_t [numWays-1:0] upd_rdata, lkp_rdata, upd_wdata;
+        entry_t [numWays-1:0] upd_sram_rdata, lkp_sram_rdata;
         logic   [numWays-1:0] upd_be;
         logic   [setW-1:0]    upd_addr;
         logic                 upd_req, upd_we;
@@ -313,7 +314,7 @@ module ccu_snoop_filter
             .DataWidth (numWays * entryW),
             .ByteWidth (entryW),
             .NumPorts  (32'd2),
-            .Latency   (32'd2)
+            .Latency   (32'd1)
         ) u_tag_array (
             .clk_i,
             .rst_ni,
@@ -322,8 +323,13 @@ module ccu_snoop_filter
             .addr_i  ({set_of(lookup_line_i), upd_addr}),
             .wdata_i ({{(numWays * entryW){1'b0}}, upd_wdata}),
             .be_i    ({{numWays{1'b0}}, upd_be}),
-            .rdata_o ({lkp_rdata, upd_rdata})
+            .rdata_o ({lkp_sram_rdata, upd_sram_rdata})
         );
+
+        always_ff @(posedge clk_i) begin
+            upd_rdata <= upd_sram_rdata;
+            lkp_rdata <= lkp_sram_rdata;
+        end
 
         //  The back-invalidation stands until a removal of its victim is applied
         always_comb begin : bi_comb
