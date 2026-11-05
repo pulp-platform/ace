@@ -96,8 +96,6 @@ module ccu_write_lane
         logic [dataW-1:0] data;
     } word_t;
 
-    localparam int unsigned beW = ($bits(word_t) + 7) / 8;
-
     typedef struct packed {
         logic [slotW-1:0] slot;
         logic [dataW-1:0] data;
@@ -420,7 +418,7 @@ module ccu_write_lane
     logic [1:0]     space_q;
     logic           rd_valid_q, rd_last_q;
     logic [slotW-1:0] rd_slot_q;
-    word_t [1:0]    sram_rdata;
+    word_t          rd_word;
     mgr_w_t         rd_w;
     logic           out_empty, out_pop;
 
@@ -446,28 +444,25 @@ module ccu_write_lane
         end
     end
 
-    tc_sram #(
-        .NumWords  (numWords),
-        .DataWidth ($bits(word_t)),
-        .ByteWidth (32'd8),
-        .NumPorts  (32'd2),
-        .Latency   (32'd1)
+    ccu_buffer_mem #(
+        .NumWords (numWords),
+        .UseFlops (ccuCfg.u.flopBuffers),
+        .word_t   (word_t)
     ) u_data (
         .clk_i,
         .rst_ni,
-        .req_i   ({rd_issue, wr_req}),
-        .we_i    ({1'b0, 1'b1}),
-        .addr_i  ({word_of(order_head, rd_beat_q), word_of(wr_beat.slot, beats_q[wr_beat.slot])}),
-        .wdata_i ({word_t'('0), word_t'{strb: wr_beat.strb, data: wr_beat.data}}),
-        //  A beat is written once, whole, so a strobed-off lane holds a defined value
-        .be_i    ({{beW{1'b0}}, {beW{1'b1}}}),
-        .rdata_o (sram_rdata)
+        .wr_valid_i (wr_req),
+        .wr_addr_i  (word_of(wr_beat.slot, beats_q[wr_beat.slot])),
+        .wr_data_i  (word_t'{strb: wr_beat.strb, data: wr_beat.data}),
+        .rd_valid_i (rd_issue),
+        .rd_addr_i  (word_of(order_head, rd_beat_q)),
+        .rd_data_o  (rd_word)
     );
 
     always_comb begin : rd_w_comb
         rd_w      = '0;
-        rd_w.data = sram_rdata[1].data;
-        rd_w.strb = sram_rdata[1].strb;
+        rd_w.data = rd_word.data;
+        rd_w.strb = rd_word.strb;
         rd_w.last = rd_last_q;
         rd_w.user = info_q[rd_slot_q].aw.user;
     end

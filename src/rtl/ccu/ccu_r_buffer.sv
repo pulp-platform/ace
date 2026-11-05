@@ -146,7 +146,6 @@ module ccu_r_buffer
     logic                rd_valid_q;
     logic [slotW-1:0]    rd_slot_q;
     logic                rd_last_q;
-    word_t [1:0]         sram_rdata;
     word_t               rd_word;
     beat_t               rd_beat;
     beat_t               out_beat;
@@ -222,24 +221,20 @@ module ccu_r_buffer
         end
     end
 
-    tc_sram #(
-        .NumWords  (numWords),
-        .DataWidth ($bits(word_t)),
-        .ByteWidth ($bits(word_t)),
-        .NumPorts  (32'd2),
-        .Latency   (32'd1)
+    ccu_buffer_mem #(
+        .NumWords (numWords),
+        .UseFlops (ccuCfg.u.flopBuffers),
+        .word_t   (word_t)
     ) u_data (
         .clk_i,
         .rst_ni,
-        .req_i   ({issue && !info_q[sel_slot].ack, wr_req}),
-        .we_i    ({1'b0, 1'b1}),
-        .addr_i  ({word_of(sel_slot, sel_beat), word_of(wr_slot, wr_cnt_q[wr_slot])}),
-        .wdata_i ({word_t'('0), wr_word}),
-        .be_i    ('1),
-        .rdata_o (sram_rdata)
+        .wr_valid_i (wr_req),
+        .wr_addr_i  (word_of(wr_slot, wr_cnt_q[wr_slot])),
+        .wr_data_i  (wr_word),
+        .rd_valid_i (issue && !info_q[sel_slot].ack),
+        .rd_addr_i  (word_of(sel_slot, sel_beat)),
+        .rd_data_o  (rd_word)
     );
-
-    assign rd_word = sram_rdata[1];
 
     always_comb begin : rd_beat_comb
         automatic r_info_t meta = info_q[rd_slot_q];

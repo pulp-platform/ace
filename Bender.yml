@@ -36,6 +36,7 @@ sources:
   - src/rtl/ccu/generated/ccu_csr.sv
   - src/rtl/ccu/ccu_csr_wrap.sv
   # CCU source files
+  - src/rtl/ccu/ccu_buffer_mem.sv
   - src/rtl/ccu/ccu_pulse_cut.sv
   - src/rtl/ccu/ccu_r_buffer.sv
   - src/rtl/ccu/ccu_port_read.sv

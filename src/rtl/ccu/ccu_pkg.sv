@@ -52,6 +52,8 @@ package ccu_pkg;
         int unsigned    numWritebackSlots;
         //  Tids reserved for back-invalidations, shared by the filter tables; at least one
         int unsigned    numBackInvalSlots;
+        //  R buffer and write-lane data in flops; a 2-port tc_sram otherwise
+        bit             flopBuffers;
         //  Register cuts, one bit per channel; see the Cut* indices
         logic [9:0]     cutSubordinate;
         logic [4:0]     cutManager;
